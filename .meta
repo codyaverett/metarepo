@@ -1,0 +1,11 @@
+{
+  "ignore": [
+    ".git",
+    ".vscode",
+    "node_modules",
+    "target",
+    ".DS_Store"
+  ],
+  "projects": {},
+  "plugins": null
+}
