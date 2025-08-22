@@ -11,4 +11,4 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 git2 = { workspace = true }
 tokio = { workspace = true }
-meta = { path = "../../meta" }
+meta-core = { path = "../../meta-core" }

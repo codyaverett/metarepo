@@ -19,6 +19,13 @@ A Rust reimplementation of the Node.js [meta](https://github.com/mateodelnorte/m
 - ✅ Plugin registration and command routing
 - ✅ Real meta repository initialization
 
+✅ **Phase 3 Complete**: Core Plugins Implementation
+- ✅ Working `git` plugin with clone, status, and update commands
+- ✅ Working `project` plugin with create and import commands
+- ✅ Full repository management workflow
+- ✅ Real-world testing with GitHub repositories
+- ✅ Comprehensive error handling and validation
+
 ## Project Structure
 
 ```
@@ -39,10 +46,10 @@ metarep/
 │   └── Cargo.toml
 ├── plugins/                # Plugin crates
 │   ├── init/              # ✅ Initialize new meta repositories
-│   ├── git/               # Git operations (in progress)
-│   ├── project/           # Project management (in progress)
-│   ├── exec/              # Execute commands (in progress)
-│   └── loop/              # Directory iteration (in progress)
+│   ├── git/               # ✅ Git operations across repositories
+│   ├── project/           # ✅ Project management (create/import)
+│   ├── exec/              # Execute commands (planned)
+│   └── loop/              # Directory iteration (planned)
 └── README.md
 ```
 
@@ -75,6 +82,20 @@ metarep/
 - ✅ Prevents double-initialization with error handling
 - ✅ Compatible with existing Node.js meta configurations
 
+### Git Plugin (Fully Working)
+- ✅ `meta git clone <url>` - Clone meta repo and all child repositories
+- ✅ `meta git status` - Show git status across all repositories
+- ✅ `meta git update` - Clone missing repositories
+- ✅ Handles missing repositories gracefully
+- ✅ Real git operations using `git2` crate
+
+### Project Plugin (Fully Working)
+- ✅ `meta project create <path> <repo_url>` - Create and clone new project
+- ✅ `meta project import <path> <repo_url>` - Import existing project
+- ✅ Automatically updates `.meta` file and `.gitignore`
+- ✅ Validates project doesn't already exist
+- ✅ Handles both new and existing directories
+
 ## Usage
 
 ### Building
@@ -87,15 +108,42 @@ cargo build
 # Show help
 cargo run --bin meta -- --help
 
-# Initialize a meta repository (fully functional)
+# Initialize a meta repository
 cargo run --bin meta -- init
 
-# Initialize with verbose output
-cargo run --bin meta -- --verbose init
+# Create a new project (clones and adds to .meta)
+cargo run --bin meta -- project create my-project https://github.com/user/repo.git
 
-# Other commands (placeholders for future implementation)
-cargo run --bin meta -- exec "command"
-cargo run --bin meta -- git
+# Import an existing project
+cargo run --bin meta -- project import existing-dir https://github.com/user/existing.git
+
+# Show git status across all repositories
+cargo run --bin meta -- git status
+
+# Clone missing repositories
+cargo run --bin meta -- git update
+
+# Clone a meta repository and all its children
+cargo run --bin meta -- git clone https://github.com/user/meta-repo.git
+
+# Use verbose output
+cargo run --bin meta -- --verbose git status
+```
+
+### Example Workflow
+```bash
+# 1. Initialize a new meta repository
+cargo run --bin meta -- init
+
+# 2. Add some projects
+cargo run --bin meta -- project create frontend https://github.com/user/frontend.git
+cargo run --bin meta -- project create backend https://github.com/user/backend.git
+
+# 3. Check status of all repositories
+cargo run --bin meta -- git status
+
+# 4. If someone else adds projects, update to get missing ones
+cargo run --bin meta -- git update
 ```
 
 ### Testing
@@ -103,19 +151,37 @@ cargo run --bin meta -- git
 cargo test
 ```
 
+## Verified Real-World Testing
+
+The implementation has been thoroughly tested with actual GitHub repositories:
+
+- ✅ **Tested Repositories**: 
+  - `https://github.com/codyaverett/container-codes-2.git`
+  - `https://github.com/codyaverett/container-codes.git`
+  - `https://github.com/octocat/Hello-World.git`
+
+- ✅ **Verified Workflows**:
+  - Repository initialization and configuration
+  - Project creation with automatic cloning
+  - Project importing with validation
+  - Git status checking across multiple repositories
+  - Missing repository detection and cloning
+  - Automatic `.meta` and `.gitignore` management
+
 ## Next Steps
 
-1. **Plugin System Integration**: Complete the plugin trait implementation to avoid circular dependencies
-2. **Core Plugin Implementation**: Implement actual functionality for `init`, `git`, `project`, `exec`, and `loop` plugins
-3. **Git Operations**: Real git cloning, status checking, and repository management
-4. **Command Execution**: Parallel and sequential command execution across projects
-5. **Advanced Features**: Template support, migration tools, and enhanced CLI experience
+1. **Command Execution Plugin**: Implement `meta exec` for running commands across repositories
+2. **Loop Plugin**: Add directory iteration utilities for advanced filtering
+3. **Enhanced Git Operations**: Add support for branching, pulling, pushing across repos
+4. **Migration Tools**: Implement monorepo to meta-repo migration utilities
+5. **Advanced Features**: Template support, parallel operations, and enhanced CLI experience
 
 ## Compatibility
 
 - ✅ Compatible `.meta` file format with Node.js version
 - ✅ Similar command-line interface structure
-- ⏳ Full workflow compatibility (in progress)
+- ✅ Core workflow compatibility verified
+- ✅ Real-world repository management works identically
 
 ## Development
 

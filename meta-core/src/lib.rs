@@ -24,6 +24,16 @@ pub struct RuntimeConfig {
     pub meta_file_path: Option<PathBuf>,
 }
 
+impl RuntimeConfig {
+    pub fn has_meta_file(&self) -> bool {
+        self.meta_file_path.is_some()
+    }
+    
+    pub fn meta_root(&self) -> Option<PathBuf> {
+        self.meta_file_path.as_ref().and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    }
+}
+
 /// The .meta file configuration format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetaConfig {

@@ -23,9 +23,9 @@ impl PluginRegistry {
     pub fn register_all_workspace_plugins(&mut self) {
         // Register built-in workspace plugins
         self.register(Box::new(meta_init::InitPlugin::new()));
-        // TODO: Enable more plugins as they're fixed
-        // self.register(Box::new(meta_git::GitPlugin::new()));
-        // self.register(Box::new(meta_project::ProjectPlugin::new()));
+        self.register(Box::new(meta_git::GitPlugin::new()));
+        self.register(Box::new(meta_project::ProjectPlugin::new()));
+        // TODO: Enable more plugins as they're implemented
         // self.register(Box::new(meta_exec::ExecPlugin::new()));
         // self.register(Box::new(meta_loop::LoopPlugin::new()));
     }

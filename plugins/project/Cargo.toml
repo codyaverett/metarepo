@@ -10,4 +10,4 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 git2 = { workspace = true }
-meta = { path = "../../meta" }
+meta-core = { path = "../../meta-core" }

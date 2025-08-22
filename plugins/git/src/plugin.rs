@@ -1,5 +1,7 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
+use meta_core::{MetaPlugin, RuntimeConfig};
+use crate::{clone_repository, get_git_status, clone_missing_repos};
 
 pub struct GitPlugin;
 
@@ -8,16 +10,6 @@ impl GitPlugin {
         Self
     }
 }
-
-// Temporarily implement a simple trait for compilation
-pub trait MetaPlugin: Send + Sync {
-    fn name(&self) -> &str;
-    fn register_commands(&self, app: Command) -> Command;
-    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>;
-}
-
-// Placeholder for RuntimeConfig
-pub struct RuntimeConfig;
 
 impl MetaPlugin for GitPlugin {
     fn name(&self) -> &str {
@@ -49,26 +41,68 @@ impl MetaPlugin for GitPlugin {
         )
     }
     
-    fn handle_command(&self, matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
+    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         match matches.subcommand() {
             Some(("clone", sub_matches)) => {
                 let url = sub_matches.get_one::<String>("url").unwrap();
-                println!("Would clone meta repository from: {}", url);
-                // TODO: Implement actual clone functionality
+                println!("Cloning meta repository from: {}", url);
+                
+                // Extract repo name from URL for directory name
+                let repo_name = url.split('/').last()
+                    .unwrap_or("meta-repo")
+                    .trim_end_matches(".git");
+                
+                let target_path = config.working_dir.join(repo_name);
+                clone_repository(url, &target_path)?;
+                
+                // After cloning, look for .meta file and clone child repos
+                let meta_file = target_path.join(".meta");
+                if meta_file.exists() {
+                    std::env::set_current_dir(&target_path)?;
+                    clone_missing_repos()?;
+                }
+                
                 Ok(())
             }
             Some(("status", _)) => {
-                println!("Would show git status across all repositories");
-                // TODO: Implement actual status functionality
+                println!("Git status across all repositories:");
+                println!("================================");
+                
+                // Show status for main repo
+                println!("\nMain repository:");
+                match get_git_status(&config.working_dir) {
+                    Ok(status) => println!("{}", status),
+                    Err(e) => println!("Error: {}", e),
+                }
+                
+                // Show status for each project
+                for (project_path, _repo_url) in &config.meta_config.projects {
+                    let full_path = if config.meta_root().is_some() {
+                        config.meta_root().unwrap().join(project_path)
+                    } else {
+                        config.working_dir.join(project_path)
+                    };
+                    
+                    if full_path.exists() {
+                        println!("\n{}:", project_path);
+                        match get_git_status(&full_path) {
+                            Ok(status) => println!("{}", status),
+                            Err(e) => println!("Error: {}", e),
+                        }
+                    } else {
+                        println!("\n{}: (not cloned)", project_path);
+                    }
+                }
+                
                 Ok(())
             }
             Some(("update", _)) => {
-                println!("Would clone missing repositories");
-                // TODO: Implement actual update functionality
+                println!("Cloning missing repositories...");
+                clone_missing_repos()?;
                 Ok(())
             }
             _ => {
-                println!("Unknown git subcommand");
+                println!("Unknown git subcommand. Use --help to see available commands.");
                 Ok(())
             }
         }

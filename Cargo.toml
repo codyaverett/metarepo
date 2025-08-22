@@ -3,8 +3,8 @@ members = [
     "meta-core",
     "meta",
     "plugins/init",
-    # "plugins/git", 
-    # "plugins/project",
+    "plugins/git", 
+    "plugins/project",
     # "plugins/exec",
     # "plugins/loop",
 ]
