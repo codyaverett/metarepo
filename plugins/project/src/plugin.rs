@@ -1,5 +1,7 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
+use meta_core::{MetaPlugin, RuntimeConfig};
+use crate::{create_project, import_project};
 
 pub struct ProjectPlugin;
 
@@ -8,16 +10,6 @@ impl ProjectPlugin {
         Self
     }
 }
-
-// Temporarily implement a simple trait for compilation
-pub trait MetaPlugin: Send + Sync {
-    fn name(&self) -> &str;
-    fn register_commands(&self, app: Command) -> Command;
-    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>;
-}
-
-// Placeholder for RuntimeConfig
-pub struct RuntimeConfig;
 
 impl MetaPlugin for ProjectPlugin {
     fn name(&self) -> &str {
@@ -63,21 +55,38 @@ impl MetaPlugin for ProjectPlugin {
         )
     }
     
-    fn handle_command(&self, matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
+    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         match matches.subcommand() {
             Some(("create", sub_matches)) => {
                 let path = sub_matches.get_one::<String>("path").unwrap();
                 let repo_url = sub_matches.get_one::<String>("repo-url").unwrap();
-                println!("Would create project '{}' from {}", path, repo_url);
+                
+                let base_path = if config.meta_root().is_some() {
+                    config.meta_root().unwrap()
+                } else {
+                    config.working_dir.clone()
+                };
+                
+                create_project(path, repo_url, &base_path)?;
                 Ok(())
             }
             Some(("import", sub_matches)) => {
                 let path = sub_matches.get_one::<String>("path").unwrap();
                 let repo_url = sub_matches.get_one::<String>("repo-url").unwrap();
-                println!("Would import project '{}' from {}", path, repo_url);
+                
+                let base_path = if config.meta_root().is_some() {
+                    config.meta_root().unwrap()
+                } else {
+                    config.working_dir.clone()
+                };
+                
+                import_project(path, repo_url, &base_path)?;
                 Ok(())
             }
-            _ => Ok(())
+            _ => {
+                println!("Unknown project subcommand. Use --help to see available commands.");
+                Ok(())
+            }
         }
     }
 }

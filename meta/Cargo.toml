@@ -19,8 +19,8 @@ meta-core = { path = "../meta-core" }
 
 # Plugin dependencies
 meta-init = { path = "../plugins/init" }
-# meta-git = { path = "../plugins/git" }
-# meta-project = { path = "../plugins/project" }
+meta-git = { path = "../plugins/git" }
+meta-project = { path = "../plugins/project" }
 # meta-exec = { path = "../plugins/exec" }
 # meta-loop = { path = "../plugins/loop" }
 
