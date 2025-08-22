@@ -1,0 +1,28 @@
+[package]
+name = "meta"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "meta"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+meta-core = { path = "../meta-core" }
+
+# Plugin dependencies
+meta-init = { path = "../plugins/init" }
+# meta-git = { path = "../plugins/git" }
+# meta-project = { path = "../plugins/project" }
+# meta-exec = { path = "../plugins/exec" }
+# meta-loop = { path = "../plugins/loop" }
+
+[dev-dependencies]
+tempfile = "3.0"
