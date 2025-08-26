@@ -5,7 +5,7 @@ members = [
     "plugins/init",
     "plugins/git", 
     "plugins/project",
-    # "plugins/exec",
+    "plugins/exec",
     # "plugins/loop",
 ]
 resolver = "2"
