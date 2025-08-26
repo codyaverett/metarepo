@@ -9,6 +9,33 @@ impl GitPlugin {
     pub fn new() -> Self {
         Self
     }
+    
+    fn show_help(&self) -> Result<()> {
+        let mut app = Command::new("meta git")
+            .about("Git operations across multiple repositories")
+            .subcommand(
+                Command::new("clone")
+                    .about("Clone meta repository and all child repositories")
+                    .arg(
+                        Arg::new("url")
+                            .value_name("REPO_URL")
+                            .help("Repository URL to clone")
+                            .required(true)
+                    )
+            )
+            .subcommand(
+                Command::new("status")
+                    .about("Show git status across all repositories")
+            )
+            .subcommand(
+                Command::new("update")
+                    .about("Clone missing repositories")
+            );
+        
+        app.print_help()?;
+        println!();
+        Ok(())
+    }
 }
 
 impl MetaPlugin for GitPlugin {
@@ -20,6 +47,7 @@ impl MetaPlugin for GitPlugin {
         app.subcommand(
             Command::new("git")
                 .about("Git operations across multiple repositories")
+                .allow_external_subcommands(true) // This allows unknown subcommands to pass through
                 .subcommand(
                     Command::new("clone")
                         .about("Clone meta repository and all child repositories")
@@ -42,6 +70,11 @@ impl MetaPlugin for GitPlugin {
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+        // If no subcommand is provided, show help
+        if matches.subcommand().is_none() {
+            return self.show_help();
+        }
+        
         match matches.subcommand() {
             Some(("clone", sub_matches)) => {
                 let url = sub_matches.get_one::<String>("url").unwrap();
@@ -101,9 +134,15 @@ impl MetaPlugin for GitPlugin {
                 clone_missing_repos()?;
                 Ok(())
             }
-            _ => {
-                println!("Unknown git subcommand. Use --help to see available commands.");
-                Ok(())
+            Some((external_cmd, _args)) => {
+                // Handle unknown/external subcommands by showing help
+                println!("Unknown git subcommand: '{}'", external_cmd);
+                println!();
+                self.show_help()
+            }
+            None => {
+                // This case is already handled above, but keeping for completeness
+                self.show_help()
             }
         }
     }

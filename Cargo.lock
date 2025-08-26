@@ -498,6 +498,7 @@ dependencies = [
  "meta-git",
  "meta-init",
  "meta-project",
+ "meta_exec",
  "serde",
  "serde_json",
  "tempfile",
@@ -554,6 +555,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "meta_exec"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "meta-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

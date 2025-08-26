@@ -1,13 +1,11 @@
 [package]
-name = "meta-exec"
+name = "meta_exec"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-anyhow = { workspace = true }
-thiserror = { workspace = true }
-tokio = { workspace = true }
-meta = { path = "../../meta" }
+anyhow = "1.0"
+clap = "4.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+meta-core = { path = "../../meta-core" }
