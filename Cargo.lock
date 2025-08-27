@@ -220,6 +220,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "gestalt-plugin-mcp",
  "gestalt_exec",
  "meta-core",
  "meta-git",
@@ -231,6 +232,19 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "gestalt-plugin-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "meta-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

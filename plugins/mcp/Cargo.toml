@@ -1,0 +1,17 @@
+[package]
+name = "gestalt-plugin-mcp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+meta-core = { path = "../../meta-core" }
+anyhow = "1.0"
+clap = "4.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full", "process"] }
+tracing = "0.1"
+
+[lib]
+name = "gestalt_plugin_mcp"
+path = "src/lib.rs"

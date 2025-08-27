@@ -26,6 +26,7 @@ impl PluginRegistry {
         self.register(Box::new(meta_git::GitPlugin::new()));
         self.register(Box::new(meta_project::ProjectPlugin::new()));
         self.register(Box::new(gestalt_exec::ExecPlugin::new()));
+        self.register(Box::new(gestalt_plugin_mcp::McpPlugin::new()));
         // TODO: Enable more plugins as they're implemented
         // self.register(Box::new(meta_loop::LoopPlugin::new()));
     }
