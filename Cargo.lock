@@ -215,6 +215,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "gestalt"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "gestalt_exec",
+ "meta-core",
+ "meta-git",
+ "meta-init",
+ "meta-project",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "gestalt_exec"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "meta-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -489,25 +519,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 
 [[package]]
-name = "meta"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "meta-core",
- "meta-git",
- "meta-init",
- "meta-project",
- "meta_exec",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "meta-core"
 version = "0.1.0"
 dependencies = [
@@ -555,17 +566,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
-]
-
-[[package]]
-name = "meta_exec"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "meta-core",
- "serde",
- "serde_json",
 ]
 
 [[package]]

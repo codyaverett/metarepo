@@ -4,11 +4,11 @@ pub mod cli;
 
 pub use plugin::PluginRegistry;
 pub use config::create_runtime_config;
-pub use cli::MetaCli;
+pub use cli::GestaltCli;
 pub use meta_core::{MetaPlugin, MetaConfig, RuntimeConfig};
 
 #[derive(Debug, thiserror::Error)]
-pub enum MetaError {
+pub enum GestaltError {
     #[error("Configuration error: {0}")]
     Config(String),
     
@@ -65,8 +65,8 @@ mod tests {
     
     #[test]
     fn test_cli_creation() {
-        let cli = MetaCli::new();
+        let cli = GestaltCli::new();
         let app = cli.build_app();
-        assert_eq!(app.get_name(), "meta");
+        assert_eq!(app.get_name(), "gest");
     }
 }

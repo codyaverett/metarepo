@@ -1,10 +1,10 @@
 [package]
-name = "meta"
+name = "gestalt"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "meta"
+name = "gest"
 path = "src/main.rs"
 
 [dependencies]
@@ -21,7 +21,7 @@ meta-core = { path = "../meta-core" }
 meta-init = { path = "../plugins/init" }
 meta-git = { path = "../plugins/git" }
 meta-project = { path = "../plugins/project" }
-meta_exec = { path = "../plugins/exec" }
+gestalt_exec = { path = "../plugins/exec" }
 # meta-loop = { path = "../plugins/loop" }
 
 [dev-dependencies]

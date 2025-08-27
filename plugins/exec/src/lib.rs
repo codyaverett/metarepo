@@ -53,7 +53,7 @@ pub fn execute_command_in_directory<P: AsRef<Path>>(
 
 pub fn execute_in_all_projects(command: &str, args: &[&str]) -> Result<()> {
     let meta_file = MetaConfig::find_meta_file()
-        .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
+        .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'gest init' first."))?;
     
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
@@ -88,7 +88,7 @@ pub fn execute_in_all_projects(command: &str, args: &[&str]) -> Result<()> {
 
 pub fn execute_in_specific_projects(command: &str, args: &[&str], projects: &[&str]) -> Result<()> {
     let meta_file = MetaConfig::find_meta_file()
-        .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
+        .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'gest init' first."))?;
     
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
