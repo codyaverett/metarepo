@@ -3,6 +3,7 @@ use clap::{Arg, ArgMatches, Command};
 use meta_core::{MetaPlugin, RuntimeConfig};
 use crate::server::{McpServerManager, McpServerConfig};
 use crate::client::McpClient;
+use crate::mcp_server::{GestaltMcpServer, print_vscode_config};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::collections::HashMap;
@@ -80,6 +81,14 @@ impl McpPlugin {
                     .arg(Arg::new("server-args").num_args(0..).help("Arguments for the server"))
                     .arg(Arg::new("tool").required(true).help("Tool name to call"))
                     .arg(Arg::new("tool-args").long("args").help("Tool arguments as JSON"))
+            )
+            .subcommand(
+                Command::new("serve")
+                    .about("Run Gestalt as an MCP server exposing CLI tools")
+            )
+            .subcommand(
+                Command::new("config")
+                    .about("Print MCP configuration for VS Code or Claude Desktop")
             )
             .subcommand(
                 Command::new("add")
@@ -306,6 +315,17 @@ impl McpPlugin {
         Ok(())
     }
 
+    fn handle_serve(&self) -> Result<()> {
+        let mut server = GestaltMcpServer::new();
+        server.run()?;
+        Ok(())
+    }
+
+    fn handle_config(&self) -> Result<()> {
+        print_vscode_config();
+        Ok(())
+    }
+
     async fn handle_add(&self, matches: &ArgMatches) -> Result<()> {
         let name = matches.get_one::<String>("name").unwrap();
         let command = matches.get_one::<String>("command").unwrap();
@@ -412,6 +432,14 @@ impl MetaPlugin for McpPlugin {
                         .arg(Arg::new("tool-args").long("args").help("Tool arguments as JSON"))
                 )
                 .subcommand(
+                    Command::new("serve")
+                        .about("Run Gestalt as an MCP server exposing CLI tools")
+                )
+                .subcommand(
+                    Command::new("config")
+                        .about("Print MCP configuration for VS Code or Claude Desktop")
+                )
+                .subcommand(
                     Command::new("add")
                         .about("Add a new MCP server configuration")
                         .arg(Arg::new("name").required(true).help("Server name"))
@@ -447,6 +475,8 @@ impl MetaPlugin for McpPlugin {
                 Some(("list-resources", sub_matches)) => self.handle_list_resources(sub_matches).await,
                 Some(("list-tools", sub_matches)) => self.handle_list_tools(sub_matches).await,
                 Some(("call-tool", sub_matches)) => self.handle_call_tool(sub_matches).await,
+                Some(("serve", _)) => return self.handle_serve(),
+                Some(("config", _)) => return self.handle_config(),
                 _ => self.show_help(),
             }
         })
