@@ -11,7 +11,7 @@ impl ExecPlugin {
     }
     
     fn show_help(&self) -> Result<()> {
-        let mut app = Command::new("meta exec")
+        let mut app = Command::new("gest exec")
             .about("Execute commands across multiple repositories")
             .arg(
                 Arg::new("command")

@@ -1,12 +1,12 @@
-# Meta - Rust Implementation
+# Gestalt - Multi-Project Management Tool
 
-A Rust reimplementation of the Node.js [meta](https://github.com/mateodelnorte/meta) tool for managing multi-project systems and libraries.
+A Rust implementation inspired by the Node.js [meta](https://github.com/mateodelnorte/meta) tool for managing multi-project systems and libraries.
 
 ## Current Status
 
 ✅ **Phase 1 Complete**: Core Infrastructure
 - ✅ Cargo workspace structure setup
-- ✅ Core `meta` binary crate created
+- ✅ Core `gest` binary crate created
 - ✅ Basic CLI framework with `clap`
 - ✅ Plugin trait and registry system
 - ✅ `.meta` file parsing (JSON format)
@@ -29,14 +29,14 @@ A Rust reimplementation of the Node.js [meta](https://github.com/mateodelnorte/m
 ## Project Structure
 
 ```
-metarep/
+gestalt/
 ├── Cargo.toml              # Workspace configuration
 ├── docs/                   # Architecture and implementation docs
 │   ├── IMPLEMENTATION_PLAN.md
 │   └── ARCHITECTURE.md
-├── meta-core/              # Shared plugin interfaces
+├── gestalt-core/           # Shared plugin interfaces
 │   └── src/lib.rs          # Plugin traits and data types
-├── meta/                   # Core binary crate
+├── gest/                   # Core binary crate
 │   ├── src/
 │   │   ├── lib.rs          # Main library
 │   │   ├── config.rs       # Configuration handling
@@ -76,22 +76,22 @@ metarep/
 - ✅ Auto-discovery of `.meta` files in parent directories
 
 ### Init Plugin (Fully Working)
-- ✅ `meta init` command to initialize repositories
+- ✅ `gest init` command to initialize repositories
 - ✅ Creates `.meta` file with proper JSON structure
 - ✅ Updates `.gitignore` with meta-specific patterns
 - ✅ Prevents double-initialization with error handling
 - ✅ Compatible with existing Node.js meta configurations
 
 ### Git Plugin (Fully Working)
-- ✅ `meta git clone <url>` - Clone meta repo and all child repositories
-- ✅ `meta git status` - Show git status across all repositories
-- ✅ `meta git update` - Clone missing repositories
+- ✅ `gest git clone <url>` - Clone meta repo and all child repositories
+- ✅ `gest git status` - Show git status across all repositories
+- ✅ `gest git update` - Clone missing repositories
 - ✅ Handles missing repositories gracefully
 - ✅ Real git operations using `git2` crate
 
 ### Project Plugin (Fully Working)
-- ✅ `meta project create <path> <repo_url>` - Create and clone new project
-- ✅ `meta project import <path> <repo_url>` - Import existing project
+- ✅ `gest project create <path> <repo_url>` - Create and clone new project
+- ✅ `gest project import <path> <repo_url>` - Import existing project
 - ✅ Automatically updates `.meta` file and `.gitignore`
 - ✅ Validates project doesn't already exist
 - ✅ Handles both new and existing directories
@@ -106,44 +106,44 @@ cargo build
 ### Running
 ```bash
 # Show help
-cargo run --bin meta -- --help
+cargo run --bin gest -- --help
 
 # Initialize a meta repository
-cargo run --bin meta -- init
+cargo run --bin gest -- init
 
 # Create a new project (clones and adds to .meta)
-cargo run --bin meta -- project create my-project https://github.com/user/repo.git
+cargo run --bin gest -- project create my-project https://github.com/user/repo.git
 
 # Import an existing project
-cargo run --bin meta -- project import existing-dir https://github.com/user/existing.git
+cargo run --bin gest -- project import existing-dir https://github.com/user/existing.git
 
 # Show git status across all repositories
-cargo run --bin meta -- git status
+cargo run --bin gest -- git status
 
 # Clone missing repositories
-cargo run --bin meta -- git update
+cargo run --bin gest -- git update
 
 # Clone a meta repository and all its children
-cargo run --bin meta -- git clone https://github.com/user/meta-repo.git
+cargo run --bin gest -- git clone https://github.com/user/meta-repo.git
 
 # Use verbose output
-cargo run --bin meta -- --verbose git status
+cargo run --bin gest -- --verbose git status
 ```
 
 ### Example Workflow
 ```bash
 # 1. Initialize a new meta repository
-cargo run --bin meta -- init
+cargo run --bin gest -- init
 
 # 2. Add some projects
-cargo run --bin meta -- project create frontend https://github.com/user/frontend.git
-cargo run --bin meta -- project create backend https://github.com/user/backend.git
+cargo run --bin gest -- project create frontend https://github.com/user/frontend.git
+cargo run --bin gest -- project create backend https://github.com/user/backend.git
 
 # 3. Check status of all repositories
-cargo run --bin meta -- git status
+cargo run --bin gest -- git status
 
 # 4. If someone else adds projects, update to get missing ones
-cargo run --bin meta -- git update
+cargo run --bin gest -- git update
 ```
 
 ### Testing

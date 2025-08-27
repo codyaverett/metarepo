@@ -2,11 +2,11 @@ use crate::{PluginRegistry, create_runtime_config};
 use anyhow::Result;
 use clap::{Arg, Command};
 
-pub struct MetaCli {
+pub struct GestaltCli {
     registry: PluginRegistry,
 }
 
-impl MetaCli {
+impl GestaltCli {
     pub fn new() -> Self {
         let mut registry = PluginRegistry::new();
         registry.register_all_workspace_plugins();
@@ -15,10 +15,10 @@ impl MetaCli {
     }
     
     pub fn build_app(&self) -> Command {
-        let base_app = Command::new("meta")
+        let base_app = Command::new("gest")
             .version(env!("CARGO_PKG_VERSION"))
             .about("A tool for managing multi-project systems and libraries")
-            .author("Meta Contributors")
+            .author("Gestalt Contributors")
             .arg(
                 Arg::new("verbose")
                     .long("verbose")
@@ -75,7 +75,7 @@ impl MetaCli {
         use tracing_subscriber::{fmt, EnvFilter};
         
         let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("meta=info"));
+            .unwrap_or_else(|_| EnvFilter::new("gest=info"));
             
         fmt()
             .with_env_filter(filter)
@@ -85,7 +85,7 @@ impl MetaCli {
     }
 }
 
-impl Default for MetaCli {
+impl Default for GestaltCli {
     fn default() -> Self {
         Self::new()
     }
@@ -97,18 +97,18 @@ mod tests {
     
     #[test]
     fn test_cli_creation() {
-        let cli = MetaCli::new();
+        let cli = GestaltCli::new();
         let app = cli.build_app();
         
         // Verify basic app structure
-        assert_eq!(app.get_name(), "meta");
+        assert_eq!(app.get_name(), "gest");
         assert!(app.get_version().is_some());
     }
     
     #[test]
     fn test_help_command() {
-        let cli = MetaCli::new();
-        let result = cli.run(vec!["meta".to_string(), "--help".to_string()]);
+        let cli = GestaltCli::new();
+        let result = cli.run(vec!["gest".to_string(), "--help".to_string()]);
         
         // Help should succeed but not return an error
         match result {

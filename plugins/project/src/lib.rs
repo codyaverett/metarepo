@@ -13,7 +13,7 @@ pub fn create_project(project_path: &str, repo_url: &str, base_path: &Path) -> R
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
+        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
     }
     
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
@@ -51,7 +51,7 @@ pub fn import_project(project_path: &str, repo_url: &str, base_path: &Path) -> R
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
+        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
     }
     
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
