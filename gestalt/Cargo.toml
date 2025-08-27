@@ -22,6 +22,7 @@ meta-init = { path = "../plugins/init" }
 meta-git = { path = "../plugins/git" }
 meta-project = { path = "../plugins/project" }
 gestalt_exec = { path = "../plugins/exec" }
+gestalt-plugin-mcp = { path = "../plugins/mcp" }
 # meta-loop = { path = "../plugins/loop" }
 
 [dev-dependencies]
