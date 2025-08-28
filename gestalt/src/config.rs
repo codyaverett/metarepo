@@ -1,7 +1,7 @@
 use anyhow::Result;
 use meta_core::{MetaConfig, RuntimeConfig};
 
-pub fn create_runtime_config() -> Result<RuntimeConfig> {
+pub fn create_runtime_config(experimental: bool) -> Result<RuntimeConfig> {
     let working_dir = std::env::current_dir()?;
     let meta_file_path = MetaConfig::find_meta_file();
     
@@ -15,6 +15,7 @@ pub fn create_runtime_config() -> Result<RuntimeConfig> {
         meta_config,
         working_dir,
         meta_file_path,
+        experimental,
     })
 }
 

@@ -21,20 +21,35 @@ impl PluginRegistry {
     }
     
     pub fn register_all_workspace_plugins(&mut self) {
+        self.register_all_workspace_plugins_with_flags(false);
+    }
+    
+    pub fn register_all_workspace_plugins_with_flags(&mut self, experimental: bool) {
         // Register built-in workspace plugins
         self.register(Box::new(meta_init::InitPlugin::new()));
         self.register(Box::new(meta_git::GitPlugin::new()));
         self.register(Box::new(meta_project::ProjectPlugin::new()));
         self.register(Box::new(gestalt_exec::ExecPlugin::new()));
-        self.register(Box::new(gestalt_plugin_mcp::McpPlugin::new()));
+        
+        // Only register experimental plugins if flag is set
+        if experimental {
+            self.register(Box::new(gestalt_plugin_mcp::McpPlugin::new()));
+        }
+        
         // TODO: Enable more plugins as they're implemented
         // self.register(Box::new(meta_loop::LoopPlugin::new()));
     }
     
     pub fn build_cli(&self, base_app: Command) -> Command {
-        self.plugins.values().fold(base_app, |app, plugin| {
-            plugin.register_commands(app)
-        })
+        self.build_cli_with_flags(base_app, false)
+    }
+    
+    pub fn build_cli_with_flags(&self, base_app: Command, experimental: bool) -> Command {
+        self.plugins.values()
+            .filter(|plugin| experimental || !plugin.is_experimental())
+            .fold(base_app, |app, plugin| {
+                plugin.register_commands(app)
+            })
     }
     
     pub fn handle_command(&self, command_name: &str, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
