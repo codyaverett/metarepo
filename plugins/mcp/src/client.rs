@@ -35,8 +35,11 @@ pub struct JsonRpcError {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerInfo {
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub version: String,
+    #[serde(rename = "protocolVersion")]
     pub protocol_version: String,
     pub capabilities: ServerCapabilities,
 }
@@ -44,11 +47,11 @@ pub struct ServerInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerCapabilities {
     #[serde(default)]
-    pub resources: bool,
+    pub resources: serde_json::Value,  // Can be bool or object
     #[serde(default)]
-    pub tools: bool,
+    pub tools: serde_json::Value,      // Can be bool or object
     #[serde(default)]
-    pub prompts: bool,
+    pub prompts: serde_json::Value,    // Can be bool or object
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -63,6 +66,7 @@ pub struct Resource {
 pub struct Tool {
     pub name: String,
     pub description: Option<String>,
+    #[serde(rename = "inputSchema")]
     pub input_schema: Value,
 }
 
@@ -119,7 +123,7 @@ impl McpClient {
 
     async fn initialize(&mut self) -> Result<()> {
         let response = self.send_request("initialize", json!({
-            "protocolVersion": "0.1.0",
+            "protocolVersion": "2025-06-18",
             "capabilities": {
                 "roots": {
                     "listChanged": true
@@ -156,18 +160,58 @@ impl McpClient {
         self.stdin.write_all(b"\n").await?;
         self.stdin.flush().await?;
 
-        // Read response
-        let mut line = String::new();
-        self.stdout.read_line(&mut line).await?;
-        
-        let response: JsonRpcResponse = serde_json::from_str(&line)
-            .with_context(|| format!("Failed to parse response: {}", line))?;
-
-        if let Some(error) = response.error {
-            return Err(anyhow::anyhow!("RPC error: {} - {}", error.code, error.message));
+        // Keep reading until we get our response (handle server requests in between)
+        loop {
+            let mut line = String::new();
+            self.stdout.read_line(&mut line).await?;
+            
+            // eprintln!("DEBUG: Received from server while waiting for {} response: {}", method, line.trim());
+            
+            // Try to parse as a generic JSON value first
+            let json_value: Value = serde_json::from_str(&line)
+                .with_context(|| format!("Failed to parse JSON: {}", line))?;
+            
+            // Check if this is a request from the server (has method but no result/error)
+            if json_value.get("method").is_some() && 
+               json_value.get("result").is_none() && 
+               json_value.get("error").is_none() {
+                // This is a request from the server, handle it
+                // eprintln!("DEBUG: Received server request: {}", json_value.get("method").unwrap());
+                
+                // Handle roots/list request
+                if json_value.get("method") == Some(&json!("roots/list")) {
+                    let server_id = json_value.get("id").cloned().unwrap_or(json!(null));
+                    let roots_response = json!({
+                        "jsonrpc": "2.0",
+                        "id": server_id,
+                        "result": {
+                            "roots": []
+                        }
+                    });
+                    // eprintln!("DEBUG: Sending roots/list response: {}", serde_json::to_string(&roots_response)?);
+                    let response_str = serde_json::to_string(&roots_response)?;
+                    self.stdin.write_all(response_str.as_bytes()).await?;
+                    self.stdin.write_all(b"\n").await?;
+                    self.stdin.flush().await?;
+                    // eprintln!("DEBUG: Sent roots/list response");
+                }
+                
+                // Continue waiting for our actual response
+                continue;
+            }
+            
+            // This should be a response
+            let response: JsonRpcResponse = serde_json::from_value(json_value)
+                .with_context(|| format!("Failed to parse response: {}", line))?;
+            
+            // Check if this is the response to our request
+            if response.id == id {
+                return Ok(response);
+            }
+            
+            // If not our response, continue waiting
+            // eprintln!("DEBUG: Response ID {} doesn't match our request ID {}, continuing...", response.id, id);
         }
-
-        Ok(response)
     }
 
     async fn send_notification(&mut self, method: &str, params: Value) -> Result<()> {
@@ -189,11 +233,20 @@ impl McpClient {
         let response = self.send_request("resources/list", json!({})).await?;
         
         if let Some(result) = response.result {
-            let resources: Vec<Resource> = serde_json::from_value(
+            // Debug: Print the raw result
+            // eprintln!("DEBUG: Raw resources/list result: {}", serde_json::to_string_pretty(&result).unwrap_or_default());
+            
+            // The result might be an array directly, or wrapped in a "resources" field
+            let resources_value = if result.is_array() {
+                result
+            } else {
                 result.get("resources").unwrap_or(&json!([])).clone()
-            )?;
+            };
+            
+            let resources: Vec<Resource> = serde_json::from_value(resources_value)?;
             Ok(resources)
         } else {
+            // eprintln!("DEBUG: No result from resources/list");
             Ok(vec![])
         }
     }
@@ -208,14 +261,30 @@ impl McpClient {
     }
 
     pub async fn list_tools(&mut self) -> Result<Vec<Tool>> {
+        // eprintln!("DEBUG: Sending tools/list request");
         let response = self.send_request("tools/list", json!({})).await?;
         
+        // Check for error first
+        if let Some(error) = response.error {
+            // eprintln!("DEBUG: Error from tools/list: {:?}", error);
+            return Err(anyhow::anyhow!("MCP error: {}", error.message));
+        }
+        
         if let Some(result) = response.result {
-            let tools: Vec<Tool> = serde_json::from_value(
+            // Debug: Print the raw result
+            // eprintln!("DEBUG: Raw tools/list result: {}", serde_json::to_string_pretty(&result).unwrap_or_default());
+            
+            // The result might be an array directly, or wrapped in a "tools" field
+            let tools_value = if result.is_array() {
+                result
+            } else {
                 result.get("tools").unwrap_or(&json!([])).clone()
-            )?;
+            };
+            
+            let tools: Vec<Tool> = serde_json::from_value(tools_value)?;
             Ok(tools)
         } else {
+            // eprintln!("DEBUG: No result from tools/list");
             Ok(vec![])
         }
     }

@@ -2,9 +2,11 @@ use anyhow::{Result, Context};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
-use std::collections::HashMap;
 use std::process::Command;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JsonRpcRequest {
@@ -35,21 +37,23 @@ struct JsonRpcError {
 struct ServerInfo {
     name: String,
     version: String,
+    #[serde(rename = "protocolVersion")]
     protocol_version: String,
     capabilities: ServerCapabilities,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ServerCapabilities {
-    tools: bool,
-    resources: bool,
-    prompts: bool,
+    tools: Option<Value>,
+    resources: Option<Value>,
+    prompts: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Tool {
     name: String,
     description: String,
+    #[serde(rename = "inputSchema")]
     input_schema: Value,
 }
 
@@ -81,6 +85,20 @@ impl GestaltMcpServer {
 
     fn build_tools() -> Vec<Tool> {
         vec![
+            // Help tool
+            Tool {
+                name: "help".to_string(),
+                description: "Get help and list available commands".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "plugin": {
+                            "type": "string",
+                            "description": "Specific plugin to get help for (git, project, exec, mcp)"
+                        }
+                    }
+                }),
+            },
             // Git plugin tools
             Tool {
                 name: "git_status".to_string(),
@@ -210,8 +228,8 @@ impl GestaltMcpServer {
             
             // MCP plugin tools
             Tool {
-                name: "mcp_server_start".to_string(),
-                description: "Start an MCP server".to_string(),
+                name: "mcp_add_server".to_string(),
+                description: "Add an MCP server configuration".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "required": ["name", "command"],
@@ -235,8 +253,16 @@ impl GestaltMcpServer {
                 }),
             },
             Tool {
-                name: "mcp_server_stop".to_string(),
-                description: "Stop an MCP server".to_string(),
+                name: "mcp_list_servers".to_string(),
+                description: "List configured MCP servers".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+            Tool {
+                name: "mcp_remove_server".to_string(),
+                description: "Remove an MCP server configuration".to_string(),
                 input_schema: json!({
                     "type": "object",
                     "required": ["name"],
@@ -244,19 +270,6 @@ impl GestaltMcpServer {
                         "name": {
                             "type": "string",
                             "description": "Server name"
-                        }
-                    }
-                }),
-            },
-            Tool {
-                name: "mcp_server_status".to_string(),
-                description: "Get status of MCP servers".to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "Server name (all if not specified)"
                         }
                     }
                 }),
@@ -280,30 +293,39 @@ impl GestaltMcpServer {
             let request: JsonRpcRequest = serde_json::from_str(&line)
                 .with_context(|| format!("Failed to parse request: {}", line))?;
 
-            let response = self.handle_request(request);
-            let response_str = serde_json::to_string(&response)?;
-            
-            writeln!(stdout, "{}", response_str)?;
-            stdout.flush()?;
+            // Only send response if the request has an ID (not a notification)
+            if request.id.is_some() {
+                let response = self.handle_request(request);
+                let response_str = serde_json::to_string(&response)?;
+                
+                writeln!(stdout, "{}", response_str)?;
+                stdout.flush()?;
+            } else {
+                // It's a notification, just handle it without responding
+                self.handle_request(request);
+            }
         }
 
+        eprintln!("Gestalt MCP Server shutting down (stdin closed)");
         Ok(())
     }
 
     fn handle_request(&mut self, request: JsonRpcRequest) -> JsonRpcResponse {
         let id = request.id.clone().unwrap_or(json!(null));
         
+        // Handle notifications (no response needed for notifications without id)
+        if request.id.is_none() && request.method == "notifications/initialized" {
+            // Return a dummy response that won't be sent
+            return JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: json!(null),
+                result: Some(json!({})),
+                error: None,
+            };
+        }
+        
         match request.method.as_str() {
             "initialize" => self.handle_initialize(id, request.params),
-            "notifications/initialized" => {
-                // Just acknowledge
-                JsonRpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: Some(json!({})),
-                    error: None,
-                }
-            }
             "tools/list" => self.handle_tools_list(id),
             "tools/call" => self.handle_tool_call(id, request.params),
             "resources/list" => self.handle_resources_list(id),
@@ -325,11 +347,11 @@ impl GestaltMcpServer {
         let server_info = ServerInfo {
             name: "gestalt-mcp-server".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-            protocol_version: "0.1.0".to_string(),
+            protocol_version: "2025-06-18".to_string(),
             capabilities: ServerCapabilities {
-                tools: true,
-                resources: false,
-                prompts: false,
+                tools: Some(json!({})),
+                resources: None,
+                prompts: None,
             },
         };
 
@@ -428,6 +450,13 @@ impl GestaltMcpServer {
         let mut cmd = Command::new(&self.gestalt_path);
         
         match name {
+            "help" => {
+                if let Some(plugin) = arguments.get("plugin").and_then(|v| v.as_str()) {
+                    cmd.args(&[plugin, "--help"]);
+                } else {
+                    cmd.arg("--help");
+                }
+            }
             "git_status" => {
                 cmd.args(&["git", "status"]);
                 if arguments.get("verbose").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -488,8 +517,8 @@ impl GestaltMcpServer {
                     }
                 }
             }
-            "mcp_server_start" => {
-                cmd.args(&["mcp", "start"]);
+            "mcp_add_server" => {
+                cmd.args(&["mcp", "add"]);
                 if let Some(name) = arguments.get("name").and_then(|v| v.as_str()) {
                     cmd.arg(name);
                 }
@@ -504,14 +533,11 @@ impl GestaltMcpServer {
                     }
                 }
             }
-            "mcp_server_stop" => {
-                cmd.args(&["mcp", "stop"]);
-                if let Some(name) = arguments.get("name").and_then(|v| v.as_str()) {
-                    cmd.arg(name);
-                }
+            "mcp_list_servers" => {
+                cmd.args(&["mcp", "list"]);
             }
-            "mcp_server_status" => {
-                cmd.args(&["mcp", "status"]);
+            "mcp_remove_server" => {
+                cmd.args(&["mcp", "remove"]);
                 if let Some(name) = arguments.get("name").and_then(|v| v.as_str()) {
                     cmd.arg(name);
                 }
@@ -538,22 +564,42 @@ impl GestaltMcpServer {
 }
 
 pub fn print_vscode_config() {
-    let config = json!({
+    let gest_path = std::env::current_exe()
+        .unwrap_or_else(|_| PathBuf::from("gest"))
+        .to_string_lossy()
+        .to_string();
+    
+    let claude_config = json!({
         "mcpServers": {
             "gestalt": {
-                "command": "gest",
+                "command": gest_path,
                 "args": ["mcp", "serve"],
-                "name": "Gestalt Multi-Project Manager",
-                "description": "MCP server exposing Gestalt CLI tools for git, project, and execution management"
+                "env": {}
             }
         }
     });
 
-    println!("VS Code MCP Configuration:");
-    println!("Add this to your VS Code settings.json or Claude Desktop config:");
+    println!("=== Claude Desktop Configuration ===");
     println!();
-    println!("{}", serde_json::to_string_pretty(&config).unwrap());
+    println!("Add this to your Claude Desktop config file:");
+    println!("  macOS: ~/Library/Application Support/Claude/claude_desktop_config.json");
+    println!("  Windows: %APPDATA%\\Claude\\claude_desktop_config.json");
     println!();
-    println!("Or run directly:");
+    println!("{}", serde_json::to_string_pretty(&claude_config).unwrap());
+    println!();
+    println!("=== Available Tools ===");
+    println!();
+    println!("The Gestalt MCP server exposes 13 tools:");
+    println!("  • help - Get help and list available commands");
+    println!("  • git_status, git_diff, git_commit, git_pull, git_push");
+    println!("  • project_list, project_add, project_remove");
+    println!("  • exec - Execute commands across projects");
+    println!("  • mcp_add_server, mcp_list_servers, mcp_remove_server");
+    println!();
+    println!("=== Testing ===");
+    println!();
+    println!("Test the server directly:");
     println!("  gest mcp serve");
+    println!();
+    println!("Then send JSON-RPC commands via stdin");
 }

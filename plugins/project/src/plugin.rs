@@ -15,33 +15,46 @@ impl ProjectPlugin {
             .about("Project management operations")
             .subcommand(
                 Command::new("create")
-                    .about("Create a new project")
+                    .about("Clone a new project into the workspace (directory must not exist)")
+                    .long_about("Clone a new project into the workspace.\n\n\
+                                 This command will:\n\
+                                 • Clone the repository into a new directory\n\
+                                 • Add the project to the .meta file\n\
+                                 • Update .gitignore to exclude the project\n\n\
+                                 Fails if the directory already exists.")
                     .arg(
                         Arg::new("path")
                             .value_name("PATH")
-                            .help("Project path/name")
+                            .help("Local directory name for the project (must not exist)")
                             .required(true)
                     )
                     .arg(
                         Arg::new("repo-url")
                             .value_name("REPO_URL")
-                            .help("Repository URL")
+                            .help("Git repository URL to clone from")
                             .required(true)
                     )
             )
             .subcommand(
                 Command::new("import")
-                    .about("Import existing project")
+                    .about("Add an existing repository to the workspace (or clone if missing)")
+                    .long_about("Import a project into the workspace.\n\n\
+                                 This command will:\n\
+                                 • Use existing git repository if directory exists\n\
+                                 • Clone the repository if directory doesn't exist\n\
+                                 • Add the project to the .meta file\n\
+                                 • Update .gitignore to exclude the project\n\n\
+                                 Fails only if directory exists but isn't a git repository.")
                     .arg(
                         Arg::new("path")
                             .value_name("PATH")
-                            .help("Project path/name")
+                            .help("Local directory name for the project (may already exist)")
                             .required(true)
                     )
                     .arg(
                         Arg::new("repo-url")
                             .value_name("REPO_URL")
-                            .help("Repository URL")
+                            .help("Git repository URL (for reference or cloning)")
                             .required(true)
                     )
             );
@@ -64,33 +77,46 @@ impl MetaPlugin for ProjectPlugin {
                 .allow_external_subcommands(true) // This allows unknown subcommands to pass through
                 .subcommand(
                     Command::new("create")
-                        .about("Create a new project")
+                        .about("Clone a new project into the workspace (directory must not exist)")
+                        .long_about("Clone a new project into the workspace.\n\n\
+                                     This command will:\n\
+                                     • Clone the repository into a new directory\n\
+                                     • Add the project to the .meta file\n\
+                                     • Update .gitignore to exclude the project\n\n\
+                                     Fails if the directory already exists.")
                         .arg(
                             Arg::new("path")
                                 .value_name("PATH")
-                                .help("Project path/name")
+                                .help("Local directory name for the project (must not exist)")
                                 .required(true)
                         )
                         .arg(
                             Arg::new("repo-url")
                                 .value_name("REPO_URL")
-                                .help("Repository URL")
+                                .help("Git repository URL to clone from")
                                 .required(true)
                         )
                 )
                 .subcommand(
                     Command::new("import")
-                        .about("Import existing project")
+                        .about("Add an existing repository to the workspace (or clone if missing)")
+                        .long_about("Import a project into the workspace.\n\n\
+                                     This command will:\n\
+                                     • Use existing git repository if directory exists\n\
+                                     • Clone the repository if directory doesn't exist\n\
+                                     • Add the project to the .meta file\n\
+                                     • Update .gitignore to exclude the project\n\n\
+                                     Fails only if directory exists but isn't a git repository.")
                         .arg(
                             Arg::new("path")
                                 .value_name("PATH")
-                                .help("Project path/name")
+                                .help("Local directory name for the project (may already exist)")
                                 .required(true)
                         )
                         .arg(
                             Arg::new("repo-url")
                                 .value_name("REPO_URL")
-                                .help("Repository URL")
+                                .help("Git repository URL (for reference or cloning)")
                                 .required(true)
                         )
                 )
