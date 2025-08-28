@@ -14,6 +14,11 @@ pub trait MetaPlugin: Send + Sync {
     
     /// Handle a command for this plugin
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>;
+    
+    /// Returns true if this plugin is experimental (default: false)
+    fn is_experimental(&self) -> bool {
+        false
+    }
 }
 
 /// Runtime configuration available to all plugins
@@ -22,6 +27,7 @@ pub struct RuntimeConfig {
     pub meta_config: MetaConfig,
     pub working_dir: PathBuf,
     pub meta_file_path: Option<PathBuf>,
+    pub experimental: bool,
 }
 
 impl RuntimeConfig {
@@ -31,6 +37,10 @@ impl RuntimeConfig {
     
     pub fn meta_root(&self) -> Option<PathBuf> {
         self.meta_file_path.as_ref().and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    }
+    
+    pub fn is_experimental(&self) -> bool {
+        self.experimental
     }
 }
 

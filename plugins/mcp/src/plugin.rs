@@ -336,6 +336,10 @@ impl MetaPlugin for McpPlugin {
         "mcp"
     }
     
+    fn is_experimental(&self) -> bool {
+        true
+    }
+    
     fn register_commands(&self, app: Command) -> Command {
         app.subcommand(
             Command::new("mcp")

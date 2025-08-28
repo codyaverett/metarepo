@@ -8,13 +8,21 @@ pub struct GestaltCli {
 
 impl GestaltCli {
     pub fn new() -> Self {
+        Self::new_with_flags(false)
+    }
+    
+    pub fn new_with_flags(experimental: bool) -> Self {
         let mut registry = PluginRegistry::new();
-        registry.register_all_workspace_plugins();
+        registry.register_all_workspace_plugins_with_flags(experimental);
         
         Self { registry }
     }
     
     pub fn build_app(&self) -> Command {
+        self.build_app_with_flags(false)
+    }
+    
+    pub fn build_app_with_flags(&self, experimental: bool) -> Command {
         let base_app = Command::new("gest")
             .version(env!("CARGO_PKG_VERSION"))
             .about("A tool for managing multi-project systems and libraries")
@@ -35,21 +43,37 @@ impl GestaltCli {
                     .help("Suppress output")
                     .global(true)
                     .conflicts_with("verbose")
+            )
+            .arg(
+                Arg::new("experimental")
+                    .long("experimental")
+                    .action(clap::ArgAction::SetTrue)
+                    .help("Enable experimental features")
+                    .global(true)
             );
             
-        self.registry.build_cli(base_app)
+        self.registry.build_cli_with_flags(base_app, experimental)
     }
     
     pub fn run(&self, args: Vec<String>) -> Result<()> {
         // Initialize tracing
         self.init_logging();
         
-        // Parse command line arguments
+        // Check if --experimental is present in args
+        let experimental = args.iter().any(|arg| arg == "--experimental");
+        
+        // If experimental, create a new CLI with experimental plugins
+        if experimental {
+            let cli = Self::new_with_flags(true);
+            return cli.run_with_experimental(args);
+        }
+        
+        // Normal execution without experimental features
         let app = self.build_app();
         let matches = app.try_get_matches_from(args)?;
         
         // Load runtime configuration
-        let config = create_runtime_config()?;
+        let config = create_runtime_config(false)?;
         
         // Handle global flags
         if matches.get_flag("verbose") {
@@ -64,6 +88,36 @@ impl GestaltCli {
             None => {
                 // No subcommand provided, show help
                 let mut app = self.build_app();
+                app.print_help()?;
+                println!();
+                Ok(())
+            }
+        }
+    }
+    
+    fn run_with_experimental(&self, args: Vec<String>) -> Result<()> {
+        // Parse with experimental plugins available
+        let app = self.build_app_with_flags(true);
+        let matches = app.try_get_matches_from(args)?;
+        
+        // Load runtime configuration with experimental flag
+        let config = create_runtime_config(true)?;
+        
+        // Handle global flags
+        if matches.get_flag("verbose") {
+            tracing::debug!("Verbose mode enabled");
+        }
+        
+        tracing::debug!("Experimental features enabled");
+        
+        // Route to appropriate plugin
+        match matches.subcommand() {
+            Some((command_name, sub_matches)) => {
+                self.registry.handle_command(command_name, sub_matches, &config)
+            }
+            None => {
+                // No subcommand provided, show help
+                let mut app = self.build_app_with_flags(true);
                 app.print_help()?;
                 println!();
                 Ok(())

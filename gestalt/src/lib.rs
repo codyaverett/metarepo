@@ -53,8 +53,12 @@ mod tests {
     
     #[test]
     fn test_runtime_config_creation() {
-        let config = create_runtime_config().unwrap();
+        let config = create_runtime_config(false).unwrap();
         assert!(config.working_dir.exists());
+        assert!(!config.experimental);
+        
+        let experimental_config = create_runtime_config(true).unwrap();
+        assert!(experimental_config.experimental);
     }
     
     #[test]
