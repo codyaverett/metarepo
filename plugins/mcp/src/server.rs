@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use tokio::process::{Child, Command};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
@@ -28,6 +29,7 @@ pub struct McpServerStatus {
 pub struct McpServerInstance {
     pub config: McpServerConfig,
     pub process: Option<Child>,
+    pub stdin: Option<tokio::process::ChildStdin>,
     pub start_time: Option<std::time::Instant>,
     pub output_buffer: Arc<Mutex<Vec<String>>>,
 }
@@ -37,6 +39,7 @@ impl McpServerInstance {
         Self {
             config,
             process: None,
+            stdin: None,
             start_time: None,
             output_buffer: Arc::new(Mutex::new(Vec::new())),
         }
@@ -66,6 +69,33 @@ impl McpServerInstance {
 
         let mut child = cmd.spawn()
             .with_context(|| format!("Failed to start MCP server '{}'", self.config.name))?;
+
+        // Keep stdin to send initialization and keep the server alive
+        let mut stdin = child.stdin.take()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get stdin for MCP server"))?;
+        
+        // Send initialization request to the MCP server
+        let init_request = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "0.1.0",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "gestalt-mcp",
+                    "version": "0.1.0"
+                }
+            }
+        });
+        
+        let init_str = format!("{}\n", init_request.to_string());
+        stdin.write_all(init_str.as_bytes()).await
+            .with_context(|| "Failed to send initialization to MCP server")?;
+        stdin.flush().await?;
+        
+        // Store stdin to keep the connection alive
+        self.stdin = Some(stdin);
 
         let output_buffer = Arc::clone(&self.output_buffer);
         
@@ -105,9 +135,15 @@ impl McpServerInstance {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
+        // Drop stdin first to close the connection gracefully
+        self.stdin = None;
+        
         if let Some(mut child) = self.process.take() {
-            child.kill().await
-                .with_context(|| format!("Failed to stop MCP server '{}'", self.config.name))?;
+            // Give the process a moment to exit gracefully
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            // Then kill if still running
+            let _ = child.kill().await;
             self.start_time = None;
             self.output_buffer.lock().unwrap().clear();
             Ok(())
