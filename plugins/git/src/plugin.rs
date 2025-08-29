@@ -46,10 +46,13 @@ impl MetaPlugin for GitPlugin {
     fn register_commands(&self, app: Command) -> Command {
         app.subcommand(
             Command::new("git")
+                .visible_alias("g")
                 .about("Git operations across multiple repositories")
+                .disable_help_subcommand(true)
                 .allow_external_subcommands(true) // This allows unknown subcommands to pass through
                 .subcommand(
                     Command::new("clone")
+                        .visible_alias("c")
                         .about("Clone meta repository and all child repositories")
                         .arg(
                             Arg::new("url")
@@ -60,10 +63,12 @@ impl MetaPlugin for GitPlugin {
                 )
                 .subcommand(
                     Command::new("status")
+                        .visible_aliases(["st", "s"])
                         .about("Show git status across all repositories")
                 )
                 .subcommand(
                     Command::new("update")
+                        .visible_aliases(["up", "u"])
                         .about("Clone missing repositories")
                 )
         )

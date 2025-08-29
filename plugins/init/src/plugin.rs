@@ -19,6 +19,7 @@ impl MetaPlugin for InitPlugin {
     fn register_commands(&self, app: Command) -> Command {
         app.subcommand(
             Command::new("init")
+                .visible_alias("i")
                 .about("Initialize a new meta repository")
                 .long_about("Initialize the current directory as a meta repository by creating a .meta file with default configuration and updating .gitignore patterns.")
         )
