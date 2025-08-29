@@ -2,6 +2,9 @@ pub mod plugin;
 pub mod config;
 pub mod engine;
 pub mod validators;
+pub mod docs;
+pub mod create;
+pub mod project;
 
 pub use plugin::RulesPlugin;
 pub use config::{RulesConfig, Rule, RuleType, ComponentRule, DirectoryRule, FileRule};
