@@ -1,6 +1,6 @@
 use gestalt_rules::{RulesConfig, RuleEngine};
 use gestalt_rules::config::{DirectoryRule, ComponentRule, FileRule};
-use gestalt_rules::project::{ProjectRulesManager, RulesStats};
+use gestalt_rules::project::RulesStats;
 use std::collections::HashMap;
 use tempfile::tempdir;
 use std::fs;
@@ -38,6 +38,7 @@ fn test_project_specific_rules() {
     assert_eq!(loaded.directories[0].path, "src/components");
 }
 
+#[cfg(test)]
 #[test]
 fn test_rules_stats() {
     let config = RulesConfig {

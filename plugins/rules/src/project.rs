@@ -4,12 +4,12 @@ use meta_core::RuntimeConfig;
 use std::path::{Path, PathBuf};
 use colored::*;
 
-pub struct ProjectRulesManager {
-    runtime_config: RuntimeConfig,
+pub struct ProjectRulesManager<'a> {
+    runtime_config: &'a RuntimeConfig,
 }
 
-impl ProjectRulesManager {
-    pub fn new(runtime_config: RuntimeConfig) -> Self {
+impl<'a> ProjectRulesManager<'a> {
+    pub fn new(runtime_config: &'a RuntimeConfig) -> Self {
         Self { runtime_config }
     }
     
@@ -44,7 +44,7 @@ impl ProjectRulesManager {
     }
     
     /// Load rules from .meta file's project configuration
-    fn load_meta_project_rules(&self, project_name: &str) -> Result<RulesConfig> {
+    fn load_meta_project_rules(&self, _project_name: &str) -> Result<RulesConfig> {
         // Check if project has rules defined in .meta
         // This would require extending the .meta format to include rules
         // For now, return error to fall back to workspace rules

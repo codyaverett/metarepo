@@ -146,8 +146,8 @@ fn print_examples() {
     println!("{}", "Vue.js Project:".yellow());
     println!("```yaml");
     println!("directories:");
-    println!("  - { path: src/components, required: true }");
-    println!("  - { path: tests, required: true }");
+    println!("  - {{ path: src/components, required: true }}");
+    println!("  - {{ path: tests, required: true }}");
     println!();
     println!("components:");
     println!("  - pattern: 'src/components/**/'");
@@ -173,8 +173,8 @@ fn print_examples() {
     println!("{}", "Rust Project:".yellow());
     println!("```yaml");
     println!("directories:");
-    println!("  - { path: src, required: true }");
-    println!("  - { path: benches, required: false }");
+    println!("  - {{ path: src, required: true }}");
+    println!("  - {{ path: benches, required: false }}");
     println!();
     println!("files:");
     println!("  - pattern: 'src/**/*.rs'");
