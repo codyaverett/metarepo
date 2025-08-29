@@ -83,7 +83,13 @@ impl RulesPlugin {
                     .arg(
                         Arg::new("type")
                             .value_name("TYPE")
-                            .help("Show docs for specific rule type (directory, component, file)")
+                            .help("Show docs for specific rule type (directory, component, file, naming, dependency, import, documentation, size, security)")
+                    )
+                    .arg(
+                        Arg::new("ai")
+                            .long("ai")
+                            .help("Output in AI-optimized format (structured markdown)")
+                            .action(clap::ArgAction::SetTrue)
                     )
             )
             .subcommand(
@@ -386,18 +392,35 @@ impl RulesPlugin {
     }
     
     fn handle_docs(&self, matches: &ArgMatches) -> Result<()> {
+        let ai_mode = matches.get_flag("ai");
+        
         if let Some(rule_type) = matches.get_one::<String>("type") {
-            match rule_type.as_str() {
-                "directory" => crate::docs::print_directory_rule_docs(),
-                "component" => crate::docs::print_component_rule_docs(),
-                "file" => crate::docs::print_file_rule_docs(),
-                _ => {
-                    println!("{} Unknown rule type: {}", "Error:".red(), rule_type);
-                    println!("Valid types: directory, component, file");
+            if ai_mode {
+                // In AI mode, just print the optimized full docs
+                crate::docs::print_full_documentation_ai();
+            } else {
+                match rule_type.as_str() {
+                    "directory" | "dir" => crate::docs::print_directory_rule_docs(),
+                    "component" | "comp" => crate::docs::print_component_rule_docs(),
+                    "file" | "files" => crate::docs::print_file_rule_docs(),
+                    "naming" | "name" => crate::docs::print_naming_rule_docs(),
+                    "dependency" | "dep" | "deps" => crate::docs::print_dependency_rule_docs(),
+                    "import" | "imports" => crate::docs::print_import_rule_docs(),
+                    "documentation" | "doc" | "docs" => crate::docs::print_documentation_rule_docs(),
+                    "size" => crate::docs::print_size_rule_docs(),
+                    "security" | "sec" => crate::docs::print_security_rule_docs(),
+                    _ => {
+                        println!("{} Unknown rule type: {}", "Error:".red(), rule_type);
+                        println!("Valid types: directory, component, file, naming, dependency, import, documentation, size, security");
+                    }
                 }
             }
         } else {
-            crate::docs::print_full_documentation();
+            if ai_mode {
+                crate::docs::print_full_documentation_ai();
+            } else {
+                crate::docs::print_full_documentation();
+            }
         }
         Ok(())
     }
