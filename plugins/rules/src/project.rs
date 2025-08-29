@@ -129,6 +129,12 @@ impl<'a> ProjectRulesManager<'a> {
             directories: [project_rules.directories, workspace_rules.directories].concat(),
             components: [project_rules.components, workspace_rules.components].concat(),
             files: [project_rules.files, workspace_rules.files].concat(),
+            naming: [project_rules.naming, workspace_rules.naming].concat(),
+            dependencies: [project_rules.dependencies, workspace_rules.dependencies].concat(),
+            imports: [project_rules.imports, workspace_rules.imports].concat(),
+            documentation: [project_rules.documentation, workspace_rules.documentation].concat(),
+            size: [project_rules.size, workspace_rules.size].concat(),
+            security: [project_rules.security, workspace_rules.security].concat(),
         }
     }
 }
