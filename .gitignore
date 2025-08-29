@@ -2,4 +2,6 @@
 *.log
 node_modules/
 target/
-video-chat-link
+video-chat
+test-repo
+work/first
