@@ -1,8 +1,4 @@
-# Meta repository ignores
 .DS_Store
 *.log
 node_modules/
 target/
-container-codes-2
-container-codes
-existing-project
