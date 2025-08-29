@@ -6,7 +6,10 @@ A file structure enforcement plugin for Gestalt that helps maintain consistent p
 
 - **Configurable Rules**: Define directory structure, file patterns, and component conventions
 - **Multi-Project Validation**: Check rules across all projects in your workspace
+- **Project-Specific Rules**: Override workspace rules with project-specific configurations
 - **Auto-Fix Capabilities**: Automatically create missing directories
+- **Rule Creation Tools**: Interactive commands to create new rules
+- **Documentation System**: Built-in docs for learning rule syntax
 - **Flexible Configuration**: Support for YAML and JSON rule definitions
 - **Claude-Friendly**: Can be used by AI assistants to understand project structure
 
@@ -15,7 +18,11 @@ A file structure enforcement plugin for Gestalt that helps maintain consistent p
 ### Initialize Rules Configuration
 
 ```bash
+# Initialize workspace rules
 gest rules init
+
+# Initialize project-specific rules
+gest rules init --project frontend
 ```
 
 Creates a `.rules.yaml` file with example configuration.
@@ -33,15 +40,63 @@ gest rules check --project my-project
 gest rules check --fix
 ```
 
-### List Configured Rules
+### Create New Rules
 
 ```bash
-gest rules list
+# Create directory rule
+gest rules create directory src/utils --required --description "Utility functions"
+
+# Create component rule
+gest rules create component 'components/**/' --structure '[ComponentName].vue,[ComponentName].test.js'
+
+# Create file rule
+gest rules create file '**/*.ts' --requires 'test:*.test.ts,doc:*.md'
+
+# Add rule to specific project
+gest rules create directory src/hooks --project frontend
 ```
+
+### View Documentation
+
+```bash
+# Full documentation
+gest rules docs
+
+# Specific rule type docs
+gest rules docs directory
+gest rules docs component
+gest rules docs file
+```
+
+### Manage Project Rules
+
+```bash
+# Show rules status for all projects
+gest rules status
+
+# Copy workspace rules to a project
+gest rules copy frontend
+
+# List rules for specific project
+gest rules list --project frontend
+```
+
+## Rule Priority and Inheritance
+
+The rules plugin supports multiple configuration levels:
+
+1. **Project-specific rules** (`<project>/.rules.yaml`) - Highest priority
+2. **Workspace rules** (`.rules.yaml` in workspace root) - Default for all projects
+3. **Built-in minimal rules** - Used when no configuration exists
+
+When checking a project:
+- If the project has its own `.rules.yaml`, only those rules are used
+- Otherwise, workspace rules are applied
+- Use `gest rules copy <project>` to start with workspace rules and customize
 
 ## Configuration Format
 
-Rules are defined in `.rules.yaml` in your workspace root:
+Rules are defined in `.rules.yaml`:
 
 ```yaml
 directories:
@@ -172,6 +227,62 @@ files:
 - **Warning**: Important but not critical violations
 - **Info**: Optional improvements or suggestions
 
+## Advanced Features
+
+### Project-Specific Rules
+
+Each project can have its own rules that completely override workspace rules:
+
+```bash
+# Initialize rules for a specific project
+gest rules init --project frontend
+
+# Edit frontend/.rules.yaml to customize
+# Now frontend will use its own rules instead of workspace rules
+```
+
+### Interactive Rule Creation
+
+The plugin supports creating rules through command-line arguments or interactively:
+
+```bash
+# With arguments
+gest rules create directory src/config --required
+
+# Interactive mode (when structure items aren't provided)
+gest rules create component 'components/**/'
+> Enter structure items (empty line to finish):
+> [ComponentName].tsx
+> [ComponentName].test.tsx
+> index.ts
+>
+```
+
+### Built-in Documentation
+
+Access comprehensive documentation without leaving the terminal:
+
+```bash
+# Learn about all rule types
+gest rules docs
+
+# Get examples for specific rule type
+gest rules docs component
+```
+
+### Integration with Project Plugin
+
+The rules plugin integrates with the Gestalt project plugin to:
+- Automatically discover projects from `.meta` configuration
+- Support project-specific rule paths
+- Validate multiple projects in one command
+
+## Dependencies
+
+This plugin depends on:
+- `meta-core` - Core Gestalt plugin interfaces
+- `meta-project` - Project management functionality
+
 ## Future Enhancements
 
 - Pattern-based file content validation
@@ -179,3 +290,5 @@ files:
 - CI/CD integration with JSON output
 - Parallel validation for large workspaces
 - Template generation for common structures
+- Rule inheritance and composition
+- Watch mode for real-time validation

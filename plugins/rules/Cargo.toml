@@ -1,10 +1,11 @@
 [package]
 name = "gestalt-rules"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
 meta-core = { path = "../../meta-core" }
+meta-project = { path = "../project" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
