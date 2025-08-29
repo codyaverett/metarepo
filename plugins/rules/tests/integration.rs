@@ -4,7 +4,6 @@ use gestalt_rules::project::RulesStats;
 use std::collections::HashMap;
 use tempfile::tempdir;
 use std::fs;
-use std::path::PathBuf;
 
 #[test]
 fn test_project_specific_rules() {
@@ -23,6 +22,12 @@ fn test_project_specific_rules() {
         ],
         components: Vec::new(),
         files: Vec::new(),
+        naming: Vec::new(),
+        dependencies: Vec::new(),
+        imports: Vec::new(),
+        documentation: Vec::new(),
+        size: Vec::new(),
+        security: Vec::new(),
     };
     
     // Save project rules
@@ -68,6 +73,12 @@ fn test_rules_stats() {
                 description: None,
             },
         ],
+        naming: Vec::new(),
+        dependencies: Vec::new(),
+        imports: Vec::new(),
+        documentation: Vec::new(),
+        size: Vec::new(),
+        security: Vec::new(),
     };
     
     let stats = RulesStats::from_config(&config, "test-source".to_string());
@@ -123,6 +134,12 @@ fn test_component_rule_validation() {
             },
         ],
         files: Vec::new(),
+        naming: Vec::new(),
+        dependencies: Vec::new(),
+        imports: Vec::new(),
+        documentation: Vec::new(),
+        size: Vec::new(),
+        security: Vec::new(),
     };
     
     let engine = RuleEngine::new(config);
@@ -155,6 +172,12 @@ fn test_file_rule_with_requires() {
                 description: None,
             },
         ],
+        naming: Vec::new(),
+        dependencies: Vec::new(),
+        imports: Vec::new(),
+        documentation: Vec::new(),
+        size: Vec::new(),
+        security: Vec::new(),
     };
     
     let engine = RuleEngine::new(config);

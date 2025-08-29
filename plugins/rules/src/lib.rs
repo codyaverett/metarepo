@@ -7,7 +7,11 @@ pub mod create;
 pub mod project;
 
 pub use plugin::RulesPlugin;
-pub use config::{RulesConfig, DirectoryRule, ComponentRule, FileRule};
+pub use config::{
+    RulesConfig, DirectoryRule, ComponentRule, FileRule,
+    NamingRule, DependencyRule, ImportRule, DocumentationRule,
+    SizeRule, SecurityRule
+};
 pub use engine::{RuleEngine, Violation, Severity};
 
 use anyhow::Result;

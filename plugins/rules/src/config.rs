@@ -13,6 +13,24 @@ pub struct RulesConfig {
     
     #[serde(default)]
     pub files: Vec<FileRule>,
+    
+    #[serde(default)]
+    pub naming: Vec<NamingRule>,
+    
+    #[serde(default)]
+    pub dependencies: Vec<DependencyRule>,
+    
+    #[serde(default)]
+    pub imports: Vec<ImportRule>,
+    
+    #[serde(default)]
+    pub documentation: Vec<DocumentationRule>,
+    
+    #[serde(default)]
+    pub size: Vec<SizeRule>,
+    
+    #[serde(default)]
+    pub security: Vec<SecurityRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,11 +59,101 @@ pub struct FileRule {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamingRule {
+    pub pattern: String,
+    pub naming_pattern: String,
+    #[serde(default)]
+    pub case_style: Option<String>, // PascalCase, camelCase, snake_case, UPPER_CASE, kebab-case
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DependencyRule {
+    #[serde(default)]
+    pub allowed: Vec<String>,
+    #[serde(default)]
+    pub forbidden: Vec<String>,
+    #[serde(default)]
+    pub required: HashMap<String, String>, // package -> version constraint
+    #[serde(default)]
+    pub max_depth: Option<usize>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportRule {
+    pub source_pattern: String,
+    #[serde(default)]
+    pub allowed_imports: Vec<String>,
+    #[serde(default)]
+    pub forbidden_imports: Vec<String>,
+    #[serde(default)]
+    pub require_absolute: bool,
+    #[serde(default)]
+    pub max_depth: Option<usize>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentationRule {
+    pub pattern: String,
+    #[serde(default)]
+    pub require_header: bool,
+    #[serde(default)]
+    pub require_examples: bool,
+    #[serde(default)]
+    pub min_description_length: Option<usize>,
+    #[serde(default)]
+    pub required_sections: Vec<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SizeRule {
+    pub pattern: String,
+    #[serde(default)]
+    pub max_lines: Option<usize>,
+    #[serde(default)]
+    pub max_bytes: Option<usize>,
+    #[serde(default)]
+    pub max_functions: Option<usize>,
+    #[serde(default)]
+    pub max_complexity: Option<usize>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityRule {
+    pub pattern: String,
+    #[serde(default)]
+    pub forbidden_patterns: Vec<String>,
+    #[serde(default)]
+    pub require_https: bool,
+    #[serde(default)]
+    pub no_hardcoded_secrets: bool,
+    #[serde(default)]
+    pub forbidden_functions: Vec<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub enum RuleType {
     Directory(DirectoryRule),
     Component(ComponentRule),
     File(FileRule),
+    Naming(NamingRule),
+    Dependency(DependencyRule),
+    Import(ImportRule),
+    Documentation(DocumentationRule),
+    Size(SizeRule),
+    Security(SecurityRule),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +168,12 @@ impl RulesConfig {
             directories: Vec::new(),
             components: Vec::new(),
             files: Vec::new(),
+            naming: Vec::new(),
+            dependencies: Vec::new(),
+            imports: Vec::new(),
+            documentation: Vec::new(),
+            size: Vec::new(),
+            security: Vec::new(),
         }
     }
     
@@ -79,6 +193,12 @@ impl RulesConfig {
             ],
             components: Vec::new(),
             files: Vec::new(),
+            naming: Vec::new(),
+            dependencies: Vec::new(),
+            imports: Vec::new(),
+            documentation: Vec::new(),
+            size: Vec::new(),
+            security: Vec::new(),
         }
     }
     
@@ -130,6 +250,40 @@ impl RulesConfig {
                     description: Some("Rust files should have tests".to_string()),
                 },
             ],
+            naming: vec![
+                NamingRule {
+                    pattern: "src/components/**/*.vue".to_string(),
+                    naming_pattern: "[A-Z][a-zA-Z0-9]+\\.vue$".to_string(),
+                    case_style: Some("PascalCase".to_string()),
+                    description: Some("Vue components must be PascalCase".to_string()),
+                },
+            ],
+            dependencies: Vec::new(),
+            imports: Vec::new(),
+            documentation: Vec::new(),
+            size: vec![
+                SizeRule {
+                    pattern: "**/*.js".to_string(),
+                    max_lines: Some(500),
+                    max_bytes: None,
+                    max_functions: Some(10),
+                    max_complexity: None,
+                    description: Some("JavaScript files should be reasonably sized".to_string()),
+                },
+            ],
+            security: vec![
+                SecurityRule {
+                    pattern: "**/*.{js,ts,py}".to_string(),
+                    forbidden_patterns: vec![
+                        "api[_-]?key.*=.*['\"]".to_string(),
+                        "password.*=.*['\"]".to_string(),
+                    ],
+                    require_https: true,
+                    no_hardcoded_secrets: true,
+                    forbidden_functions: vec!["eval".to_string(), "exec".to_string()],
+                    description: Some("Basic security checks".to_string()),
+                },
+            ],
         }
     }
     
@@ -168,6 +322,25 @@ impl RulesConfig {
                     description: Some("TypeScript React files must have tests".to_string()),
                 },
             ],
+            naming: vec![
+                NamingRule {
+                    pattern: "src/components/**/*.tsx".to_string(),
+                    naming_pattern: "[A-Z][a-zA-Z0-9]+\\.tsx$".to_string(),
+                    case_style: Some("PascalCase".to_string()),
+                    description: Some("React components must be PascalCase".to_string()),
+                },
+                NamingRule {
+                    pattern: "src/hooks/**/*.ts".to_string(),
+                    naming_pattern: "use[A-Z][a-zA-Z0-9]+\\.ts$".to_string(),
+                    case_style: None,
+                    description: Some("React hooks must start with 'use'".to_string()),
+                },
+            ],
+            dependencies: Vec::new(),
+            imports: Vec::new(),
+            documentation: Vec::new(),
+            size: Vec::new(),
+            security: Vec::new(),
         }
     }
 }
