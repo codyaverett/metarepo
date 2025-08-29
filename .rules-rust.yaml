@@ -1,0 +1,16 @@
+directories:
+  - path: src
+    required: true
+    description: Source code directory
+  - path: tests
+    required: false
+    description: Integration tests directory
+  - path: benches
+    required: false
+    description: Benchmarks directory
+
+files:
+  - pattern: 'src/**/*.rs'
+    requires:
+      test: '#[test]'
+    description: Rust source files should have unit tests

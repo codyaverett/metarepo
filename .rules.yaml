@@ -1,0 +1,28 @@
+directories:
+- path: components
+  required: true
+  description: Vue/React components directory
+- path: tests
+  required: true
+  description: Test files directory
+- path: docs
+  required: false
+  description: Documentation directory
+components:
+- pattern: components/**/
+  structure:
+  - '[ComponentName].vue'
+  - __tests__/
+  - __tests__/[ComponentName].test.js
+  - '[ComponentName].stories.js'
+  description: Vue component structure
+files:
+- pattern: '**/*.vue'
+  requires:
+    story: '*.stories.js'
+    test: __tests__/*.test.js
+  description: Vue files must have tests and stories
+- pattern: src/**/*.rs
+  requires:
+    test: '#[test]'
+  description: Rust files should have tests
