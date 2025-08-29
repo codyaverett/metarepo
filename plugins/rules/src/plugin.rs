@@ -198,7 +198,7 @@ impl RulesPlugin {
         let fix = matches.get_flag("fix");
         let project = matches.get_one::<String>("project");
         
-        let manager = ProjectRulesManager::new(config.clone());
+        let manager = ProjectRulesManager::new(config);
         
         // Determine which projects to check
         let projects = if let Some(project_name) = project {
@@ -286,7 +286,7 @@ impl RulesPlugin {
         let project = matches.get_one::<String>("project");
         
         let full_path = if let Some(project_name) = project {
-            let manager = ProjectRulesManager::new(config.clone());
+            let manager = ProjectRulesManager::new(config);
             let project_path = manager.get_project_path(project_name)?;
             project_path.join(output_path)
         } else if config.meta_root().is_some() {
@@ -320,7 +320,7 @@ impl RulesPlugin {
         let project = matches.get_one::<String>("project");
         
         let rules_config = if let Some(project_name) = project {
-            let manager = ProjectRulesManager::new(config.clone());
+            let manager = ProjectRulesManager::new(config);
             manager.load_project_rules(project_name)?
         } else {
             self.load_rules_config(config)?
@@ -457,14 +457,14 @@ impl RulesPlugin {
     }
     
     fn handle_status(&self, config: &RuntimeConfig) -> Result<()> {
-        let manager = ProjectRulesManager::new(config.clone());
+        let manager = ProjectRulesManager::new(config);
         manager.list_project_rules_status()?;
         Ok(())
     }
     
     fn handle_copy(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         let project_name = matches.get_one::<String>("project").unwrap();
-        let manager = ProjectRulesManager::new(config.clone());
+        let manager = ProjectRulesManager::new(config);
         manager.copy_workspace_rules_to_project(project_name)?;
         Ok(())
     }
@@ -490,7 +490,7 @@ impl MetaPlugin for RulesPlugin {
     }
     
     fn register_commands(&self, app: Command) -> Command {
-        app.subcommand(self.build_cli())
+        app.subcommand(self.build_cli().allow_external_subcommands(true))
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {

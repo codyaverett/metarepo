@@ -4,9 +4,6 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::process::Command;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JsonRpcRequest {

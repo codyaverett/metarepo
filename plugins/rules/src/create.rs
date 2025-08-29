@@ -1,6 +1,5 @@
 use anyhow::Result;
 use crate::config::{RulesConfig, DirectoryRule, ComponentRule, FileRule};
-use std::path::Path;
 use std::collections::HashMap;
 use colored::*;
 
@@ -31,7 +30,7 @@ impl RuleCreator {
         let new_rule = DirectoryRule {
             path: path.to_string(),
             required,
-            description,
+            description: description.clone(),
         };
         
         config.directories.push(new_rule);
@@ -65,7 +64,7 @@ impl RuleCreator {
         let new_rule = ComponentRule {
             pattern: pattern.to_string(),
             structure,
-            description,
+            description: description.clone(),
         };
         
         config.components.push(new_rule.clone());
@@ -102,7 +101,7 @@ impl RuleCreator {
         let new_rule = FileRule {
             pattern: pattern.to_string(),
             requires,
-            description,
+            description: description.clone(),
         };
         
         config.files.push(new_rule.clone());
