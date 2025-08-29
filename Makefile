@@ -49,7 +49,7 @@ help:
 build:
 	@echo "$(CYAN)🔨 Building production binary...$(NC)"
 	@$(CARGO) build --release --bin $(BINARY_NAME)
-	@echo "$(GREEN)✅ Build complete!$(NC)"
+	@echo "$(GREEN)Build complete!$(NC)"
 	@echo "$(WHITE)Binary location: target/release/$(BINARY_NAME)$(NC)"
 
 # Install production binary to ~/.local/bin
@@ -59,11 +59,7 @@ install: build
 	@mkdir -p $(INSTALL_PATH)
 	@cp target/release/$(BINARY_NAME) $(INSTALL_PATH)/
 	@chmod +x $(INSTALL_PATH)/$(BINARY_NAME)
-	@echo "$(GREEN)✅ Installation complete!$(NC)"
-	@echo ""
-	@echo "$(YELLOW)Make sure $(INSTALL_PATH) is in your PATH:$(NC)"
-	@echo "$(WHITE)  export PATH=\"$$HOME/.local/bin:$$PATH\"$(NC)"
-	@echo ""
+	@echo "$(GREEN)Installation complete!$(NC)"
 	@echo "$(CYAN)You can now run:$(NC) $(GREEN)$(BINARY_NAME) --help$(NC)"
 
 # Uninstall binary
@@ -71,7 +67,7 @@ install: build
 uninstall:
 	@echo "$(RED)🗑️  Uninstalling $(BINARY_NAME)...$(NC)"
 	@rm -f $(INSTALL_PATH)/$(BINARY_NAME)
-	@echo "$(GREEN)✅ Uninstalled successfully$(NC)"
+	@echo "$(GREEN)Uninstalled successfully$(NC)"
 
 # Development build
 .PHONY: dev

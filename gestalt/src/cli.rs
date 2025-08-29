@@ -1,6 +1,6 @@
 use crate::{PluginRegistry, create_runtime_config};
 use anyhow::Result;
-use clap::{Arg, Command};
+use clap::{Arg, Command, ColorChoice};
 
 pub struct GestaltCli {
     registry: PluginRegistry,
@@ -23,10 +23,23 @@ impl GestaltCli {
     }
     
     pub fn build_app_with_flags(&self, experimental: bool) -> Command {
+        // Set up color styles for help output
+        let styles = clap::builder::styling::Styles::styled()
+            .header(clap::builder::styling::AnsiColor::BrightCyan.on_default() | clap::builder::styling::Effects::BOLD)
+            .usage(clap::builder::styling::AnsiColor::BrightGreen.on_default() | clap::builder::styling::Effects::BOLD)
+            .literal(clap::builder::styling::AnsiColor::BrightWhite.on_default())
+            .placeholder(clap::builder::styling::AnsiColor::BrightYellow.on_default())
+            .error(clap::builder::styling::AnsiColor::BrightRed.on_default() | clap::builder::styling::Effects::BOLD)
+            .valid(clap::builder::styling::AnsiColor::BrightGreen.on_default())
+            .invalid(clap::builder::styling::AnsiColor::BrightRed.on_default());
+            
         let base_app = Command::new("gest")
             .version(env!("CARGO_PKG_VERSION"))
             .about("A tool for managing multi-project systems and libraries")
             .author("Gestalt Contributors")
+            .styles(styles)
+            .color(ColorChoice::Always)
+            .disable_help_subcommand(true)
             .arg(
                 Arg::new("verbose")
                     .long("verbose")

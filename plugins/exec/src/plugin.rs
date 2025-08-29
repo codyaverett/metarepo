@@ -42,7 +42,9 @@ impl MetaPlugin for ExecPlugin {
     fn register_commands(&self, app: Command) -> Command {
         app.subcommand(
             Command::new("exec")
+                .visible_aliases(["e", "x"])
                 .about("Execute commands across multiple repositories")
+                .disable_help_subcommand(true)
                 .allow_external_subcommands(true)
                 .arg(
                     Arg::new("projects")

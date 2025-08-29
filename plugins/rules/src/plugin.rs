@@ -23,9 +23,12 @@ impl RulesPlugin {
     
     fn build_cli(&self) -> Command {
         Command::new("rules")
+            .visible_alias("r")
             .about("Enforce project file structure rules")
+            .disable_help_subcommand(true)
             .subcommand(
                 Command::new("check")
+                    .visible_aliases(["c", "chk"])
                     .about("Check project structure against configured rules")
                     .arg(
                         Arg::new("project")
@@ -43,6 +46,7 @@ impl RulesPlugin {
             )
             .subcommand(
                 Command::new("init")
+                    .visible_alias("i")
                     .about("Initialize rules configuration file")
                     .arg(
                         Arg::new("output")
@@ -62,6 +66,7 @@ impl RulesPlugin {
             )
             .subcommand(
                 Command::new("list")
+                    .visible_aliases(["ls", "l"])
                     .about("List all configured rules")
                     .arg(
                         Arg::new("project")
@@ -73,6 +78,7 @@ impl RulesPlugin {
             )
             .subcommand(
                 Command::new("docs")
+                    .visible_alias("d")
                     .about("Show documentation for creating and using rules")
                     .arg(
                         Arg::new("type")
@@ -82,9 +88,11 @@ impl RulesPlugin {
             )
             .subcommand(
                 Command::new("create")
+                    .visible_alias("new")
                     .about("Create a new rule")
                     .subcommand(
                         Command::new("directory")
+                            .visible_alias("dir")
                             .about("Create a directory rule")
                             .arg(
                                 Arg::new("path")
@@ -115,6 +123,7 @@ impl RulesPlugin {
                     )
                     .subcommand(
                         Command::new("component")
+                            .visible_alias("comp")
                             .about("Create a component rule")
                             .arg(
                                 Arg::new("pattern")
@@ -147,6 +156,7 @@ impl RulesPlugin {
                     )
                     .subcommand(
                         Command::new("file")
+                            .visible_alias("f")
                             .about("Create a file rule")
                             .arg(
                                 Arg::new("pattern")

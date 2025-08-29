@@ -108,10 +108,13 @@ impl MetaPlugin for ProjectPlugin {
     fn register_commands(&self, app: Command) -> Command {
         app.subcommand(
             Command::new("project")
+                .visible_alias("p")
                 .about("Project management operations")
+                .disable_help_subcommand(true)
                 .allow_external_subcommands(true) // This allows unknown subcommands to pass through
                 .subcommand(
                     Command::new("create")
+                        .visible_alias("c")
                         .about("Clone a new project into the workspace (directory must not exist)")
                         .long_about("Clone a new project into the workspace.\n\n\
                                      This command will:\n\
@@ -134,6 +137,7 @@ impl MetaPlugin for ProjectPlugin {
                 )
                 .subcommand(
                     Command::new("import")
+                        .visible_alias("i")
                         .about("Import a project into the workspace")
                         .long_about("Import a project into the workspace.\n\n\
                                      This command will:\n\
@@ -159,6 +163,7 @@ impl MetaPlugin for ProjectPlugin {
                 )
                 .subcommand(
                     Command::new("list")
+                        .visible_aliases(["ls", "l"])
                         .about("List all projects in the workspace")
                         .long_about("List all projects in the workspace.\n\n\
                                      Shows each project with its status:\n\
@@ -168,6 +173,7 @@ impl MetaPlugin for ProjectPlugin {
                 )
                 .subcommand(
                     Command::new("remove")
+                        .visible_aliases(["rm", "r"])
                         .about("Remove a project from the workspace")
                         .long_about("Remove a project from the workspace.\n\n\
                                      This command will:\n\
