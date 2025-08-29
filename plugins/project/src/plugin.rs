@@ -37,25 +37,27 @@ impl ProjectPlugin {
             )
             .subcommand(
                 Command::new("import")
-                    .about("Add an existing repository to the workspace (or clone if missing)")
+                    .about("Import a project into the workspace")
                     .long_about("Import a project into the workspace.\n\n\
                                  This command will:\n\
-                                 • Use existing git repository if directory exists\n\
-                                 • Clone the repository if directory doesn't exist\n\
+                                 • Create a symlink if SOURCE is an external directory\n\
+                                 • Clone if SOURCE is a git URL\n\
+                                 • Auto-detect git remote if SOURCE is omitted\n\
                                  • Add the project to the .meta file\n\
                                  • Update .gitignore to exclude the project\n\n\
-                                 Fails only if directory exists but isn't a git repository.")
+                                 PATH: Where to place the project in the workspace\n\
+                                 SOURCE: Git URL or path to external directory (optional)")
                     .arg(
                         Arg::new("path")
                             .value_name("PATH")
-                            .help("Local directory name for the project (may already exist)")
+                            .help("Where to place the project in the workspace")
                             .required(true)
                     )
                     .arg(
-                        Arg::new("repo-url")
-                            .value_name("REPO_URL")
-                            .help("Git repository URL (for reference or cloning)")
-                            .required(true)
+                        Arg::new("source")
+                            .value_name("SOURCE")
+                            .help("Git URL or path to external directory (optional)")
+                            .required(false)
                     )
             )
             .subcommand(
@@ -132,25 +134,27 @@ impl MetaPlugin for ProjectPlugin {
                 )
                 .subcommand(
                     Command::new("import")
-                        .about("Add an existing repository to the workspace (or clone if missing)")
+                        .about("Import a project into the workspace")
                         .long_about("Import a project into the workspace.\n\n\
                                      This command will:\n\
-                                     • Use existing git repository if directory exists\n\
-                                     • Clone the repository if directory doesn't exist\n\
+                                     • Create a symlink if SOURCE is an external directory\n\
+                                     • Clone if SOURCE is a git URL\n\
+                                     • Auto-detect git remote if SOURCE is omitted\n\
                                      • Add the project to the .meta file\n\
                                      • Update .gitignore to exclude the project\n\n\
-                                     Fails only if directory exists but isn't a git repository.")
+                                     PATH: Where to place the project in the workspace\n\
+                                     SOURCE: Git URL or path to external directory (optional)")
                         .arg(
                             Arg::new("path")
                                 .value_name("PATH")
-                                .help("Local directory name for the project (may already exist)")
+                                .help("Where to place the project in the workspace")
                                 .required(true)
                         )
                         .arg(
-                            Arg::new("repo-url")
-                                .value_name("REPO_URL")
-                                .help("Git repository URL (for reference or cloning)")
-                                .required(true)
+                            Arg::new("source")
+                                .value_name("SOURCE")
+                                .help("Git URL or path to external directory (optional)")
+                                .required(false)
                         )
                 )
                 .subcommand(
@@ -211,7 +215,7 @@ impl MetaPlugin for ProjectPlugin {
             }
             Some(("import", sub_matches)) => {
                 let path = sub_matches.get_one::<String>("path").unwrap();
-                let repo_url = sub_matches.get_one::<String>("repo-url").unwrap();
+                let source = sub_matches.get_one::<String>("source").map(|s| s.as_str());
                 
                 let base_path = if config.meta_root().is_some() {
                     config.meta_root().unwrap()
@@ -219,7 +223,7 @@ impl MetaPlugin for ProjectPlugin {
                     config.working_dir.clone()
                 };
                 
-                import_project(path, repo_url, &base_path)?;
+                import_project(path, source, &base_path)?;
                 Ok(())
             }
             Some(("list", _)) => {
