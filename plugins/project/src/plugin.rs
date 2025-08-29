@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
 use meta_core::{MetaPlugin, RuntimeConfig};
-use crate::{create_project, import_project};
+use crate::{create_project, import_project, list_projects, remove_project};
 
 pub struct ProjectPlugin;
 
@@ -56,6 +56,39 @@ impl ProjectPlugin {
                             .value_name("REPO_URL")
                             .help("Git repository URL (for reference or cloning)")
                             .required(true)
+                    )
+            )
+            .subcommand(
+                Command::new("list")
+                    .about("List all projects in the workspace")
+                    .long_about("List all projects in the workspace.\n\n\
+                                 Shows each project with its status:\n\
+                                 • ✓ Present - Directory exists with git repository\n\
+                                 • ⚠ Present (not a git repo) - Directory exists but not a git repo\n\
+                                 • ✗ Missing - Listed in .meta but directory doesn't exist")
+            )
+            .subcommand(
+                Command::new("remove")
+                    .about("Remove a project from the workspace")
+                    .long_about("Remove a project from the workspace.\n\n\
+                                 This command will:\n\
+                                 • Check for uncommitted changes (unless --force is used)\n\
+                                 • Remove the project from the .meta file\n\
+                                 • Remove the project from .gitignore\n\
+                                 • Optionally delete the project directory (with --force)\n\n\
+                                 By default, the directory is kept on disk to prevent data loss.")
+                    .arg(
+                        Arg::new("name")
+                            .value_name("NAME")
+                            .help("Name of the project to remove")
+                            .required(true)
+                    )
+                    .arg(
+                        Arg::new("force")
+                            .long("force")
+                            .short('f')
+                            .help("Force removal even with uncommitted changes, and delete directory")
+                            .action(clap::ArgAction::SetTrue)
                     )
             );
         
@@ -120,6 +153,39 @@ impl MetaPlugin for ProjectPlugin {
                                 .required(true)
                         )
                 )
+                .subcommand(
+                    Command::new("list")
+                        .about("List all projects in the workspace")
+                        .long_about("List all projects in the workspace.\n\n\
+                                     Shows each project with its status:\n\
+                                     • ✓ Present - Directory exists with git repository\n\
+                                     • ⚠ Present (not a git repo) - Directory exists but not a git repo\n\
+                                     • ✗ Missing - Listed in .meta but directory doesn't exist")
+                )
+                .subcommand(
+                    Command::new("remove")
+                        .about("Remove a project from the workspace")
+                        .long_about("Remove a project from the workspace.\n\n\
+                                     This command will:\n\
+                                     • Check for uncommitted changes (unless --force is used)\n\
+                                     • Remove the project from the .meta file\n\
+                                     • Remove the project from .gitignore\n\
+                                     • Optionally delete the project directory (with --force)\n\n\
+                                     By default, the directory is kept on disk to prevent data loss.")
+                        .arg(
+                            Arg::new("name")
+                                .value_name("NAME")
+                                .help("Name of the project to remove")
+                                .required(true)
+                        )
+                        .arg(
+                            Arg::new("force")
+                                .long("force")
+                                .short('f')
+                                .help("Force removal even with uncommitted changes, and delete directory")
+                                .action(clap::ArgAction::SetTrue)
+                        )
+                )
         )
     }
     
@@ -154,6 +220,29 @@ impl MetaPlugin for ProjectPlugin {
                 };
                 
                 import_project(path, repo_url, &base_path)?;
+                Ok(())
+            }
+            Some(("list", _)) => {
+                let base_path = if config.meta_root().is_some() {
+                    config.meta_root().unwrap()
+                } else {
+                    config.working_dir.clone()
+                };
+                
+                list_projects(&base_path)?;
+                Ok(())
+            }
+            Some(("remove", sub_matches)) => {
+                let name = sub_matches.get_one::<String>("name").unwrap();
+                let force = sub_matches.get_flag("force");
+                
+                let base_path = if config.meta_root().is_some() {
+                    config.meta_root().unwrap()
+                } else {
+                    config.working_dir.clone()
+                };
+                
+                remove_project(name, &base_path, force)?;
                 Ok(())
             }
             Some((external_cmd, _args)) => {

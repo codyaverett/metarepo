@@ -1,5 +1,5 @@
 use anyhow::Result;
-use git2::Repository;
+use git2::{Repository, Status, StatusOptions};
 use meta_core::MetaConfig;
 use std::path::Path;
 
@@ -106,6 +106,129 @@ fn update_gitignore(base_path: &Path, project_path: &str) -> Result<()> {
         std::fs::write(&gitignore_path, content)?;
         println!("Added '{}' to .gitignore", project_path);
     }
+    
+    Ok(())
+}
+
+pub fn list_projects(base_path: &Path) -> Result<()> {
+    // Find and load the .meta file
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+    }
+    
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    
+    if config.projects.is_empty() {
+        println!("No projects found in workspace.");
+        return Ok(());
+    }
+    
+    println!("Projects in workspace:");
+    println!("─────────────────────");
+    
+    for (name, url) in &config.projects {
+        let project_path = base_path.join(name);
+        let status = if project_path.exists() {
+            if project_path.join(".git").exists() {
+                "✓ Present"
+            } else {
+                "⚠ Present (not a git repo)"
+            }
+        } else {
+            "✗ Missing"
+        };
+        
+        println!("  {} [{}]", name, status);
+        println!("    URL: {}", url);
+    }
+    
+    Ok(())
+}
+
+pub fn remove_project(project_name: &str, base_path: &Path, force: bool) -> Result<()> {
+    // Find and load the .meta file
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+    }
+    
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
+    
+    // Check if project exists in config
+    if !config.projects.contains_key(project_name) {
+        return Err(anyhow::anyhow!("Project '{}' not found in .meta file", project_name));
+    }
+    
+    let project_path = base_path.join(project_name);
+    
+    // Check for uncommitted changes if directory exists
+    if project_path.exists() && project_path.join(".git").exists() && !force {
+        let repo = Repository::open(&project_path)?;
+        
+        // Check for uncommitted changes
+        let mut status_opts = StatusOptions::new();
+        status_opts.include_untracked(true);
+        status_opts.include_ignored(false);
+        
+        let statuses = repo.statuses(Some(&mut status_opts))?;
+        
+        let has_changes = statuses.iter().any(|entry| {
+            let status = entry.status();
+            status.intersects(
+                Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED |
+                Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE |
+                Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED |
+                Status::WT_TYPECHANGE | Status::WT_RENAMED
+            )
+        });
+        
+        if has_changes {
+            eprintln!("⚠️  Warning: Project '{}' has uncommitted changes!", project_name);
+            eprintln!("    Use --force to remove anyway (changes will be lost)");
+            eprintln!("    Or commit/stash your changes first.");
+            return Err(anyhow::anyhow!("Uncommitted changes detected"));
+        }
+    }
+    
+    // Remove from .meta file
+    config.projects.remove(project_name);
+    config.save_to_file(&meta_file_path)?;
+    
+    // Remove from .gitignore
+    remove_from_gitignore(base_path, project_name)?;
+    
+    println!("✓ Removed project '{}' from .meta file", project_name);
+    
+    // Optionally remove the directory
+    if project_path.exists() {
+        if force {
+            std::fs::remove_dir_all(&project_path)?;
+            println!("✓ Removed project directory '{}'", project_name);
+        } else {
+            println!("ℹ️  Project directory '{}' still exists on disk", project_name);
+            println!("    To remove it, run: rm -rf {}", project_name);
+        }
+    }
+    
+    Ok(())
+}
+
+fn remove_from_gitignore(base_path: &Path, project_name: &str) -> Result<()> {
+    let gitignore_path = base_path.join(".gitignore");
+    
+    if !gitignore_path.exists() {
+        return Ok(());
+    }
+    
+    let content = std::fs::read_to_string(&gitignore_path)?;
+    let new_content: Vec<&str> = content
+        .lines()
+        .filter(|line| line.trim() != project_name)
+        .collect();
+    
+    std::fs::write(&gitignore_path, new_content.join("\n") + "\n")?;
+    println!("✓ Removed '{}' from .gitignore", project_name);
     
     Ok(())
 }

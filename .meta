@@ -6,10 +6,6 @@
     "target",
     ".DS_Store"
   ],
-  "projects": {
-    "container-codes": "https://github.com/codyaverett/container-codes.git",
-    "container-codes-2": "https://github.com/codyaverett/container-codes-2.git",
-    "existing-project": "https://github.com/octocat/Hello-World.git"
-  },
+  "projects": {},
   "plugins": null
 }
