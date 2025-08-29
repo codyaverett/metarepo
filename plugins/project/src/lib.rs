@@ -1,4 +1,5 @@
 use anyhow::Result;
+use colored::*;
 use git2::{Repository, Status, StatusOptions};
 use meta_core::MetaConfig;
 use std::path::{Path, PathBuf};
@@ -14,7 +15,9 @@ pub use crate::plugin::ProjectPlugin;
 mod plugin;
 
 pub fn create_project(project_path: &str, repo_url: &str, base_path: &Path) -> Result<()> {
-    println!("Creating project '{}' from {}", project_path, repo_url);
+    println!("\n  {} {}", "🌱".green(), "Creating new project...".bold());
+    println!("     {} {}", "Name:".bright_black(), project_path.bright_white());
+    println!("     {} {}", "Source:".bright_black(), repo_url.bright_cyan());
     
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
@@ -35,7 +38,7 @@ pub fn create_project(project_path: &str, repo_url: &str, base_path: &Path) -> R
         return Err(anyhow::anyhow!("Directory '{}' already exists", project_path));
     }
     
-    println!("Cloning {} to {}...", repo_url, project_path);
+    println!("     {} {}", "Status:".bright_black(), "Cloning repository...".yellow());
     Repository::clone(repo_url, &full_project_path)?;
     
     // Add to .meta file
@@ -45,8 +48,9 @@ pub fn create_project(project_path: &str, repo_url: &str, base_path: &Path) -> R
     // Update .gitignore
     update_gitignore(base_path, project_path)?;
     
-    println!("Successfully created project '{}'", project_path);
-    println!("Updated .meta file and .gitignore");
+    println!("\n  {} {}", "✅".green(), format!("Successfully created '{}'", project_path).bold().green());
+    println!("     {} {}", "└".bright_black(), "Updated .meta file and .gitignore".italic().bright_black());
+    println!();
     
     Ok(())
 }
@@ -95,14 +99,16 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
                         return Err(anyhow::anyhow!("Directory '{}' already exists", project_path));
                     }
                     
-                    println!("Creating symlink from {} to {}", project_path, external_path.display());
+                    println!("\n  {} {}", "🔗".cyan(), "Creating symlink...".bold());
+                    println!("     {} {}", "From:".bright_black(), project_path.bright_white());
+                    println!("     {} {}", "To:".bright_black(), external_path.display().to_string().bright_magenta());
                     create_symlink(&external_path, &local_project_path)?;
                     
                     let url = if let Some(detected_url) = remote_url {
-                        println!("Detected git remote: {}", detected_url);
+                        println!("     {} {}", "Remote:".bright_black(), detected_url.green());
                         format!("external:{}", detected_url)
                     } else {
-                        println!("No git remote detected, marking as external local project");
+                        println!("     {} {}", "Type:".bright_black(), "Local project (no remote)".yellow());
                         format!("external:local:{}", external_path.display())
                     };
                     
@@ -113,10 +119,12 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
                     let remote_url = get_remote_url(&repo)?;
                     
                     let url = if let Some(detected_url) = remote_url {
-                        println!("Detected git remote: {}", detected_url);
+                        println!("\n  {} {}", "📍".green(), "Using existing directory".bold());
+                        println!("     {} {}", "Remote:".bright_black(), detected_url.green());
                         detected_url
                     } else {
-                        println!("No git remote detected, marking as local project");
+                        println!("\n  {} {}", "📍".yellow(), "Using existing directory".bold());
+                        println!("     {} {}", "Type:".bright_black(), "Local project (no remote)".yellow());
                         format!("local:{}", project_path)
                     };
                     
@@ -139,10 +147,12 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
             let remote_url = get_remote_url(&repo)?;
             
             let url = if let Some(detected_url) = remote_url {
-                println!("Detected git remote: {}", detected_url);
+                println!("\n  {} {}", "📍".green(), "Using existing directory".bold());
+                println!("     {} {}", "Remote:".bright_black(), detected_url.green());
                 detected_url
             } else {
-                println!("No git remote detected, marking as local project");
+                println!("\n  {} {}", "📍".yellow(), "Using existing directory".bold());
+                println!("     {} {}", "Type:".bright_black(), "Local project (no remote)".yellow());
                 format!("local:{}", project_path)
             };
             
@@ -164,20 +174,21 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
         }
     }
     
-    println!("Importing project '{}' with URL: {}", project_path, final_repo_url);
-    
     // Add to .meta file
-    config.projects.insert(project_path.to_string(), final_repo_url);
+    config.projects.insert(project_path.to_string(), final_repo_url.clone());
     config.save_to_file(&meta_file_path)?;
     
     // Update .gitignore
     update_gitignore(base_path, project_path)?;
     
-    println!("Successfully imported project '{}'", project_path);
+    // Success message
+    println!("\n  {} {}", "✅".green(), format!("Successfully imported '{}'", project_path).bold().green());
+    
     if is_external {
-        println!("Created symlink to external directory");
+        println!("     {} {}", "└".bright_black(), "Created symlink to external directory".italic().bright_black());
     }
-    println!("Updated .meta file and .gitignore");
+    println!("     {} {}", "└".bright_black(), "Updated .meta file and .gitignore".italic().bright_black());
+    println!();
     
     Ok(())
 }
@@ -250,7 +261,7 @@ fn update_gitignore(base_path: &Path, project_path: &str) -> Result<()> {
         content.push('\n');
         
         std::fs::write(&gitignore_path, content)?;
-        println!("Added '{}' to .gitignore", project_path);
+        // Silent - shown in summary
     }
     
     Ok(())
@@ -266,12 +277,14 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
     let config = MetaConfig::load_from_file(&meta_file_path)?;
     
     if config.projects.is_empty() {
-        println!("No projects found in workspace.");
+        println!("\n  {} {}", "📦".bright_blue(), "No projects found in workspace".dimmed());
+        println!("  {} {}", "".dimmed(), "Use 'gest project import' to add projects".dimmed());
+        println!();
         return Ok(());
     }
     
-    println!("Projects in workspace:");
-    println!("─────────────────────");
+    println!("\n  {} {}", "📦".bright_blue(), "Workspace Projects".bold());
+    println!("  {}", "═".repeat(60).bright_black());
     
     for (name, url) in &config.projects {
         let project_path = base_path.join(name);
@@ -279,39 +292,53 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
         // Check if it's a symlink
         let is_symlink = project_path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false);
         
-        let status = if project_path.exists() {
+        let (status_icon, status_text, status_color) = if project_path.exists() {
             if is_symlink {
-                "⬌ External (symlink)"
+                ("🔗", "External", "cyan")
             } else if project_path.join(".git").exists() {
-                "✓ Present"
+                ("✅", "Active", "green")
             } else {
-                "⚠ Present (not a git repo)"
+                ("⚠️ ", "No Git", "yellow")
             }
         } else {
-            "✗ Missing"
+            ("❌", "Missing", "red")
         };
         
-        println!("  {} [{}]", name, status);
+        // Project name and status
+        println!();
+        print!("  {} {}", status_icon, name.bold());
         
+        match status_color {
+            "green" => println!(" {}", format!("[{}]", status_text).green()),
+            "cyan" => println!(" {}", format!("[{}]", status_text).cyan()),
+            "yellow" => println!(" {}", format!("[{}]", status_text).yellow()),
+            "red" => println!(" {}", format!("[{}]", status_text).red()),
+            _ => println!(" [{}]", status_text),
+        }
+        
+        // Project details with proper indentation and styling
         if url.starts_with("external:local:") {
             let path = url.strip_prefix("external:local:").unwrap();
-            println!("    Type: External local project (no remote)");
-            println!("    Path: {}", path);
+            println!("  {}  {} {}", "│".bright_black(), "Type:".bright_black(), "Local (no remote)".italic());
+            println!("  {}  {} {}", "│".bright_black(), "Path:".bright_black(), path.bright_white());
         } else if url.starts_with("external:") {
             let remote_url = url.strip_prefix("external:").unwrap();
-            println!("    Type: External project");
-            println!("    URL: {}", remote_url);
+            println!("  {}  {} {}", "│".bright_black(), "Type:".bright_black(), "External".cyan().italic());
+            println!("  {}  {} {}", "│".bright_black(), "Remote:".bright_black(), remote_url.bright_white());
             if is_symlink {
                 if let Ok(target) = std::fs::read_link(&project_path) {
-                    println!("    Path: {}", target.display());
+                    println!("  {}  {} {}", "└".bright_black(), "Links to:".bright_black(), target.display().to_string().bright_magenta());
                 }
             }
         } else if url.starts_with("local:") {
-            println!("    Type: Local project (no remote)");
+            println!("  {}  {} {}", "└".bright_black(), "Type:".bright_black(), "Local (no remote)".italic());
         } else {
-            println!("    URL: {}", url);
+            println!("  {}  {} {}", "└".bright_black(), "Remote:".bright_black(), url.bright_white());
         }
     }
+    
+    println!("\n  {}", "─".repeat(60).bright_black());
+    println!("  {} {} projects total\n", config.projects.len().to_string().cyan().bold(), "workspace".dimmed());
     
     Ok(())
 }
@@ -354,9 +381,10 @@ pub fn remove_project(project_name: &str, base_path: &Path, force: bool) -> Resu
         });
         
         if has_changes {
-            eprintln!("⚠️  Warning: Project '{}' has uncommitted changes!", project_name);
-            eprintln!("    Use --force to remove anyway (changes will be lost)");
-            eprintln!("    Or commit/stash your changes first.");
+            eprintln!("\n  {} {}", "⚠️".yellow(), format!("Project '{}' has uncommitted changes!", project_name).bold().yellow());
+            eprintln!("     {} {}", "│".bright_black(), "Use --force to remove anyway (changes will be lost)".bright_red());
+            eprintln!("     {} {}", "└".bright_black(), "Or commit/stash your changes first".bright_white());
+            eprintln!();
             return Err(anyhow::anyhow!("Uncommitted changes detected"));
         }
     }
@@ -368,16 +396,17 @@ pub fn remove_project(project_name: &str, base_path: &Path, force: bool) -> Resu
     // Remove from .gitignore
     remove_from_gitignore(base_path, project_name)?;
     
-    println!("✓ Removed project '{}' from .meta file", project_name);
+    println!("\n  {} {}", "🗑".red(), format!("Removed project '{}'", project_name).bold());
+    println!("     {} {}", "└".bright_black(), "Removed from .meta file".italic().bright_black());
     
     // Optionally remove the directory
     if project_path.exists() {
         if force {
             std::fs::remove_dir_all(&project_path)?;
-            println!("✓ Removed project directory '{}'", project_name);
+            println!("     {} {}", "└".bright_black(), format!("Deleted directory '{}'", project_name).italic().bright_red());
         } else {
-            println!("ℹ️  Project directory '{}' still exists on disk", project_name);
-            println!("    To remove it, run: rm -rf {}", project_name);
+            println!("     {} {}", "└".bright_black(), format!("Directory '{}' kept on disk", project_name).italic().bright_black());
+            println!("     {} {}", " ".bright_black(), format!("To remove: rm -rf {}", project_name).dimmed());
         }
     }
     
@@ -398,7 +427,7 @@ fn remove_from_gitignore(base_path: &Path, project_name: &str) -> Result<()> {
         .collect();
     
     std::fs::write(&gitignore_path, new_content.join("\n") + "\n")?;
-    println!("✓ Removed '{}' from .gitignore", project_name);
+    // Silent - shown in summary
     
     Ok(())
 }
