@@ -6,6 +6,8 @@
     "target",
     ".DS_Store"
   ],
-  "projects": {},
+  "projects": {
+    "video-chat-link": "external:git@github.com:codyaverett/video-chat.git"
+  },
   "plugins": null
 }
