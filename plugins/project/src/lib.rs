@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::*;
-use git2::{Repository, Status, StatusOptions};
+use git2::{Cred, FetchOptions, RemoteCallbacks, Repository, Status, StatusOptions};
 use meta_core::MetaConfig;
 use std::path::{Path, PathBuf};
 
@@ -39,7 +39,7 @@ pub fn create_project(project_path: &str, repo_url: &str, base_path: &Path) -> R
     }
     
     println!("     {} {}", "Status:".bright_black(), "Cloning repository...".yellow());
-    Repository::clone(repo_url, &full_project_path)?;
+    clone_with_auth(repo_url, &full_project_path)?;
     
     // Add to .meta file
     config.projects.insert(project_path.to_string(), repo_url.to_string());
@@ -168,7 +168,7 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
     if !is_external && !local_project_path.exists() {
         if !final_repo_url.starts_with("local:") && !final_repo_url.starts_with("external:") {
             println!("Cloning {} to {}...", final_repo_url, project_path);
-            Repository::clone(&final_repo_url, &local_project_path)?;
+            clone_with_auth(&final_repo_url, &local_project_path)?;
         } else {
             return Err(anyhow::anyhow!("Cannot clone a local project URL"));
         }
@@ -215,6 +215,79 @@ fn create_symlink(target: &Path, link: &Path) -> Result<()> {
     #[cfg(not(any(unix, windows)))]
     {
         Err(anyhow::anyhow!("Symbolic links are not supported on this platform"))
+    }
+}
+
+fn clone_with_auth(url: &str, path: &Path) -> Result<Repository> {
+    // Check if this is an SSH URL
+    if url.starts_with("git@") || url.starts_with("ssh://") {
+        // Set up authentication callbacks for SSH
+        let mut callbacks = RemoteCallbacks::new();
+        callbacks.credentials(|_url, username_from_url, allowed_types| {
+            // Get the username (default to "git" for GitHub/GitLab/etc)
+            let username = username_from_url.unwrap_or("git");
+            
+            // If SSH agent is requested, try it first
+            if allowed_types.contains(git2::CredentialType::SSH_KEY) {
+                // Try to find SSH keys in standard locations
+                if let Ok(home) = std::env::var("HOME") {
+                    let ssh_dir = Path::new(&home).join(".ssh");
+                    
+                    // Try common SSH key names in order of preference
+                    let key_names = ["id_ed25519", "id_rsa", "id_ecdsa", "id_dsa"];
+                    
+                    for key_name in &key_names {
+                        let private_key = ssh_dir.join(key_name);
+                        if private_key.exists() {
+                            // Check if there's a public key as well
+                            let public_key = ssh_dir.join(format!("{}.pub", key_name));
+                            let public_key_path = if public_key.exists() {
+                                Some(public_key.as_path())
+                            } else {
+                                None
+                            };
+                            
+                            if let Ok(cred) = Cred::ssh_key(
+                                username,
+                                public_key_path,
+                                private_key.as_path(),
+                                None, // No passphrase for now
+                            ) {
+                                return Ok(cred);
+                            }
+                        }
+                    }
+                }
+                
+                // Try SSH agent as fallback
+                if let Ok(cred) = Cred::ssh_key_from_agent(username) {
+                    return Ok(cred);
+                }
+            }
+            
+            // If we couldn't authenticate, return an error
+            Err(git2::Error::from_str("SSH authentication failed. Please ensure your SSH keys are set up correctly."))
+        });
+        
+        // Configure fetch options with our callbacks
+        let mut fetch_options = FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+        
+        // Build the repository with authentication
+        let mut builder = git2::build::RepoBuilder::new();
+        builder.fetch_options(fetch_options);
+        
+        // Clone the repository
+        builder.clone(url, path).map_err(|e| {
+            if e.to_string().contains("authentication") || e.to_string().contains("SSH") {
+                anyhow::anyhow!("SSH authentication failed. Please ensure:\n  1. Your SSH key is set up correctly (~/.ssh/id_ed25519 or ~/.ssh/id_rsa)\n  2. The key is added to your GitHub/GitLab account\n  3. You have access to the repository\n\nOriginal error: {}", e)
+            } else {
+                anyhow::anyhow!("Failed to clone repository: {}", e)
+            }
+        })
+    } else {
+        // For HTTPS URLs, use standard clone without authentication callbacks
+        Repository::clone(url, path).map_err(|e| anyhow::anyhow!("Failed to clone repository: {}", e))
     }
 }
 
