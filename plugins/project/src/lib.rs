@@ -689,6 +689,385 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Display projects in a tree structure
+pub fn show_project_tree(base_path: &Path) -> Result<()> {
+    // Load the root meta file
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+    }
+    
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    
+    if config.projects.is_empty() {
+        println!("\n  {} {}", "📦".bright_blue(), "No projects found in workspace".dimmed());
+        println!("  {} {}", "".dimmed(), "Use 'gest project import' to add projects".dimmed());
+        println!();
+        return Ok(());
+    }
+    
+    println!("\n  {} {}", "🌳".green(), "Project Tree".bold());
+    println!("  {}", "═".repeat(60).bright_black());
+    println!();
+    
+    // Display the root workspace with consistent formatting
+    let root_name = base_path.file_name().unwrap_or_default().to_string_lossy();
+    if meta_file_path.exists() {
+        println!("  {}/", root_name.bold().white()); // Meta repo in bold white with slash
+    } else {
+        println!("  {}/", root_name.bright_blue()); // Directory in bright blue with slash
+    }
+    
+    // Build a tree structure from the flat project list
+    #[derive(Debug, Clone)]
+    struct TreeNode {
+        name: String,
+        full_path: String,
+        is_meta: bool,
+        is_directory: bool,  // True for intermediate directories
+        children: Vec<TreeNode>,
+    }
+    
+    let mut root_nodes: Vec<TreeNode> = Vec::new();
+    
+    // Helper function to insert a path into the tree
+    fn insert_path_into_tree(nodes: &mut Vec<TreeNode>, path: &str, is_meta: bool, base_path: &Path) {
+        let parts: Vec<&str> = path.split('/').collect();
+        
+        if parts.is_empty() {
+            return;
+        }
+        
+        let first = parts[0];
+        let rest = parts[1..].join("/");
+        
+        // Find or create the node for the first part
+        let node = if let Some(existing) = nodes.iter_mut().find(|n| n.name == first) {
+            existing
+        } else {
+            // Create new node
+            let is_this_meta = if rest.is_empty() {
+                // This is the final part, use the provided is_meta
+                is_meta
+            } else {
+                // This is an intermediate, check if it's a meta repo itself
+                base_path.join(first).join(".meta").exists()
+            };
+            
+            let is_dir = !rest.is_empty() && !is_this_meta;
+            
+            nodes.push(TreeNode {
+                name: first.to_string(),
+                full_path: first.to_string(),
+                is_meta: is_this_meta,
+                is_directory: is_dir,
+                children: Vec::new(),
+            });
+            nodes.last_mut().unwrap()
+        };
+        
+        // If there are more parts, recurse
+        if !rest.is_empty() {
+            let child_full_path = format!("{}/{}", first, rest);
+            insert_path_into_subtree(&mut node.children, &rest, is_meta, &child_full_path, base_path);
+        }
+        
+        // If this node is a meta repo, load its nested projects
+        if node.is_meta && node.children.is_empty() {
+            let project_path = base_path.join(&node.name);
+            if let Ok(nested_config) = MetaConfig::load_from_file(project_path.join(".meta")) {
+                for (nested_name, _) in nested_config.projects.iter() {
+                    insert_path_into_subtree(&mut node.children, nested_name, 
+                        project_path.join(nested_name).join(".meta").exists(),
+                        &format!("{}/{}", node.name, nested_name),
+                        base_path);
+                }
+            }
+        }
+    }
+    
+    fn insert_path_into_subtree(nodes: &mut Vec<TreeNode>, path: &str, is_meta: bool, full_path: &str, base_path: &Path) {
+        let parts: Vec<&str> = path.split('/').collect();
+        
+        if parts.is_empty() {
+            return;
+        }
+        
+        let first = parts[0];
+        let rest = parts[1..].join("/");
+        
+        // Find or create the node
+        let node = if let Some(existing) = nodes.iter_mut().find(|n| n.name == first) {
+            existing
+        } else {
+            let is_this_meta = if rest.is_empty() {
+                is_meta
+            } else {
+                base_path.join(full_path.split('/').collect::<Vec<_>>()[0..full_path.split('/').count() - rest.split('/').count()].join("/"))
+                    .join(first).join(".meta").exists()
+            };
+            
+            let is_dir = !rest.is_empty() && !is_this_meta;
+            
+            nodes.push(TreeNode {
+                name: first.to_string(),
+                full_path: full_path.to_string(),
+                is_meta: is_this_meta,
+                is_directory: is_dir,
+                children: Vec::new(),
+            });
+            nodes.last_mut().unwrap()
+        };
+        
+        // If there are more parts, recurse
+        if !rest.is_empty() {
+            insert_path_into_subtree(&mut node.children, &rest, is_meta, full_path, base_path);
+        }
+        
+        // If this node is a meta repo and we haven't loaded its children yet
+        if node.is_meta && node.children.is_empty() {
+            let project_path = base_path.join(full_path);
+            if let Ok(nested_config) = MetaConfig::load_from_file(project_path.join(".meta")) {
+                for (nested_name, _) in nested_config.projects.iter() {
+                    let nested_full_path = format!("{}/{}", full_path, nested_name);
+                    insert_path_into_subtree(&mut node.children, nested_name,
+                        base_path.join(&nested_full_path).join(".meta").exists(),
+                        &nested_full_path,
+                        base_path);
+                }
+            }
+        }
+    }
+    
+    // Sort and process all projects
+    let mut sorted_projects: Vec<_> = config.projects.iter().collect();
+    sorted_projects.sort_by_key(|(name, _)| name.as_str());
+    
+    for (name, _url) in sorted_projects {
+        let project_path = base_path.join(name);
+        let is_meta = project_path.join(".meta").exists();
+        insert_path_into_tree(&mut root_nodes, name, is_meta, base_path);
+    }
+    
+    // Display the tree
+    fn print_tree(nodes: &[TreeNode], prefix: &str, _is_root: bool, base_path: &Path) {
+        // Sort nodes: directories first, then meta repos, then regular files
+        let mut sorted_nodes = nodes.to_vec();
+        sorted_nodes.sort_by(|a, b| {
+            match (a.is_directory, b.is_directory, a.is_meta, b.is_meta) {
+                (true, false, _, _) => std::cmp::Ordering::Less,
+                (false, true, _, _) => std::cmp::Ordering::Greater,
+                (false, false, true, false) => std::cmp::Ordering::Less,
+                (false, false, false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.cmp(&b.name),
+            }
+        });
+        
+        for (i, node) in sorted_nodes.iter().enumerate() {
+            let is_last = i == sorted_nodes.len() - 1;
+            let connector = if is_last { "└──" } else { "├──" };
+            
+            // Check if this is a symlink
+            let full_path = if node.full_path.is_empty() {
+                base_path.join(&node.name)
+            } else {
+                base_path.join(&node.full_path)
+            };
+            let is_symlink = full_path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false);
+            
+            // Determine display based on node type
+            let name_display = if is_symlink {
+                format!("🔗 {}", node.name.bright_magenta())  // Symlinks keep icon inline
+            } else if node.is_meta {
+                format!("{}/", node.name.bold().white())       // Meta repos in bold white with trailing slash
+            } else if node.is_directory {
+                format!("{}/", node.name.bright_blue())        // Directories in bright blue with trailing slash
+            } else {
+                node.name.white().to_string()                  // Regular projects in white
+            };
+            
+            // Print the node with consistent line formatting
+            println!("{}{} {}", 
+                prefix.dimmed(), 
+                connector.dimmed(), 
+                name_display
+            );
+            
+            if !node.children.is_empty() {
+                // Prepare child prefix
+                let child_prefix = if is_last { 
+                    format!("{}    ", prefix) 
+                } else { 
+                    format!("{}│   ", prefix) 
+                };
+                
+                print_tree(&node.children, &child_prefix, false, base_path);
+            }
+        }
+    }
+    
+    print_tree(&root_nodes, "  ", true, base_path);
+    
+    println!();
+    println!("  {}", "─".repeat(60).bright_black());
+    println!("  {} {}  {} {}  {} {}  {} {}", 
+        "📦", format!("{}/", "Meta repository").bold().white(),
+        "📁", format!("{}/", "Directory").bright_blue(),
+        "📄", "Project".white(),
+        "🔗", "Symlink".bright_magenta()
+    );
+    println!();
+    
+    Ok(())
+}
+
+/// Update all projects (pull latest changes)
+pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) -> Result<()> {
+    // Load the meta file
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+    }
+    
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    
+    if config.projects.is_empty() {
+        println!("\n  {} {}", "📦".bright_blue(), "No projects to update".dimmed());
+        return Ok(());
+    }
+    
+    println!("\n  {} {}", "🔄".cyan(), "Updating projects...".bold());
+    println!("  {}", "═".repeat(60).bright_black());
+    
+    let mut updated = 0;
+    let mut failed = 0;
+    
+    for (name, _url) in &config.projects {
+        let project_path = base_path.join(name);
+        
+        if !project_path.exists() {
+            println!("\n  {} {} {}", "⏭".yellow(), name.bright_white(), "(missing)".yellow());
+            continue;
+        }
+        
+        if !project_path.join(".git").exists() {
+            println!("\n  {} {} {}", "⏭".yellow(), name.bright_white(), "(not a git repo)".yellow());
+            continue;
+        }
+        
+        println!("\n  {} {}", "📥".green(), format!("Updating '{}'", name).bold());
+        
+        // Open the repository
+        match Repository::open(&project_path) {
+            Ok(repo) => {
+                // Fetch and pull changes
+                match pull_repository(&repo) {
+                    Ok(_) => {
+                        println!("     {} {}", "✅".green(), "Updated successfully".green());
+                        updated += 1;
+                        
+                        // If recursive and this is a meta repo, update nested projects
+                        if recursive && project_path.join(".meta").exists() {
+                            let current_depth = depth.unwrap_or(3);
+                            if current_depth > 0 {
+                                println!("     {} {}", "🔍".cyan(), "Checking nested projects...".dimmed());
+                                if let Err(e) = update_projects(&project_path, recursive, Some(current_depth - 1)) {
+                                    eprintln!("     {} {}", "⚠️".yellow(), format!("Failed to update nested: {}", e).yellow());
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("     {} {}", "❌".red(), format!("Failed to update: {}", e).red());
+                        failed += 1;
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("     {} {}", "❌".red(), format!("Failed to open repository: {}", e).red());
+                failed += 1;
+            }
+        }
+    }
+    
+    println!("\n  {}", "─".repeat(60).bright_black());
+    println!("  {} {} projects updated, {} failed", 
+        "Summary:".bright_black(), 
+        updated.to_string().green(),
+        if failed > 0 { failed.to_string().red() } else { failed.to_string().bright_black() }
+    );
+    println!();
+    
+    Ok(())
+}
+
+/// Pull latest changes from a repository
+fn pull_repository(repo: &Repository) -> Result<()> {
+    // Get the current branch
+    let head = repo.head()?;
+    let branch = head.shorthand().unwrap_or("main");
+    
+    // Set up fetch options with authentication
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.credentials(|_url, username_from_url, allowed_types| {
+        if allowed_types.contains(git2::CredentialType::SSH_KEY) {
+            let username = username_from_url.unwrap_or("git");
+            if let Ok(home) = std::env::var("HOME") {
+                let ssh_dir = Path::new(&home).join(".ssh");
+                let key_names = ["id_ed25519", "id_rsa", "id_ecdsa", "id_dsa"];
+                
+                for key_name in &key_names {
+                    let private_key = ssh_dir.join(key_name);
+                    if private_key.exists() {
+                        if let Ok(cred) = Cred::ssh_key(
+                            username,
+                            None,
+                            private_key.as_path(),
+                            None,
+                        ) {
+                            return Ok(cred);
+                        }
+                    }
+                }
+            }
+            
+            if let Ok(cred) = Cred::ssh_key_from_agent(username) {
+                return Ok(cred);
+            }
+        }
+        
+        Err(git2::Error::from_str("Authentication failed"))
+    });
+    
+    let mut fetch_options = FetchOptions::new();
+    fetch_options.remote_callbacks(callbacks);
+    
+    // Fetch from origin
+    let mut remote = repo.find_remote("origin")?;
+    remote.fetch(&[branch], Some(&mut fetch_options), None)?;
+    
+    // Fast-forward merge
+    let fetch_head = repo.find_reference("FETCH_HEAD")?;
+    let fetch_commit = repo.reference_to_annotated_commit(&fetch_head)?;
+    
+    let analysis = repo.merge_analysis(&[&fetch_commit])?;
+    
+    if analysis.0.is_up_to_date() {
+        println!("     {} {}", "ℹ".bright_black(), "Already up to date".dimmed());
+    } else if analysis.0.is_fast_forward() {
+        let refname = format!("refs/heads/{}", branch);
+        let mut reference = repo.find_reference(&refname)?;
+        reference.set_target(fetch_commit.id(), "Fast-forward")?;
+        repo.set_head(&refname)?;
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+        println!("     {} {}", "⬆".green(), "Fast-forwarded to latest".green());
+    } else {
+        return Err(anyhow::anyhow!("Cannot fast-forward, manual merge required"));
+    }
+    
+    Ok(())
+}
+
 pub fn remove_project(project_name: &str, base_path: &Path, force: bool) -> Result<()> {
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
