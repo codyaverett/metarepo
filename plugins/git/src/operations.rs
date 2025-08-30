@@ -1,8 +1,71 @@
 use anyhow::Result;
 use git2::Repository;
 use meta_core::{OutputFormat, TableOutput, OutputFormatter};
+use serde::{Serialize, Deserialize};
 use serde_json;
 use std::path::Path;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitStatus {
+    pub is_clean: bool,
+    pub summary: String,
+    pub files: Vec<FileStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileStatus {
+    pub path: String,
+    pub status: String,
+}
+
+pub fn get_git_status_formatted(repo_path: &Path) -> Result<GitStatus> {
+    let repo = Repository::open(repo_path)?;
+    let statuses = repo.statuses(None)?;
+    
+    if statuses.is_empty() {
+        Ok(GitStatus {
+            is_clean: true,
+            summary: "Clean working directory".to_string(),
+            files: Vec::new(),
+        })
+    } else {
+        let mut files = Vec::new();
+        let mut modified_count = 0;
+        let mut untracked_count = 0;
+        
+        for entry in statuses.iter() {
+            if let Some(path) = entry.path() {
+                let status = entry.status();
+                let status_desc = if status.is_wt_new() {
+                    untracked_count += 1;
+                    "untracked"
+                } else if status.is_wt_modified() || status.is_index_modified() {
+                    modified_count += 1;
+                    "modified"
+                } else if status.is_wt_deleted() || status.is_index_deleted() {
+                    "deleted"
+                } else if status.is_index_new() {
+                    "added"
+                } else {
+                    "unknown"
+                };
+                
+                files.push(FileStatus {
+                    path: path.to_string(),
+                    status: status_desc.to_string(),
+                });
+            }
+        }
+        
+        let summary = format!("{} modified, {} untracked", modified_count, untracked_count);
+        
+        Ok(GitStatus {
+            is_clean: false,
+            summary,
+            files,
+        })
+    }
+}
 
 pub fn get_git_status(repo_path: &Path, output_format: OutputFormat) -> Result<String> {
     let repo = Repository::open(repo_path)?;

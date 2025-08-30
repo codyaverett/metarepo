@@ -25,11 +25,11 @@ impl PluginRegistry {
     }
     
     pub fn register_all_workspace_plugins_with_flags(&mut self, experimental: bool) {
-        // Register built-in workspace plugins
+        // Register built-in workspace plugins (using FormattedPlugin versions where available)
         self.register(Box::new(meta_init::InitPlugin::new()));
-        self.register(Box::new(meta_git::GitPlugin::new()));
+        self.register(Box::new(meta_git::FormattedGitPlugin::new()));
         self.register(Box::new(meta_project::ProjectPlugin::new()));
-        self.register(Box::new(gestalt_exec::ExecPlugin::new()));
+        self.register(Box::new(gestalt_exec::FormattedExecPlugin::new()));
         self.register(Box::new(gestalt_rules::RulesPlugin::new()));
         
         // Only register experimental plugins if flag is set

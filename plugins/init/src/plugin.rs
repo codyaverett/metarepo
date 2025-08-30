@@ -1,7 +1,7 @@
-use crate::initialize_meta_repo;
+use crate::initialize_meta_repo_formatted;
 use anyhow::Result;
 use clap::{ArgMatches, Command};
-use meta_core::{MetaPlugin, RuntimeConfig, output_format_arg};
+use meta_core::{MetaPlugin, RuntimeConfig, FormattedPlugin, OutputContext, output_format_arg};
 
 pub struct InitPlugin;
 
@@ -27,13 +27,24 @@ impl MetaPlugin for InitPlugin {
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        let output_format = self.get_output_format(matches);
-        initialize_meta_repo(&config.working_dir, output_format)?;
-        Ok(())
+        <Self as FormattedPlugin>::handle_command(self, matches, config)
+    }
+}
+
+impl FormattedPlugin for InitPlugin {
+    fn formatted_commands(&self) -> Vec<&str> {
+        vec!["init"]
     }
     
-    fn supports_output_format(&self) -> bool {
-        true
+    fn handle_formatted_command(
+        &self,
+        _command: &str,
+        _matches: &ArgMatches,
+        config: &RuntimeConfig,
+        output: &mut dyn OutputContext,
+    ) -> Result<()> {
+        initialize_meta_repo_formatted(&config.working_dir, output)?;
+        Ok(())
     }
 }
 

@@ -9,6 +9,10 @@ pub use output::{OutputFormat, OutputFormatter, TableOutput, ListOutput, TreeOut
                  ListItemStatus, TreeNodeType, format_success, format_error, 
                  format_warning, format_info, format_header, format_section};
 
+pub mod formatted_plugin;
+pub use formatted_plugin::{FormattedPlugin, OutputContext, OutputContextImpl, 
+                           OutputBuilder, Status, add_output_format_to_commands};
+
 use clap::Arg;
 
 /// Helper function to create the standard output-format argument
