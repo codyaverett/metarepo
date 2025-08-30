@@ -1,7 +1,7 @@
 use crate::initialize_meta_repo;
 use anyhow::Result;
 use clap::{ArgMatches, Command};
-use meta_core::{MetaPlugin, RuntimeConfig};
+use meta_core::{MetaPlugin, RuntimeConfig, output_format_arg};
 
 pub struct InitPlugin;
 
@@ -22,12 +22,18 @@ impl MetaPlugin for InitPlugin {
                 .visible_alias("i")
                 .about("Initialize a new meta repository")
                 .long_about("Initialize the current directory as a meta repository by creating a .meta file with default configuration and updating .gitignore patterns.")
+                .arg(output_format_arg())
         )
     }
     
-    fn handle_command(&self, _matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        initialize_meta_repo(&config.working_dir)?;
+    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+        let output_format = self.get_output_format(matches);
+        initialize_meta_repo(&config.working_dir, output_format)?;
         Ok(())
+    }
+    
+    fn supports_output_format(&self) -> bool {
+        true
     }
 }
 

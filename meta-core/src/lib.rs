@@ -4,6 +4,23 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+pub mod output;
+pub use output::{OutputFormat, OutputFormatter, TableOutput, ListOutput, TreeOutput, 
+                 ListItemStatus, TreeNodeType, format_success, format_error, 
+                 format_warning, format_info, format_header, format_section};
+
+use clap::Arg;
+
+/// Helper function to create the standard output-format argument
+pub fn output_format_arg() -> Arg {
+    Arg::new("output-format")
+        .long("output-format")
+        .value_name("FORMAT")
+        .help("Output format (human, ai, json)")
+        .default_value("human")
+        .value_parser(["human", "ai", "json"])
+}
+
 /// Trait that all meta plugins must implement
 pub trait MetaPlugin: Send + Sync {
     /// Returns the plugin name (used for command routing)
@@ -18,6 +35,18 @@ pub trait MetaPlugin: Send + Sync {
     /// Returns true if this plugin is experimental (default: false)
     fn is_experimental(&self) -> bool {
         false
+    }
+    
+    /// Returns true if this plugin supports output format options (default: false)
+    fn supports_output_format(&self) -> bool {
+        false
+    }
+    
+    /// Get the output format from command arguments (default: Human)
+    fn get_output_format(&self, matches: &ArgMatches) -> OutputFormat {
+        matches.get_one::<String>("output-format")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default()
     }
 }
 

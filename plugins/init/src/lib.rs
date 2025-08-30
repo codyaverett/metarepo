@@ -1,5 +1,5 @@
 use anyhow::Result;
-use meta_core::MetaConfig;
+use meta_core::{MetaConfig, OutputFormat, format_success, format_info};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -23,7 +23,7 @@ fn create_default_config() -> MetaConfig {
     }
 }
 
-pub fn initialize_meta_repo<P: AsRef<Path>>(path: P) -> Result<()> {
+pub fn initialize_meta_repo<P: AsRef<Path>>(path: P, output_format: OutputFormat) -> Result<()> {
     let meta_file_path = path.as_ref().join(".meta");
     
     // Check if .meta file already exists
@@ -39,15 +39,56 @@ pub fn initialize_meta_repo<P: AsRef<Path>>(path: P) -> Result<()> {
     fs::write(&meta_file_path, content)?;
     
     // Create or update .gitignore
-    update_gitignore(&path)?;
+    let gitignore_updated = update_gitignore(&path)?;
     
-    println!("Meta repository initialized successfully!");
-    println!("Created .meta file with default configuration.");
+    // Format output based on output format
+    match output_format {
+        OutputFormat::Human => {
+            println!("{}", format_success("Meta repository initialized successfully!", output_format));
+            println!("{}", format_info("Created .meta file with default configuration.", output_format));
+            if gitignore_updated {
+                println!("{}", format_info("Updated .gitignore with meta repository patterns.", output_format));
+            }
+        },
+        OutputFormat::Ai => {
+            println!("## Meta Repository Initialization");
+            println!();
+            println!("✓ **Created**: `.meta` file with default configuration");
+            if gitignore_updated {
+                println!("✓ **Updated**: `.gitignore` with meta repository patterns");
+            }
+            println!();
+            println!("### Default Configuration");
+            println!("```json");
+            println!("{}", serde_json::to_string_pretty(&config)?);
+            println!("```");
+        },
+        OutputFormat::Json => {
+            let result = serde_json::json!({
+                "status": "success",
+                "message": "Meta repository initialized",
+                "actions": [
+                    {
+                        "type": "created",
+                        "file": ".meta",
+                        "description": "Meta configuration file"
+                    },
+                    {
+                        "type": if gitignore_updated { "updated" } else { "skipped" },
+                        "file": ".gitignore",
+                        "description": "Git ignore patterns"
+                    }
+                ],
+                "config": config
+            });
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+    }
     
     Ok(())
 }
 
-fn update_gitignore<P: AsRef<Path>>(path: P) -> Result<()> {
+fn update_gitignore<P: AsRef<Path>>(path: P) -> Result<bool> {
     let gitignore_path = path.as_ref().join(".gitignore");
     
     let mut existing_content = if gitignore_path.exists() {
@@ -79,10 +120,9 @@ fn update_gitignore<P: AsRef<Path>>(path: P) -> Result<()> {
     
     if updated {
         fs::write(&gitignore_path, existing_content)?;
-        println!("Updated .gitignore with meta repository patterns.");
     }
     
-    Ok(())
+    Ok(updated)
 }
 
 #[cfg(test)]
@@ -96,7 +136,7 @@ mod tests {
         let path = temp_dir.path();
         
         // Initialize meta repo
-        initialize_meta_repo(path).unwrap();
+        initialize_meta_repo(path, OutputFormat::Human).unwrap();
         
         // Check .meta file was created
         let meta_file = path.join(".meta");
@@ -123,7 +163,7 @@ mod tests {
         fs::write(&meta_file, "{}").unwrap();
         
         // Try to initialize again
-        let result = initialize_meta_repo(path);
+        let result = initialize_meta_repo(path, OutputFormat::Human);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already initialized"));
     }

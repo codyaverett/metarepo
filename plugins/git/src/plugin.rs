@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
-use meta_core::{MetaPlugin, RuntimeConfig};
+use meta_core::{MetaPlugin, RuntimeConfig, output_format_arg, OutputFormat, format_header};
+use serde_json;
 use crate::{clone_repository, get_git_status, clone_missing_repos};
 
 pub struct GitPlugin;
@@ -60,16 +61,19 @@ impl MetaPlugin for GitPlugin {
                                 .help("Repository URL to clone")
                                 .required(true)
                         )
+                        .arg(output_format_arg())
                 )
                 .subcommand(
                     Command::new("status")
                         .visible_aliases(["st", "s"])
                         .about("Show git status across all repositories")
+                        .arg(output_format_arg())
                 )
                 .subcommand(
                     Command::new("update")
                         .visible_aliases(["up", "u"])
                         .about("Clone missing repositories")
+                        .arg(output_format_arg())
                 )
         )
     }
@@ -83,7 +87,13 @@ impl MetaPlugin for GitPlugin {
         match matches.subcommand() {
             Some(("clone", sub_matches)) => {
                 let url = sub_matches.get_one::<String>("url").unwrap();
-                println!("Cloning meta repository from: {}", url);
+                let output_format = self.get_output_format(sub_matches);
+                
+                match output_format {
+                    OutputFormat::Human => println!("Cloning meta repository from: {}", url),
+                    OutputFormat::Ai => println!("## Cloning Meta Repository\n\n- **Source**: `{}`", url),
+                    _ => {},
+                }
                 
                 // Extract repo name from URL for directory name
                 let repo_name = url.split('/').last()
@@ -91,26 +101,62 @@ impl MetaPlugin for GitPlugin {
                     .trim_end_matches(".git");
                 
                 let target_path = config.working_dir.join(repo_name);
-                clone_repository(url, &target_path)?;
+                clone_repository(url, &target_path, output_format)?;
                 
                 // After cloning, look for .meta file and clone child repos
                 let meta_file = target_path.join(".meta");
                 if meta_file.exists() {
                     std::env::set_current_dir(&target_path)?;
-                    clone_missing_repos()?;
+                    clone_missing_repos(output_format)?;
                 }
                 
                 Ok(())
             }
-            Some(("status", _)) => {
-                println!("Git status across all repositories:");
-                println!("================================");
+            Some(("status", sub_matches)) => {
+                let output_format = self.get_output_format(sub_matches);
+                
+                match output_format {
+                    OutputFormat::Human => {
+                        println!("{}", format_header("Git Status Across All Repositories", output_format));
+                        println!();
+                    },
+                    OutputFormat::Ai => println!("## Git Status Across All Repositories\n"),
+                    _ => {},
+                }
+                
+                let mut all_statuses = Vec::new();
                 
                 // Show status for main repo
-                println!("\nMain repository:");
-                match get_git_status(&config.working_dir) {
-                    Ok(status) => println!("{}", status),
-                    Err(e) => println!("Error: {}", e),
+                if output_format == OutputFormat::Human {
+                    println!("Main repository:");
+                }
+                
+                match get_git_status(&config.working_dir, output_format) {
+                    Ok(status) => {
+                        match output_format {
+                            OutputFormat::Human => println!("{}", status),
+                            OutputFormat::Ai => println!("### Main Repository\n\n{}", status),
+                            OutputFormat::Json => {
+                                let parsed: serde_json::Value = serde_json::from_str(&status).unwrap_or_default();
+                                all_statuses.push(serde_json::json!({
+                                    "project": ".",
+                                    "status": parsed
+                                }));
+                            },
+                        }
+                    },
+                    Err(e) => {
+                        match output_format {
+                            OutputFormat::Human => println!("Error: {}", e),
+                            OutputFormat::Ai => println!("### Main Repository\n\n✗ **Error**: {}", e),
+                            OutputFormat::Json => {
+                                all_statuses.push(serde_json::json!({
+                                    "project": ".",
+                                    "error": e.to_string()
+                                }));
+                            },
+                        }
+                    },
                 }
                 
                 // Show status for each project
@@ -122,21 +168,67 @@ impl MetaPlugin for GitPlugin {
                     };
                     
                     if full_path.exists() {
-                        println!("\n{}:", project_path);
-                        match get_git_status(&full_path) {
-                            Ok(status) => println!("{}", status),
-                            Err(e) => println!("Error: {}", e),
+                        if output_format == OutputFormat::Human {
+                            println!("\n{}:", project_path);
+                        }
+                        
+                        match get_git_status(&full_path, output_format) {
+                            Ok(status) => {
+                                match output_format {
+                                    OutputFormat::Human => println!("{}", status),
+                                    OutputFormat::Ai => println!("\n### {}\n\n{}", project_path, status),
+                                    OutputFormat::Json => {
+                                        let parsed: serde_json::Value = serde_json::from_str(&status).unwrap_or_default();
+                                        all_statuses.push(serde_json::json!({
+                                            "project": project_path,
+                                            "status": parsed
+                                        }));
+                                    },
+                                }
+                            },
+                            Err(e) => {
+                                match output_format {
+                                    OutputFormat::Human => println!("Error: {}", e),
+                                    OutputFormat::Ai => println!("\n### {}\n\n✗ **Error**: {}", project_path, e),
+                                    OutputFormat::Json => {
+                                        all_statuses.push(serde_json::json!({
+                                            "project": project_path,
+                                            "error": e.to_string()
+                                        }));
+                                    },
+                                }
+                            },
                         }
                     } else {
-                        println!("\n{}: (not cloned)", project_path);
+                        match output_format {
+                            OutputFormat::Human => println!("\n{}: (not cloned)", project_path),
+                            OutputFormat::Ai => println!("\n### {}\n\n⚠ **Warning**: Not cloned", project_path),
+                            OutputFormat::Json => {
+                                all_statuses.push(serde_json::json!({
+                                    "project": project_path,
+                                    "status": "not_cloned"
+                                }));
+                            },
+                        }
                     }
+                }
+                
+                if output_format == OutputFormat::Json {
+                    println!("{}", serde_json::to_string_pretty(&all_statuses)?);
                 }
                 
                 Ok(())
             }
-            Some(("update", _)) => {
-                println!("Cloning missing repositories...");
-                clone_missing_repos()?;
+            Some(("update", sub_matches)) => {
+                let output_format = self.get_output_format(sub_matches);
+                
+                match output_format {
+                    OutputFormat::Human => println!("Cloning missing repositories..."),
+                    OutputFormat::Ai => println!("## Cloning Missing Repositories\n"),
+                    _ => {},
+                }
+                
+                clone_missing_repos(output_format)?;
                 Ok(())
             }
             Some((external_cmd, _args)) => {
@@ -150,6 +242,10 @@ impl MetaPlugin for GitPlugin {
                 self.show_help()
             }
         }
+    }
+    
+    fn supports_output_format(&self) -> bool {
+        true
     }
 }
 
