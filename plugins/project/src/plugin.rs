@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
 use meta_core::{MetaPlugin, RuntimeConfig};
-use crate::{create_project, import_project, import_project_recursive, list_projects, remove_project};
+use crate::{create_project, import_project, import_project_recursive, list_projects, remove_project, show_project_tree, update_projects};
 
 pub struct ProjectPlugin;
 
@@ -96,6 +96,45 @@ impl ProjectPlugin {
                                  • ✓ Present - Directory exists with git repository\n\
                                  • ⚠ Present (not a git repo) - Directory exists but not a git repo\n\
                                  • ✗ Missing - Listed in .meta but directory doesn't exist")
+                    .arg(
+                        Arg::new("tree")
+                            .long("tree")
+                            .short('t')
+                            .help("Display projects in tree format showing nested structure")
+                            .action(clap::ArgAction::SetTrue)
+                    )
+            )
+            .subcommand(
+                Command::new("tree")
+                    .about("Display project hierarchy as a tree")
+                    .long_about("Display the project hierarchy as a tree.\n\n\
+                                 Shows nested meta repositories and their structure.\n\
+                                 • 📦 = Meta repository (contains .meta file)\n\
+                                 • 📄 = Regular project")
+            )
+            .subcommand(
+                Command::new("update")
+                    .about("Update all projects (pull latest changes)")
+                    .long_about("Update all projects by pulling latest changes.\n\n\
+                                 This command will:\n\
+                                 • Fetch and pull changes for each project\n\
+                                 • Optionally update nested repositories (with --recursive)\n\
+                                 • Skip missing or non-git directories\n\
+                                 • Report success/failure for each project")
+                    .arg(
+                        Arg::new("recursive")
+                            .long("recursive")
+                            .short('r')
+                            .help("Also update nested repositories")
+                            .action(clap::ArgAction::SetTrue)
+                    )
+                    .arg(
+                        Arg::new("depth")
+                            .long("depth")
+                            .value_name("DEPTH")
+                            .help("Maximum depth for recursive updates (default: 3)")
+                            .value_parser(clap::value_parser!(usize))
+                    )
             )
             .subcommand(
                 Command::new("remove")
@@ -226,6 +265,46 @@ impl MetaPlugin for ProjectPlugin {
                                      • ✓ Present - Directory exists with git repository\n\
                                      • ⚠ Present (not a git repo) - Directory exists but not a git repo\n\
                                      • ✗ Missing - Listed in .meta but directory doesn't exist")
+                        .arg(
+                            Arg::new("tree")
+                                .long("tree")
+                                .short('t')
+                                .help("Display projects in tree format showing nested structure")
+                                .action(clap::ArgAction::SetTrue)
+                        )
+                )
+                .subcommand(
+                    Command::new("tree")
+                        .about("Display project hierarchy as a tree")
+                        .long_about("Display the project hierarchy as a tree.\n\n\
+                                     Shows nested meta repositories and their structure.\n\
+                                     • 📦 = Meta repository (contains .meta file)\n\
+                                     • 📄 = Regular project")
+                )
+                .subcommand(
+                    Command::new("update")
+                        .visible_alias("pull")
+                        .about("Update all projects (pull latest changes)")
+                        .long_about("Update all projects by pulling latest changes.\n\n\
+                                     This command will:\n\
+                                     • Fetch and pull changes for each project\n\
+                                     • Optionally update nested repositories (with --recursive)\n\
+                                     • Skip missing or non-git directories\n\
+                                     • Report success/failure for each project")
+                        .arg(
+                            Arg::new("recursive")
+                                .long("recursive")
+                                .short('r')
+                                .help("Also update nested repositories")
+                                .action(clap::ArgAction::SetTrue)
+                        )
+                        .arg(
+                            Arg::new("depth")
+                                .long("depth")
+                                .value_name("DEPTH")
+                                .help("Maximum depth for recursive updates (default: 3)")
+                                .value_parser(clap::value_parser!(usize))
+                        )
                 )
                 .subcommand(
                     Command::new("remove")
@@ -310,14 +389,42 @@ impl MetaPlugin for ProjectPlugin {
                 }
                 Ok(())
             }
-            Some(("list", _)) => {
+            Some(("list", sub_matches)) => {
                 let base_path = if config.meta_root().is_some() {
                     config.meta_root().unwrap()
                 } else {
                     config.working_dir.clone()
                 };
                 
-                list_projects(&base_path)?;
+                // Check if --tree flag is set
+                if sub_matches.get_flag("tree") {
+                    show_project_tree(&base_path)?;
+                } else {
+                    list_projects(&base_path)?;
+                }
+                Ok(())
+            }
+            Some(("tree", _)) => {
+                let base_path = if config.meta_root().is_some() {
+                    config.meta_root().unwrap()
+                } else {
+                    config.working_dir.clone()
+                };
+                
+                show_project_tree(&base_path)?;
+                Ok(())
+            }
+            Some(("update", sub_matches)) => {
+                let base_path = if config.meta_root().is_some() {
+                    config.meta_root().unwrap()
+                } else {
+                    config.working_dir.clone()
+                };
+                
+                let recursive = sub_matches.get_flag("recursive");
+                let depth = sub_matches.get_one::<usize>("depth").copied();
+                
+                update_projects(&base_path, recursive, depth)?;
                 Ok(())
             }
             Some(("remove", sub_matches)) => {
