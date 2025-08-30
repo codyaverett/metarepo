@@ -44,6 +44,43 @@ impl RuntimeConfig {
     }
 }
 
+/// Configuration for nested repository handling
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NestedConfig {
+    #[serde(default = "default_recursive_import")]
+    pub recursive_import: bool,
+    #[serde(default = "default_max_depth")]
+    pub max_depth: usize,
+    #[serde(default)]
+    pub flatten: bool,
+    #[serde(default = "default_cycle_detection")]
+    pub cycle_detection: bool,
+    #[serde(default)]
+    pub ignore_nested: Vec<String>,
+    #[serde(default)]
+    pub namespace_separator: Option<String>,
+    #[serde(default)]
+    pub preserve_structure: bool,
+}
+
+fn default_recursive_import() -> bool { false }
+fn default_max_depth() -> usize { 3 }
+fn default_cycle_detection() -> bool { true }
+
+impl Default for NestedConfig {
+    fn default() -> Self {
+        Self {
+            recursive_import: default_recursive_import(),
+            max_depth: default_max_depth(),
+            flatten: false,
+            cycle_detection: default_cycle_detection(),
+            ignore_nested: Vec::new(),
+            namespace_separator: None,
+            preserve_structure: false,
+        }
+    }
+}
+
 /// The .meta file configuration format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetaConfig {
@@ -53,6 +90,8 @@ pub struct MetaConfig {
     pub projects: HashMap<String, String>, // path -> repo_url
     #[serde(default)]
     pub plugins: Option<HashMap<String, String>>, // name -> version/path
+    #[serde(default)]
+    pub nested: Option<NestedConfig>, // nested repository configuration
 }
 
 impl Default for MetaConfig {
@@ -66,6 +105,7 @@ impl Default for MetaConfig {
             ],
             projects: HashMap::new(),
             plugins: None,
+            nested: None,
         }
     }
 }
