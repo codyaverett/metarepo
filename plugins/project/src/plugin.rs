@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
 use meta_core::{MetaPlugin, RuntimeConfig};
-use crate::{create_project, import_project, list_projects, remove_project};
+use crate::{create_project, import_project, import_project_recursive, list_projects, remove_project};
 
 pub struct ProjectPlugin;
 
@@ -44,7 +44,8 @@ impl ProjectPlugin {
                                  • Clone if SOURCE is a git URL\n\
                                  • Auto-detect git remote if SOURCE is omitted\n\
                                  • Add the project to the .meta file\n\
-                                 • Update .gitignore to exclude the project\n\n\
+                                 • Update .gitignore to exclude the project\n\
+                                 • Optionally import nested meta repositories (with --recursive)\n\n\
                                  PATH: Where to place the project in the workspace\n\
                                  SOURCE: Git URL or path to external directory (optional)")
                     .arg(
@@ -58,6 +59,33 @@ impl ProjectPlugin {
                             .value_name("SOURCE")
                             .help("Git URL or path to external directory (optional)")
                             .required(false)
+                    )
+                    .arg(
+                        Arg::new("recursive")
+                            .long("recursive")
+                            .short('r')
+                            .help("Recursively import nested meta repositories")
+                            .action(clap::ArgAction::SetTrue)
+                    )
+                    .arg(
+                        Arg::new("max-depth")
+                            .long("max-depth")
+                            .value_name("DEPTH")
+                            .help("Maximum depth for recursive imports (default: 3)")
+                            .value_parser(clap::value_parser!(usize))
+                    )
+                    .arg(
+                        Arg::new("flatten")
+                            .long("flatten")
+                            .help("Import nested projects at root level instead of maintaining hierarchy")
+                            .action(clap::ArgAction::SetTrue)
+                    )
+                    .arg(
+                        Arg::new("no-recursive")
+                            .long("no-recursive")
+                            .help("Disable recursive import even if configured in .meta")
+                            .action(clap::ArgAction::SetTrue)
+                            .conflicts_with("recursive")
                     )
             )
             .subcommand(
@@ -145,7 +173,8 @@ impl MetaPlugin for ProjectPlugin {
                                      • Clone if SOURCE is a git URL\n\
                                      • Auto-detect git remote if SOURCE is omitted\n\
                                      • Add the project to the .meta file\n\
-                                     • Update .gitignore to exclude the project\n\n\
+                                     • Update .gitignore to exclude the project\n\
+                                     • Optionally import nested meta repositories (with --recursive)\n\n\
                                      PATH: Where to place the project in the workspace\n\
                                      SOURCE: Git URL or path to external directory (optional)")
                         .arg(
@@ -159,6 +188,33 @@ impl MetaPlugin for ProjectPlugin {
                                 .value_name("SOURCE")
                                 .help("Git URL or path to external directory (optional)")
                                 .required(false)
+                        )
+                        .arg(
+                            Arg::new("recursive")
+                                .long("recursive")
+                                .short('r')
+                                .help("Recursively import nested meta repositories")
+                                .action(clap::ArgAction::SetTrue)
+                        )
+                        .arg(
+                            Arg::new("max-depth")
+                                .long("max-depth")
+                                .value_name("DEPTH")
+                                .help("Maximum depth for recursive imports (default: 3)")
+                                .value_parser(clap::value_parser!(usize))
+                        )
+                        .arg(
+                            Arg::new("flatten")
+                                .long("flatten")
+                                .help("Import nested projects at root level instead of maintaining hierarchy")
+                                .action(clap::ArgAction::SetTrue)
+                        )
+                        .arg(
+                            Arg::new("no-recursive")
+                                .long("no-recursive")
+                                .help("Disable recursive import even if configured in .meta")
+                                .action(clap::ArgAction::SetTrue)
+                                .conflicts_with("recursive")
                         )
                 )
                 .subcommand(
@@ -229,7 +285,29 @@ impl MetaPlugin for ProjectPlugin {
                     config.working_dir.clone()
                 };
                 
-                import_project(path, source, &base_path)?;
+                // Check for recursive import flags
+                let recursive = sub_matches.get_flag("recursive");
+                let no_recursive = sub_matches.get_flag("no-recursive");
+                let flatten = sub_matches.get_flag("flatten");
+                let max_depth = sub_matches.get_one::<usize>("max-depth").copied();
+                
+                // Determine if we should use recursive import
+                let use_recursive = if no_recursive {
+                    false // Explicitly disabled
+                } else if recursive || flatten || max_depth.is_some() {
+                    true // Explicitly enabled or has related flags
+                } else {
+                    // Check configuration
+                    config.meta_config.nested.as_ref()
+                        .map(|n| n.recursive_import)
+                        .unwrap_or(false)
+                };
+                
+                if use_recursive || flatten || max_depth.is_some() {
+                    import_project_recursive(path, source, &base_path, use_recursive, max_depth, flatten)?;
+                } else {
+                    import_project(path, source, &base_path)?;
+                }
                 Ok(())
             }
             Some(("list", _)) => {

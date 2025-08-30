@@ -1,7 +1,8 @@
 use anyhow::Result;
 use colored::*;
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository, Status, StatusOptions};
-use meta_core::MetaConfig;
+use meta_core::{MetaConfig, NestedConfig};
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
@@ -13,6 +14,112 @@ use std::os::windows::fs;
 pub use crate::plugin::ProjectPlugin;
 
 mod plugin;
+
+/// Context for tracking nested repository imports
+pub struct ImportContext {
+    /// Set of repository URLs that have been visited
+    visited: HashSet<String>,
+    /// Current import chain for cycle detection
+    import_chain: Vec<String>,
+    /// Current depth in the import tree
+    current_depth: usize,
+    /// Maximum allowed depth
+    max_depth: usize,
+    /// Whether cycle detection is enabled
+    cycle_detection: bool,
+    /// Projects to ignore during nested import
+    ignore_nested: HashSet<String>,
+    /// Whether to flatten the structure
+    flatten: bool,
+    /// Base path for all imports
+    base_path: PathBuf,
+}
+
+impl ImportContext {
+    pub fn new(base_path: &Path, nested_config: Option<&NestedConfig>) -> Self {
+        let default_config = NestedConfig::default();
+        let config = nested_config.unwrap_or(&default_config);
+        Self {
+            visited: HashSet::new(),
+            import_chain: Vec::new(),
+            current_depth: 0,
+            max_depth: config.max_depth,
+            cycle_detection: config.cycle_detection,
+            ignore_nested: config.ignore_nested.iter().cloned().collect(),
+            flatten: config.flatten,
+            base_path: base_path.to_path_buf(),
+        }
+    }
+    
+    /// Check if importing this URL would create a cycle
+    pub fn would_create_cycle(&self, url: &str) -> Option<Vec<String>> {
+        if !self.cycle_detection {
+            return None;
+        }
+        
+        if self.import_chain.contains(&url.to_string()) {
+            let mut cycle_path = self.import_chain.clone();
+            cycle_path.push(url.to_string());
+            return Some(cycle_path);
+        }
+        
+        None
+    }
+    
+    /// Check if we've reached the maximum depth
+    pub fn at_max_depth(&self) -> bool {
+        self.current_depth >= self.max_depth
+    }
+    
+    /// Enter a new import level
+    pub fn enter_import(&mut self, url: &str) -> Result<()> {
+        if let Some(cycle_path) = self.would_create_cycle(url) {
+            return Err(anyhow::anyhow!(
+                "Circular dependency detected!\n  {}\n\nCycle path:\n{}",
+                cycle_path.join(" → "),
+                cycle_path.iter().enumerate()
+                    .map(|(i, p)| format!("  {}. {}{}", 
+                        i + 1, 
+                        p,
+                        if i == cycle_path.len() - 1 { " (CYCLE!)" } else { "" }
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
+        }
+        
+        if self.at_max_depth() {
+            return Err(anyhow::anyhow!(
+                "Maximum recursion depth ({}) exceeded. Use --max-depth to increase the limit.",
+                self.max_depth
+            ));
+        }
+        
+        self.import_chain.push(url.to_string());
+        self.current_depth += 1;
+        self.visited.insert(url.to_string());
+        
+        Ok(())
+    }
+    
+    /// Exit the current import level
+    pub fn exit_import(&mut self) {
+        self.import_chain.pop();
+        if self.current_depth > 0 {
+            self.current_depth -= 1;
+        }
+    }
+    
+    /// Check if a project should be ignored
+    pub fn should_ignore(&self, project_name: &str) -> bool {
+        self.ignore_nested.contains(project_name)
+    }
+    
+    /// Check if we should flatten the import structure
+    pub fn should_flatten(&self) -> bool {
+        self.flatten
+    }
+}
 
 pub fn create_project(project_path: &str, repo_url: &str, base_path: &Path) -> Result<()> {
     println!("\n  {} {}", "🌱".green(), "Creating new project...".bold());
@@ -189,6 +296,172 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
     }
     println!("     {} {}", "└".bright_black(), "Updated .meta file and .gitignore".italic().bright_black());
     println!();
+    
+    Ok(())
+}
+
+/// Import a project with recursive nested repository support
+pub fn import_project_recursive(
+    project_path: &str, 
+    source: Option<&str>, 
+    base_path: &Path,
+    recursive: bool,
+    max_depth: Option<usize>,
+    flatten: bool,
+) -> Result<()> {
+    // Load the root meta config
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+    }
+    
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    
+    // Create import context with configuration
+    let mut nested_config = config.nested.clone().unwrap_or_default();
+    if let Some(depth) = max_depth {
+        nested_config.max_depth = depth;
+    }
+    if recursive {
+        nested_config.recursive_import = true;
+    }
+    nested_config.flatten = flatten;
+    
+    let mut context = ImportContext::new(base_path, Some(&nested_config));
+    
+    // Import the root project
+    import_project(project_path, source, base_path)?;
+    
+    // If recursive import is enabled, process nested repositories
+    if nested_config.recursive_import {
+        let project_path_buf = base_path.join(project_path);
+        if let Err(e) = process_nested_repositories(&project_path_buf, &mut context, &nested_config) {
+            eprintln!("\n  {} {}", "⚠️".yellow(), "Warning: Failed to process nested repositories".yellow());
+            eprintln!("     {} {}", "└".bright_black(), e.to_string().bright_red());
+        }
+    }
+    
+    Ok(())
+}
+
+/// Process nested repositories in a project
+fn process_nested_repositories(
+    project_path: &Path,
+    context: &mut ImportContext,
+    nested_config: &NestedConfig,
+) -> Result<()> {
+    // Check if this project has a .meta file (is a meta repository)
+    let nested_meta_path = project_path.join(".meta");
+    if !nested_meta_path.exists() {
+        return Ok(()); // Not a meta repository, nothing to do
+    }
+    
+    println!("\n  {} {}", "🔍".cyan(), format!("Found nested meta repository in '{}'", project_path.file_name().unwrap_or_default().to_string_lossy()).bold());
+    
+    // Load the nested meta configuration
+    let nested_meta = MetaConfig::load_from_file(&nested_meta_path)?;
+    
+    // Check depth before processing
+    if context.at_max_depth() {
+        println!("     {} {}", "⚠️".yellow(), format!("Skipping nested imports (max depth {} reached)", context.max_depth).yellow());
+        return Ok(());
+    }
+    
+    // Process each project in the nested meta file
+    let mut import_queue = VecDeque::new();
+    for (name, url) in &nested_meta.projects {
+        if context.should_ignore(name) {
+            println!("     {} {}", "⏭".bright_black(), format!("Skipping ignored project '{}'", name).dimmed());
+            continue;
+        }
+        import_queue.push_back((name.clone(), url.clone()));
+    }
+    
+    println!("     {} {}", "📦".blue(), format!("Found {} nested projects to import", import_queue.len()).bright_white());
+    
+    while let Some((name, url)) = import_queue.pop_front() {
+        // Determine the import path based on flatten setting
+        let import_path = if context.should_flatten() {
+            // Import at root level
+            context.base_path.join(&name)
+        } else {
+            // Maintain hierarchy
+            project_path.join(&name)
+        };
+        
+        // Check for cycles
+        if let Err(e) = context.enter_import(&url) {
+            eprintln!("\n  {} {}", "❌".red(), e.to_string().red());
+            continue; // Skip this import but continue with others
+        }
+        
+        // Import the nested project
+        println!("\n  {} {}", "📥".green(), format!("Importing nested project '{}'", name).bold());
+        println!("     {} {}", "URL:".bright_black(), url.bright_cyan());
+        println!("     {} {}", "Path:".bright_black(), import_path.display().to_string().bright_white());
+        
+        // Perform the actual import
+        // For nested imports, we need to handle the base path differently
+        let (import_name, import_base) = if context.should_flatten() {
+            // For flattened imports, use root base path and full name
+            (name.clone(), context.base_path.clone())
+        } else {
+            // For hierarchical imports, import into the parent project
+            if let Some(parent) = import_path.parent() {
+                if let Some(file_name) = import_path.file_name() {
+                    (file_name.to_string_lossy().to_string(), parent.to_path_buf())
+                } else {
+                    (name.clone(), parent.to_path_buf())
+                }
+            } else {
+                (name.clone(), project_path.to_path_buf())
+            }
+        };
+        
+        // Skip if directory already exists (might be from parent import)
+        let target_path = import_base.join(&import_name);
+        if target_path.exists() {
+            println!("     {} {}", "⏭".yellow(), format!("Directory '{}' already exists, skipping", import_name).yellow());
+            context.exit_import();
+            continue;
+        }
+        
+        // Clone the repository directly without going through import_project
+        // to avoid .meta file conflicts
+        // Handle special URL formats (external:, local:)
+        let actual_url = if url.starts_with("external:local:") {
+            // This is a local external project, skip it
+            println!("     {} {}", "⏭".yellow(), format!("Skipping local external project '{}'", name).yellow());
+            context.exit_import();
+            continue;
+        } else if url.starts_with("external:") {
+            // Strip the "external:" prefix to get the actual URL
+            url.strip_prefix("external:").unwrap_or(&url).to_string()
+        } else if url.starts_with("local:") {
+            // Local projects don't need cloning
+            println!("     {} {}", "⏭".yellow(), format!("Skipping local project '{}'", name).yellow());
+            context.exit_import();
+            continue;
+        } else {
+            url.clone()
+        };
+        
+        println!("     {} {}", "📦".blue(), format!("Cloning into '{}'", target_path.display()).bright_white());
+        if let Err(e) = clone_with_auth(&actual_url, &target_path) {
+            eprintln!("     {} {}", "❌".red(), format!("Failed to clone '{}': {}", name, e).red());
+            context.exit_import();
+            continue;
+        }
+        
+        // Recursively process this nested repository if it's also a meta repo
+        if nested_config.recursive_import && !context.at_max_depth() {
+            if let Err(e) = process_nested_repositories(&import_path, context, nested_config) {
+                eprintln!("     {} {}", "⚠️".yellow(), format!("Warning: Failed to process nested repos in '{}': {}", name, e).yellow());
+            }
+        }
+        
+        context.exit_import();
+    }
     
     Ok(())
 }
