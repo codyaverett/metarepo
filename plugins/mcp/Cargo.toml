@@ -1,10 +1,18 @@
 [package]
-name = "gestalt-plugin-mcp"
-version = "0.1.0"
+name = "meta-mcp"
+version = "0.2.1"
 edition = "2021"
+description = "Model Context Protocol (MCP) support for the metarepo project management tool"
+authors = ["Metarepo Contributors"]
+license = "MIT"
+repository = "https://github.com/codyaverett/gestalt"
+homepage = "https://github.com/codyaverett/gestalt"
+documentation = "https://docs.rs/meta-mcp"
+keywords = ["meta", "mcp", "ai", "llm", "management"]
+categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
-meta-core = { path = "../../meta-core" }
+meta-core = { version = "0.2.1", path = "../../meta-core" }
 anyhow = "1.0"
 clap = "4.4"
 serde = { version = "1.0", features = ["derive"] }
@@ -13,5 +21,5 @@ tokio = { version = "1.0", features = ["full", "process"] }
 tracing = "0.1"
 
 [lib]
-name = "gestalt_plugin_mcp"
+name = "meta_mcp"
 path = "src/lib.rs"
