@@ -1,7 +1,7 @@
 use anyhow::Result;
 use colored::*;
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository, Status, StatusOptions};
-use meta_core::{MetaConfig, NestedConfig};
+use metarepo_core::{MetaConfig, NestedConfig};
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 

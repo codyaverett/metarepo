@@ -1,5 +1,5 @@
 [package]
-name = "meta-project"
+name = "metarepo-project"
 version = "0.2.1"
 edition = "2021"
 description = "Project creation and import for the metarepo multi-project management tool"
@@ -7,7 +7,7 @@ authors = ["Metarepo Contributors"]
 license = "MIT"
 repository = "https://github.com/codyaverett/gestalt"
 homepage = "https://github.com/codyaverett/gestalt"
-documentation = "https://docs.rs/meta-project"
+documentation = "https://docs.rs/metarepo-project"
 keywords = ["meta", "project", "create", "import", "management"]
 categories = ["development-tools", "command-line-utilities"]
 
@@ -19,4 +19,4 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 git2 = { workspace = true }
 colored = "2.1"
-meta-core = { version = "0.2.1", path = "../../meta-core" }
+metarepo-core = { version = "0.2.1", path = "../../meta-core" }

@@ -1,7 +1,7 @@
 use crate::initialize_meta_repo;
 use anyhow::Result;
 use clap::{ArgMatches, Command};
-use meta_core::{MetaPlugin, RuntimeConfig};
+use metarepo_core::{MetaPlugin, RuntimeConfig};
 
 pub struct InitPlugin;
 

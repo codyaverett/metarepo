@@ -1,5 +1,5 @@
 [package]
-name = "meta-git"
+name = "metarepo-git"
 version = "0.2.1"
 edition = "2021"
 description = "Git operations across multiple repositories for the metarepo project management tool"
@@ -7,7 +7,7 @@ authors = ["Metarepo Contributors"]
 license = "MIT"
 repository = "https://github.com/codyaverett/gestalt"
 homepage = "https://github.com/codyaverett/gestalt"
-documentation = "https://docs.rs/meta-git"
+documentation = "https://docs.rs/metarepo-git"
 keywords = ["meta", "git", "repository", "version-control", "management"]
 categories = ["development-tools", "command-line-utilities"]
 
@@ -19,4 +19,4 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 git2 = { workspace = true }
 tokio = { workspace = true }
-meta-core = { version = "0.2.1", path = "../../meta-core" }
+metarepo-core = { version = "0.2.1", path = "../../meta-core" }

@@ -25,15 +25,15 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 colored = "2.1"
-meta-core = { version = "0.2.1", path = "../meta-core" }
+metarepo-core = { version = "0.2.1", path = "../meta-core" }
 
 # Plugin dependencies
-meta-init = { version = "0.2.1", path = "../plugins/init" }
-meta-git = { version = "0.2.1", path = "../plugins/git" }
-meta-project = { version = "0.2.1", path = "../plugins/project" }
-meta-exec = { version = "0.2.1", path = "../plugins/exec" }
-meta-mcp = { version = "0.2.1", path = "../plugins/mcp" }
-meta-rules = { version = "0.2.1", path = "../plugins/rules" }
+metarepo-init = { version = "0.2.1", path = "../plugins/init" }
+metarepo-git = { version = "0.2.1", path = "../plugins/git" }
+metarepo-project = { version = "0.2.1", path = "../plugins/project" }
+metarepo-exec = { version = "0.2.1", path = "../plugins/exec" }
+metarepo-mcp = { version = "0.2.1", path = "../plugins/mcp" }
+metarepo-rules = { version = "0.2.1", path = "../plugins/rules" }
 # meta-loop = { path = "../plugins/loop" }
 
 [dev-dependencies]
