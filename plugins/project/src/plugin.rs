@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
-use meta_core::{MetaPlugin, RuntimeConfig};
+use metarepo_core::{MetaPlugin, RuntimeConfig};
 use crate::{create_project, import_project, import_project_recursive, list_projects, remove_project, show_project_tree, update_projects};
 
 pub struct ProjectPlugin;

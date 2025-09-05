@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
-use meta_core::{MetaPlugin, RuntimeConfig};
+use metarepo_core::{MetaPlugin, RuntimeConfig};
 use crate::server::{McpServerManager, McpServerConfig};
 use crate::client::McpClient;
 use crate::mcp_server::{GestaltMcpServer, print_vscode_config};

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use git2::{RemoteCallbacks, FetchOptions, Cred, CredentialType};
-use meta_core::MetaConfig;
+use metarepo_core::MetaConfig;
 use std::path::Path;
 
 pub use crate::plugin::GitPlugin;

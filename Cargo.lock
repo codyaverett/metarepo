@@ -528,7 +528,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 
 [[package]]
-name = "meta-core"
+name = "metarepo"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "colored",
+ "metarepo-core",
+ "metarepo-exec",
+ "metarepo-git",
+ "metarepo-init",
+ "metarepo-mcp",
+ "metarepo-project",
+ "metarepo-rules",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "metarepo-core"
 version = "0.2.1"
 dependencies = [
  "anyhow",
@@ -538,24 +560,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "meta-exec"
+name = "metarepo-exec"
 version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
- "meta-core",
+ "metarepo-core",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "meta-git"
+name = "metarepo-git"
 version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
  "git2",
- "meta-core",
+ "metarepo-core",
  "serde",
  "serde_json",
  "thiserror",
@@ -563,12 +585,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "meta-init"
+name = "metarepo-init"
 version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
- "meta-core",
+ "metarepo-core",
  "serde",
  "serde_json",
  "tempfile",
@@ -576,12 +598,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "meta-mcp"
+name = "metarepo-mcp"
 version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
- "meta-core",
+ "metarepo-core",
  "serde",
  "serde_json",
  "tokio",
@@ -589,29 +611,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "meta-project"
+name = "metarepo-project"
 version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
  "colored",
  "git2",
- "meta-core",
+ "metarepo-core",
  "serde",
  "serde_json",
  "thiserror",
 ]
 
 [[package]]
-name = "meta-rules"
+name = "metarepo-rules"
 version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
  "colored",
  "glob",
- "meta-core",
- "meta-project",
+ "metarepo-core",
+ "metarepo-project",
  "regex",
  "serde",
  "serde_json",
@@ -619,28 +641,6 @@ dependencies = [
  "tempfile",
  "toml",
  "walkdir",
-]
-
-[[package]]
-name = "metarepo"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "colored",
- "meta-core",
- "meta-exec",
- "meta-git",
- "meta-init",
- "meta-mcp",
- "meta-project",
- "meta-rules",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

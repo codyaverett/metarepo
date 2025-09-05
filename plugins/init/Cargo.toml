@@ -1,5 +1,5 @@
 [package]
-name = "meta-init"
+name = "metarepo-init"
 version = "0.2.1"
 edition = "2021"
 description = "Initialize new meta repositories for the metarepo project management tool"
@@ -7,7 +7,7 @@ authors = ["Metarepo Contributors"]
 license = "MIT"
 repository = "https://github.com/codyaverett/gestalt"
 homepage = "https://github.com/codyaverett/gestalt"
-documentation = "https://docs.rs/meta-init"
+documentation = "https://docs.rs/metarepo-init"
 keywords = ["meta", "init", "repository", "project", "management"]
 categories = ["development-tools", "command-line-utilities"]
 
@@ -17,7 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
-meta-core = { version = "0.2.1", path = "../../meta-core" }
+metarepo-core = { version = "0.2.1", path = "../../meta-core" }
 
 [dev-dependencies]
 tempfile = "3.0"

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crate::config::RulesConfig;
-use meta_core::RuntimeConfig;
+use metarepo_core::RuntimeConfig;
 use std::path::{Path, PathBuf};
 use colored::*;
 

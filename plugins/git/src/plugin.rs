@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
-use meta_core::{MetaPlugin, RuntimeConfig};
+use metarepo_core::{MetaPlugin, RuntimeConfig};
 use crate::{clone_repository, get_git_status, clone_missing_repos};
 
 pub struct GitPlugin;

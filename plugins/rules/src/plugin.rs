@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
-use meta_core::{MetaPlugin, RuntimeConfig};
+use metarepo_core::{MetaPlugin, RuntimeConfig};
 use crate::{RulesConfig, RuleEngine};
 use crate::project::{ProjectRulesManager, RulesStats};
 use crate::create::RuleCreator;

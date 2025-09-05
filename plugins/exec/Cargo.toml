@@ -1,5 +1,5 @@
 [package]
-name = "meta-exec"
+name = "metarepo-exec"
 version = "0.2.1"
 edition = "2021"
 description = "Execute commands across multiple repositories for the metarepo project management tool"
@@ -7,7 +7,7 @@ authors = ["Metarepo Contributors"]
 license = "MIT"
 repository = "https://github.com/codyaverett/gestalt"
 homepage = "https://github.com/codyaverett/gestalt"
-documentation = "https://docs.rs/meta-exec"
+documentation = "https://docs.rs/metarepo-exec"
 keywords = ["meta", "exec", "command", "parallel", "management"]
 categories = ["development-tools", "command-line-utilities"]
 
@@ -16,4 +16,4 @@ anyhow = "1.0"
 clap = "4.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-meta-core = { version = "0.2.1", path = "../../meta-core" }
+metarepo-core = { version = "0.2.1", path = "../../meta-core" }

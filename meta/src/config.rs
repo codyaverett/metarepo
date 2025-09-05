@@ -1,5 +1,5 @@
 use anyhow::Result;
-use meta_core::{MetaConfig, RuntimeConfig};
+use metarepo_core::{MetaConfig, RuntimeConfig};
 
 pub fn create_runtime_config(experimental: bool) -> Result<RuntimeConfig> {
     let working_dir = std::env::current_dir()?;

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use meta_core::{MetaConfig};
+use metarepo_core::{MetaConfig};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
