@@ -232,71 +232,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gestalt"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "colored",
- "gestalt-plugin-mcp",
- "gestalt-rules",
- "gestalt_exec",
- "meta-core",
- "meta-git",
- "meta-init",
- "meta-project",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "gestalt-plugin-mcp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "meta-core",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "gestalt-rules"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "clap",
- "colored",
- "glob",
- "meta-core",
- "meta-project",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "toml",
- "walkdir",
-]
-
-[[package]]
-name = "gestalt_exec"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "meta-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -603,8 +538,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "meta-exec"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "meta-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "meta-git"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -618,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "meta-init"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -630,8 +576,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "meta-mcp"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "meta-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "meta-project"
-version = "0.5.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -641,6 +600,47 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "meta-rules"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "colored",
+ "glob",
+ "meta-core",
+ "meta-project",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "toml",
+ "walkdir",
+]
+
+[[package]]
+name = "metarepo"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "colored",
+ "meta-core",
+ "meta-exec",
+ "meta-git",
+ "meta-init",
+ "meta-mcp",
+ "meta-project",
+ "meta-rules",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

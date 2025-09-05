@@ -1,0 +1,40 @@
+[package]
+name = "metarepo"
+version = "0.2.1"
+edition = "2021"
+description = "A powerful multi-project management tool inspired by the meta npm package - manage multiple git repositories with ease"
+authors = ["Metarepo Contributors"]
+license = "MIT"
+repository = "https://github.com/codyaverett/gestalt"
+homepage = "https://github.com/codyaverett/gestalt"
+documentation = "https://docs.rs/meta"
+readme = "../README.md"
+keywords = ["meta", "monorepo", "git", "project", "management"]
+categories = ["development-tools", "command-line-utilities"]
+
+[[bin]]
+name = "meta"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+colored = "2.1"
+meta-core = { version = "0.2.1", path = "../meta-core" }
+
+# Plugin dependencies
+meta-init = { version = "0.2.1", path = "../plugins/init" }
+meta-git = { version = "0.2.1", path = "../plugins/git" }
+meta-project = { version = "0.2.1", path = "../plugins/project" }
+meta-exec = { version = "0.2.1", path = "../plugins/exec" }
+meta-mcp = { version = "0.2.1", path = "../plugins/mcp" }
+meta-rules = { version = "0.2.1", path = "../plugins/rules" }
+# meta-loop = { path = "../plugins/loop" }
+
+[dev-dependencies]
+tempfile = "3.0"

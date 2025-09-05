@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "meta-core",
-    "gestalt",
+    "meta",
     "plugins/init",
     "plugins/git", 
     "plugins/project",

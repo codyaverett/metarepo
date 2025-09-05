@@ -1,4 +1,4 @@
-use crate::{GestaltError, RuntimeConfig};
+use crate::{MetarepoError, RuntimeConfig};
 use anyhow::Result;
 use clap::{ArgMatches, Command};
 use std::collections::HashMap;
@@ -29,12 +29,12 @@ impl PluginRegistry {
         self.register(Box::new(meta_init::InitPlugin::new()));
         self.register(Box::new(meta_git::GitPlugin::new()));
         self.register(Box::new(meta_project::ProjectPlugin::new()));
-        self.register(Box::new(gestalt_exec::ExecPlugin::new()));
-        self.register(Box::new(gestalt_rules::RulesPlugin::new()));
+        self.register(Box::new(meta_exec::ExecPlugin::new()));
+        self.register(Box::new(meta_rules::RulesPlugin::new()));
         
         // Only register experimental plugins if flag is set
         if experimental {
-            self.register(Box::new(gestalt_plugin_mcp::McpPlugin::new()));
+            self.register(Box::new(meta_mcp::McpPlugin::new()));
         }
         
         // TODO: Enable more plugins as they're implemented
@@ -57,7 +57,7 @@ impl PluginRegistry {
         if let Some(plugin) = self.plugins.get(command_name) {
             plugin.handle_command(matches, config)
         } else {
-            Err(GestaltError::Plugin(format!("Unknown command: {}", command_name)).into())
+            Err(MetarepoError::Plugin(format!("Unknown command: {}", command_name)).into())
         }
     }
     

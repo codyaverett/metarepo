@@ -2,6 +2,14 @@
 name = "meta-core"
 version = "0.2.1"
 edition = "2021"
+description = "Core interfaces and types for the metarepo multi-project management tool"
+authors = ["Metarepo Contributors"]
+license = "MIT"
+repository = "https://github.com/codyaverett/gestalt"
+homepage = "https://github.com/codyaverett/gestalt"
+documentation = "https://docs.rs/meta-core"
+keywords = ["meta", "monorepo", "project", "management", "plugin"]
+categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
 clap = { workspace = true }
