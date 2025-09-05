@@ -1,9 +1,9 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
-use std::process::Command;
 use std::path::PathBuf;
+use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JsonRpcRequest {
@@ -70,9 +70,8 @@ pub struct GestaltMcpServer {
 
 impl GestaltMcpServer {
     pub fn new() -> Self {
-        let gestalt_path = std::env::current_exe()
-            .unwrap_or_else(|_| PathBuf::from("gest"));
-        
+        let gestalt_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("gest"));
+
         Self {
             tools: Self::build_tools(),
             resources: Vec::new(),
@@ -157,7 +156,6 @@ impl GestaltMcpServer {
                     "properties": {}
                 }),
             },
-            
             // Project plugin tools
             Tool {
                 name: "project_list".to_string(),
@@ -199,7 +197,6 @@ impl GestaltMcpServer {
                     }
                 }),
             },
-            
             // Exec plugin tools
             Tool {
                 name: "exec".to_string(),
@@ -222,7 +219,6 @@ impl GestaltMcpServer {
                     }
                 }),
             },
-            
             // MCP plugin tools
             Tool {
                 name: "mcp_add_server".to_string(),
@@ -294,7 +290,7 @@ impl GestaltMcpServer {
             if request.id.is_some() {
                 let response = self.handle_request(request);
                 let response_str = serde_json::to_string(&response)?;
-                
+
                 writeln!(stdout, "{}", response_str)?;
                 stdout.flush()?;
             } else {
@@ -309,7 +305,7 @@ impl GestaltMcpServer {
 
     fn handle_request(&mut self, request: JsonRpcRequest) -> JsonRpcResponse {
         let id = request.id.clone().unwrap_or(json!(null));
-        
+
         // Handle notifications (no response needed for notifications without id)
         if request.id.is_none() && request.method == "notifications/initialized" {
             // Return a dummy response that won't be sent
@@ -320,7 +316,7 @@ impl GestaltMcpServer {
                 error: None,
             };
         }
-        
+
         match request.method.as_str() {
             "initialize" => self.handle_initialize(id, request.params),
             "tools/list" => self.handle_tools_list(id),
@@ -388,13 +384,9 @@ impl GestaltMcpServer {
             }
         };
 
-        let tool_name = params.get("name")
-            .and_then(|n| n.as_str())
-            .unwrap_or("");
-        
-        let arguments = params.get("arguments")
-            .cloned()
-            .unwrap_or(json!({}));
+        let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+
+        let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
         match self.execute_tool(tool_name, arguments) {
             Ok(result) => JsonRpcResponse {
@@ -445,7 +437,7 @@ impl GestaltMcpServer {
 
     fn execute_tool(&self, name: &str, arguments: Value) -> Result<String> {
         let mut cmd = Command::new(&self.gestalt_path);
-        
+
         match name {
             "help" => {
                 if let Some(plugin) = arguments.get("plugin").and_then(|v| v.as_str()) {
@@ -456,13 +448,21 @@ impl GestaltMcpServer {
             }
             "git_status" => {
                 cmd.args(&["git", "status"]);
-                if arguments.get("verbose").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if arguments
+                    .get("verbose")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     cmd.arg("--verbose");
                 }
             }
             "git_diff" => {
                 cmd.args(&["git", "diff"]);
-                if arguments.get("staged").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if arguments
+                    .get("staged")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     cmd.arg("--staged");
                 }
             }
@@ -471,7 +471,11 @@ impl GestaltMcpServer {
                 if let Some(message) = arguments.get("message").and_then(|v| v.as_str()) {
                     cmd.args(&["-m", message]);
                 }
-                if arguments.get("all").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if arguments
+                    .get("all")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     cmd.arg("-a");
                 }
             }
@@ -505,7 +509,8 @@ impl GestaltMcpServer {
                     cmd.arg(command);
                 }
                 if let Some(projects) = arguments.get("projects").and_then(|v| v.as_array()) {
-                    let project_list: Vec<String> = projects.iter()
+                    let project_list: Vec<String> = projects
+                        .iter()
                         .filter_map(|p| p.as_str().map(String::from))
                         .collect();
                     if !project_list.is_empty() {
@@ -542,12 +547,13 @@ impl GestaltMcpServer {
             _ => return Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
 
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .with_context(|| format!("Failed to execute tool: {}", name))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        
+
         let result = if !stdout.is_empty() {
             stdout.to_string()
         } else if !stderr.is_empty() {
@@ -565,7 +571,7 @@ pub fn print_vscode_config() {
         .unwrap_or_else(|_| PathBuf::from("gest"))
         .to_string_lossy()
         .to_string();
-    
+
     let claude_config = json!({
         "mcpServers": {
             "gestalt": {

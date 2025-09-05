@@ -8,13 +8,13 @@ use std::path::{Path, PathBuf};
 pub trait MetaPlugin: Send + Sync {
     /// Returns the plugin name (used for command routing)
     fn name(&self) -> &str;
-    
+
     /// Register CLI commands for this plugin
     fn register_commands(&self, app: Command) -> Command;
-    
+
     /// Handle a command for this plugin
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>;
-    
+
     /// Returns true if this plugin is experimental (default: false)
     fn is_experimental(&self) -> bool {
         false
@@ -34,11 +34,13 @@ impl RuntimeConfig {
     pub fn has_meta_file(&self) -> bool {
         self.meta_file_path.is_some()
     }
-    
+
     pub fn meta_root(&self) -> Option<PathBuf> {
-        self.meta_file_path.as_ref().and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        self.meta_file_path
+            .as_ref()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
     }
-    
+
     pub fn is_experimental(&self) -> bool {
         self.experimental
     }
@@ -63,9 +65,15 @@ pub struct NestedConfig {
     pub preserve_structure: bool,
 }
 
-fn default_recursive_import() -> bool { false }
-fn default_max_depth() -> usize { 3 }
-fn default_cycle_detection() -> bool { true }
+fn default_recursive_import() -> bool {
+    false
+}
+fn default_max_depth() -> usize {
+    3
+}
+fn default_cycle_detection() -> bool {
+    true
+}
 
 impl Default for NestedConfig {
     fn default() -> Self {
@@ -116,30 +124,30 @@ impl MetaConfig {
         let config: MetaConfig = serde_json::from_str(&content)?;
         Ok(config)
     }
-    
+
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let content = serde_json::to_string_pretty(self)?;
         std::fs::write(path, content)?;
         Ok(())
     }
-    
+
     pub fn find_meta_file() -> Option<PathBuf> {
         let mut current = std::env::current_dir().ok()?;
-        
+
         loop {
             let meta_file = current.join(".meta");
             if meta_file.exists() {
                 return Some(meta_file);
             }
-            
+
             if !current.pop() {
                 break;
             }
         }
-        
+
         None
     }
-    
+
     pub fn load() -> Result<Self> {
         if let Some(meta_file) = Self::find_meta_file() {
             Self::load_from_file(meta_file)

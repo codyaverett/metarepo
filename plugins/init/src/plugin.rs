@@ -15,7 +15,7 @@ impl MetaPlugin for InitPlugin {
     fn name(&self) -> &str {
         "init"
     }
-    
+
     fn register_commands(&self, app: Command) -> Command {
         app.subcommand(
             Command::new("init")
@@ -24,7 +24,7 @@ impl MetaPlugin for InitPlugin {
                 .long_about("Initialize the current directory as a meta repository by creating a .meta file with default configuration and updating .gitignore patterns.")
         )
     }
-    
+
     fn handle_command(&self, _matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         initialize_meta_repo(&config.working_dir)?;
         Ok(())

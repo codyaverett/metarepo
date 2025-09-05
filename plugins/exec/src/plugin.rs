@@ -1,7 +1,7 @@
+use crate::{execute_in_all_projects, execute_in_specific_projects};
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
 use meta_core::{MetaPlugin, RuntimeConfig};
-use crate::{execute_in_all_projects, execute_in_specific_projects};
 
 pub struct ExecPlugin;
 
@@ -9,7 +9,7 @@ impl ExecPlugin {
     pub fn new() -> Self {
         Self
     }
-    
+
     fn show_help(&self) -> Result<()> {
         let mut app = Command::new("gest exec")
             .about("Execute commands across multiple repositories")
@@ -17,7 +17,7 @@ impl ExecPlugin {
                 Arg::new("command")
                     .value_name("COMMAND")
                     .help("Command to execute in each project directory")
-                    .required(true)
+                    .required(true),
             )
             .arg(
                 Arg::new("projects")
@@ -25,9 +25,9 @@ impl ExecPlugin {
                     .short('p')
                     .value_name("PROJECTS")
                     .help("Comma-separated list of specific projects to run command in")
-                    .value_delimiter(',')
+                    .value_delimiter(','),
             );
-        
+
         app.print_help()?;
         println!();
         Ok(())
@@ -38,7 +38,7 @@ impl MetaPlugin for ExecPlugin {
     fn name(&self) -> &str {
         "exec"
     }
-    
+
     fn register_commands(&self, app: Command) -> Command {
         app.subcommand(
             Command::new("exec")
@@ -52,20 +52,20 @@ impl MetaPlugin for ExecPlugin {
                         .short('p')
                         .value_name("PROJECTS")
                         .help("Comma-separated list of specific projects to run command in")
-                        .value_delimiter(',')
-                )
+                        .value_delimiter(','),
+                ),
         )
     }
-    
+
     fn handle_command(&self, matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
         match matches.subcommand() {
             Some((command, sub_matches)) => {
                 // Parse remaining arguments - external subcommands store args differently
                 let args: Vec<&str> = match sub_matches.get_many::<std::ffi::OsString>("") {
                     Some(os_args) => os_args.map(|s| s.to_str().unwrap_or("")).collect(),
-                    None => Vec::new()
+                    None => Vec::new(),
                 };
-                
+
                 // Check if specific projects were specified
                 if let Some(projects) = matches.get_many::<String>("projects") {
                     let project_list: Vec<&str> = projects.map(|s| s.as_str()).collect();
@@ -73,10 +73,10 @@ impl MetaPlugin for ExecPlugin {
                 } else {
                     execute_in_all_projects(command, &args)?;
                 }
-                
+
                 Ok(())
             }
-            None => self.show_help()
+            None => self.show_help(),
         }
     }
 }

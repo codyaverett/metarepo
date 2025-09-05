@@ -1,7 +1,10 @@
+use crate::{
+    create_project, import_project, import_project_recursive, list_projects, remove_project,
+    show_project_tree, update_projects,
+};
 use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
 use meta_core::{MetaPlugin, RuntimeConfig};
-use crate::{create_project, import_project, import_project_recursive, list_projects, remove_project, show_project_tree, update_projects};
 
 pub struct ProjectPlugin;
 
@@ -9,7 +12,7 @@ impl ProjectPlugin {
     pub fn new() -> Self {
         Self
     }
-    
+
     fn show_help(&self) -> Result<()> {
         let mut app = Command::new("gest project")
             .about("Project management operations")
@@ -160,7 +163,7 @@ impl ProjectPlugin {
                             .action(clap::ArgAction::SetTrue)
                     )
             );
-        
+
         app.print_help()?;
         println!();
         Ok(())
@@ -171,7 +174,7 @@ impl MetaPlugin for ProjectPlugin {
     fn name(&self) -> &str {
         "project"
     }
-    
+
     fn register_commands(&self, app: Command) -> Command {
         app.subcommand(
             Command::new("project")
@@ -333,43 +336,43 @@ impl MetaPlugin for ProjectPlugin {
                 )
         )
     }
-    
+
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         // If no subcommand is provided, show help
         if matches.subcommand().is_none() {
             return self.show_help();
         }
-        
+
         match matches.subcommand() {
             Some(("create", sub_matches)) => {
                 let path = sub_matches.get_one::<String>("path").unwrap();
                 let repo_url = sub_matches.get_one::<String>("repo-url").unwrap();
-                
+
                 let base_path = if config.meta_root().is_some() {
                     config.meta_root().unwrap()
                 } else {
                     config.working_dir.clone()
                 };
-                
+
                 create_project(path, repo_url, &base_path)?;
                 Ok(())
             }
             Some(("import", sub_matches)) => {
                 let path = sub_matches.get_one::<String>("path").unwrap();
                 let source = sub_matches.get_one::<String>("source").map(|s| s.as_str());
-                
+
                 let base_path = if config.meta_root().is_some() {
                     config.meta_root().unwrap()
                 } else {
                     config.working_dir.clone()
                 };
-                
+
                 // Check for recursive import flags
                 let recursive = sub_matches.get_flag("recursive");
                 let no_recursive = sub_matches.get_flag("no-recursive");
                 let flatten = sub_matches.get_flag("flatten");
                 let max_depth = sub_matches.get_one::<usize>("max-depth").copied();
-                
+
                 // Determine if we should use recursive import
                 let use_recursive = if no_recursive {
                     false // Explicitly disabled
@@ -377,13 +380,23 @@ impl MetaPlugin for ProjectPlugin {
                     true // Explicitly enabled or has related flags
                 } else {
                     // Check configuration
-                    config.meta_config.nested.as_ref()
+                    config
+                        .meta_config
+                        .nested
+                        .as_ref()
                         .map(|n| n.recursive_import)
                         .unwrap_or(false)
                 };
-                
+
                 if use_recursive || flatten || max_depth.is_some() {
-                    import_project_recursive(path, source, &base_path, use_recursive, max_depth, flatten)?;
+                    import_project_recursive(
+                        path,
+                        source,
+                        &base_path,
+                        use_recursive,
+                        max_depth,
+                        flatten,
+                    )?;
                 } else {
                     import_project(path, source, &base_path)?;
                 }
@@ -395,7 +408,7 @@ impl MetaPlugin for ProjectPlugin {
                 } else {
                     config.working_dir.clone()
                 };
-                
+
                 // Check if --tree flag is set
                 if sub_matches.get_flag("tree") {
                     show_project_tree(&base_path)?;
@@ -410,7 +423,7 @@ impl MetaPlugin for ProjectPlugin {
                 } else {
                     config.working_dir.clone()
                 };
-                
+
                 show_project_tree(&base_path)?;
                 Ok(())
             }
@@ -420,23 +433,23 @@ impl MetaPlugin for ProjectPlugin {
                 } else {
                     config.working_dir.clone()
                 };
-                
+
                 let recursive = sub_matches.get_flag("recursive");
                 let depth = sub_matches.get_one::<usize>("depth").copied();
-                
+
                 update_projects(&base_path, recursive, depth)?;
                 Ok(())
             }
             Some(("remove", sub_matches)) => {
                 let name = sub_matches.get_one::<String>("name").unwrap();
                 let force = sub_matches.get_flag("force");
-                
+
                 let base_path = if config.meta_root().is_some() {
                     config.meta_root().unwrap()
                 } else {
                     config.working_dir.clone()
                 };
-                
+
                 remove_project(name, &base_path, force)?;
                 Ok(())
             }

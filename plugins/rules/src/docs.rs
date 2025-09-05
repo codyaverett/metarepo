@@ -12,11 +12,26 @@ fn print_full_documentation_formatted(ai_mode: bool) {
     if ai_mode {
         print_ai_optimized_docs();
     } else {
-        println!("{}", "═══════════════════════════════════════════════════════════════".blue().bold());
-        println!("{}", "           GESTALT RULES - COMPLETE DOCUMENTATION".cyan().bold());
-        println!("{}", "═══════════════════════════════════════════════════════════════".blue().bold());
+        println!(
+            "{}",
+            "═══════════════════════════════════════════════════════════════"
+                .blue()
+                .bold()
+        );
+        println!(
+            "{}",
+            "           GESTALT RULES - COMPLETE DOCUMENTATION"
+                .cyan()
+                .bold()
+        );
+        println!(
+            "{}",
+            "═══════════════════════════════════════════════════════════════"
+                .blue()
+                .bold()
+        );
         println!();
-        
+
         print_overview();
         print_rule_types();
         print_configuration_format();
@@ -40,8 +55,14 @@ pub fn print_directory_rule_docs() {
     println!("```");
     println!();
     println!("{}", "Properties:".yellow());
-    println!("  • {}: Directory path relative to project root", "path".green());
-    println!("  • {}: Whether the directory must exist", "required".green());
+    println!(
+        "  • {}: Directory path relative to project root",
+        "path".green()
+    );
+    println!(
+        "  • {}: Whether the directory must exist",
+        "required".green()
+    );
     println!("  • {}: Human-readable description", "description".green());
     println!();
     println!("{}", "Auto-fix:".yellow());
@@ -66,12 +87,21 @@ pub fn print_component_rule_docs() {
     println!("```");
     println!();
     println!("{}", "Properties:".yellow());
-    println!("  • {}: Glob pattern to match component directories", "pattern".green());
-    println!("  • {}: List of required files/directories", "structure".green());
+    println!(
+        "  • {}: Glob pattern to match component directories",
+        "pattern".green()
+    );
+    println!(
+        "  • {}: List of required files/directories",
+        "structure".green()
+    );
     println!("  • {}: Human-readable description", "description".green());
     println!();
     println!("{}", "Placeholders:".yellow());
-    println!("  • {} is replaced with the actual component name", "[ComponentName]".cyan());
+    println!(
+        "  • {} is replaced with the actual component name",
+        "[ComponentName]".cyan()
+    );
     println!();
     println!("{}", "Auto-fix:".yellow());
     println!("  ✅ Missing directories in structure can be created");
@@ -95,7 +125,10 @@ pub fn print_naming_rule_docs() {
     println!();
     println!("{}", "Properties:".yellow());
     println!("  • {}: Glob pattern for files to check", "pattern".green());
-    println!("  • {}: Regex pattern for valid names", "naming_pattern".green());
+    println!(
+        "  • {}: Regex pattern for valid names",
+        "naming_pattern".green()
+    );
     println!("  • {}: Optional naming style hint", "case_style".green());
     println!("    Options: PascalCase, camelCase, snake_case, UPPER_CASE, kebab-case");
     println!("  • {}: Human-readable description", "description".green());
@@ -125,8 +158,14 @@ pub fn print_dependency_rule_docs() {
     println!("```");
     println!();
     println!("{}", "Properties:".yellow());
-    println!("  • {}: List of packages that must not be used", "forbidden".green());
-    println!("  • {}: Map of required packages and versions", "required".green());
+    println!(
+        "  • {}: List of packages that must not be used",
+        "forbidden".green()
+    );
+    println!(
+        "  • {}: Map of required packages and versions",
+        "required".green()
+    );
     println!("  • {}: Maximum dependency depth", "max_depth".green());
     println!("  • {}: Human-readable description", "description".green());
     println!();
@@ -154,9 +193,18 @@ pub fn print_import_rule_docs() {
     println!();
     println!("{}", "Properties:".yellow());
     println!("  • {}: Files to check", "source_pattern".green());
-    println!("  • {}: List of allowed import patterns", "allowed_imports".green());
-    println!("  • {}: List of forbidden import patterns", "forbidden_imports".green());
-    println!("  • {}: Require absolute over relative imports", "require_absolute".green());
+    println!(
+        "  • {}: List of allowed import patterns",
+        "allowed_imports".green()
+    );
+    println!(
+        "  • {}: List of forbidden import patterns",
+        "forbidden_imports".green()
+    );
+    println!(
+        "  • {}: Require absolute over relative imports",
+        "require_absolute".green()
+    );
     println!("  • {}: Maximum import depth", "max_depth".green());
 }
 
@@ -181,10 +229,19 @@ pub fn print_documentation_rule_docs() {
     println!();
     println!("{}", "Properties:".yellow());
     println!("  • {}: Files to check", "pattern".green());
-    println!("  • {}: Require file header comments", "require_header".green());
+    println!(
+        "  • {}: Require file header comments",
+        "require_header".green()
+    );
     println!("  • {}: Require code examples", "require_examples".green());
-    println!("  • {}: Minimum description length", "min_description_length".green());
-    println!("  • {}: Required documentation sections", "required_sections".green());
+    println!(
+        "  • {}: Minimum description length",
+        "min_description_length".green()
+    );
+    println!(
+        "  • {}: Required documentation sections",
+        "required_sections".green()
+    );
 }
 
 pub fn print_size_rule_docs() {
@@ -207,8 +264,14 @@ pub fn print_size_rule_docs() {
     println!("  • {}: Files to check", "pattern".green());
     println!("  • {}: Maximum line count", "max_lines".green());
     println!("  • {}: Maximum file size in bytes", "max_bytes".green());
-    println!("  • {}: Maximum number of functions", "max_functions".green());
-    println!("  • {}: Maximum cyclomatic complexity", "max_complexity".green());
+    println!(
+        "  • {}: Maximum number of functions",
+        "max_functions".green()
+    );
+    println!(
+        "  • {}: Maximum cyclomatic complexity",
+        "max_complexity".green()
+    );
 }
 
 pub fn print_security_rule_docs() {
@@ -233,10 +296,19 @@ pub fn print_security_rule_docs() {
     println!();
     println!("{}", "Properties:".yellow());
     println!("  • {}: Glob pattern for files to check", "pattern".green());
-    println!("  • {}: Regex patterns to flag", "forbidden_patterns".green());
-    println!("  • {}: Functions that shouldn't be used", "forbidden_functions".green());
+    println!(
+        "  • {}: Regex patterns to flag",
+        "forbidden_patterns".green()
+    );
+    println!(
+        "  • {}: Functions that shouldn't be used",
+        "forbidden_functions".green()
+    );
     println!("  • {}: Flag non-HTTPS URLs", "require_https".green());
-    println!("  • {}: Check for hardcoded secrets", "no_hardcoded_secrets".green());
+    println!(
+        "  • {}: Check for hardcoded secrets",
+        "no_hardcoded_secrets".green()
+    );
 }
 
 pub fn print_file_rule_docs() {
@@ -257,11 +329,17 @@ pub fn print_file_rule_docs() {
     println!();
     println!("{}", "Properties:".yellow());
     println!("  • {}: Glob pattern for files to check", "pattern".green());
-    println!("  • {}: Map of required file types and their patterns", "requires".green());
+    println!(
+        "  • {}: Map of required file types and their patterns",
+        "requires".green()
+    );
     println!("  • {}: Human-readable description", "description".green());
     println!();
     println!("{}", "Special Patterns:".yellow());
-    println!("  • {}: Looks for test annotations within the file itself", "#[test]".cyan());
+    println!(
+        "  • {}: Looks for test annotations within the file itself",
+        "#[test]".cyan()
+    );
     println!("  • {}: Replaced with the base filename", "*".cyan());
     println!();
     println!("{}", "Auto-fix:".yellow());
@@ -290,17 +368,38 @@ fn print_rule_types() {
     println!("{}", "══════════".blue());
     println!();
     println!("{}", "Structure Rules:".yellow());
-    println!("  1. {} - Ensure directories exist", "Directory Rules".green());
-    println!("  2. {} - Validate component folder structures", "Component Rules".green());
-    println!("  3. {} - Check for required companion files", "File Rules".green());
+    println!(
+        "  1. {} - Ensure directories exist",
+        "Directory Rules".green()
+    );
+    println!(
+        "  2. {} - Validate component folder structures",
+        "Component Rules".green()
+    );
+    println!(
+        "  3. {} - Check for required companion files",
+        "File Rules".green()
+    );
     println!();
     println!("{}", "Quality Rules:".yellow());
-    println!("  4. {} - Enforce file naming conventions", "Naming Rules".green());
-    println!("  5. {} - Control file size and complexity", "Size Rules".green());
-    println!("  6. {} - Ensure documentation coverage", "Documentation Rules".green());
+    println!(
+        "  4. {} - Enforce file naming conventions",
+        "Naming Rules".green()
+    );
+    println!(
+        "  5. {} - Control file size and complexity",
+        "Size Rules".green()
+    );
+    println!(
+        "  6. {} - Ensure documentation coverage",
+        "Documentation Rules".green()
+    );
     println!();
     println!("{}", "Architecture Rules:".yellow());
-    println!("  7. {} - Manage allowed/forbidden packages", "Dependency Rules".green());
+    println!(
+        "  7. {} - Manage allowed/forbidden packages",
+        "Dependency Rules".green()
+    );
     println!("  8. {} - Control import patterns", "Import Rules".green());
     println!("  9. {} - Basic security checks", "Security Rules".green());
     println!();
@@ -313,8 +412,14 @@ fn print_configuration_format() {
     println!("Rules can be defined in multiple locations:");
     println!();
     println!("1. {} - Workspace-wide rules", ".rules.yaml".green());
-    println!("2. {} - Project-specific rules", "<project>/.rules.yaml".green());
-    println!("3. {} - Project rules in meta config", ".meta (rules section)".green());
+    println!(
+        "2. {} - Project-specific rules",
+        "<project>/.rules.yaml".green()
+    );
+    println!(
+        "3. {} - Project rules in meta config",
+        ".meta (rules section)".green()
+    );
     println!();
     println!("{}", "Priority (highest to lowest):".yellow());
     println!("  1. Project-specific .rules.yaml");
@@ -327,7 +432,7 @@ fn print_examples() {
     println!("{}", "EXAMPLES".cyan().bold());
     println!("{}", "════════".blue());
     println!();
-    
+
     println!("{}", "Vue.js Project:".yellow());
     println!("```yaml");
     println!("directories:");
@@ -342,7 +447,7 @@ fn print_examples() {
     println!("      - '[ComponentName].stories.js'");
     println!("```");
     println!();
-    
+
     println!("{}", "React TypeScript Project:".yellow());
     println!("```yaml");
     println!("components:");
@@ -354,7 +459,7 @@ fn print_examples() {
     println!("      - 'index.ts'");
     println!("```");
     println!();
-    
+
     println!("{}", "Rust Project:".yellow());
     println!("```yaml");
     println!("directories:");
@@ -373,12 +478,27 @@ fn print_best_practices() {
     println!("{}", "BEST PRACTICES".cyan().bold());
     println!("{}", "══════════════".blue());
     println!();
-    println!("1. {} - Define common rules at workspace level", "Start Simple".green());
-    println!("2. {} - Override with project-specific rules as needed", "Be Specific".green());
-    println!("3. {} - Mark optional directories as required: false", "Use Severity".green());
-    println!("4. {} - Add descriptions for team understanding", "Document Rules".green());
+    println!(
+        "1. {} - Define common rules at workspace level",
+        "Start Simple".green()
+    );
+    println!(
+        "2. {} - Override with project-specific rules as needed",
+        "Be Specific".green()
+    );
+    println!(
+        "3. {} - Mark optional directories as required: false",
+        "Use Severity".green()
+    );
+    println!(
+        "4. {} - Add descriptions for team understanding",
+        "Document Rules".green()
+    );
     println!("5. {} - Use --fix during development", "Automate".green());
-    println!("6. {} - Add rules check to CI/CD pipeline", "Enforce".green());
+    println!(
+        "6. {} - Add rules check to CI/CD pipeline",
+        "Enforce".green()
+    );
     println!();
     println!("{}", "AI Assistant Integration:".yellow());
     println!("• Run 'gest rules check' before making structural changes");
@@ -394,13 +514,25 @@ pub fn print_create_help() {
     println!("Use the create subcommands to add new rules:");
     println!();
     println!("{}", "Available Commands:".yellow());
-    println!("  {} - Add a directory rule", "gest rules create directory <path>".green());
-    println!("  {} - Add a component rule", "gest rules create component <pattern>".green());
-    println!("  {} - Add a file rule", "gest rules create file <pattern>".green());
+    println!(
+        "  {} - Add a directory rule",
+        "gest rules create directory <path>".green()
+    );
+    println!(
+        "  {} - Add a component rule",
+        "gest rules create component <pattern>".green()
+    );
+    println!(
+        "  {} - Add a file rule",
+        "gest rules create file <pattern>".green()
+    );
     println!();
     println!("{}", "Options:".yellow());
     println!("  {} - Target specific project", "--project <name>".cyan());
-    println!("  {} - Mark as required (directory rules)", "--required".cyan());
+    println!(
+        "  {} - Mark as required (directory rules)",
+        "--required".cyan()
+    );
     println!("  {} - Add description", "--description <text>".cyan());
     println!();
     println!("{}", "Examples:".yellow());

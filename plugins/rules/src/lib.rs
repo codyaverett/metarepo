@@ -1,18 +1,17 @@
-pub mod plugin;
 pub mod config;
-pub mod engine;
-pub mod validators;
-pub mod docs;
 pub mod create;
+pub mod docs;
+pub mod engine;
+pub mod plugin;
 pub mod project;
+pub mod validators;
 
-pub use plugin::RulesPlugin;
 pub use config::{
-    RulesConfig, DirectoryRule, ComponentRule, FileRule,
-    NamingRule, DependencyRule, ImportRule, DocumentationRule,
-    SizeRule, SecurityRule
+    ComponentRule, DependencyRule, DirectoryRule, DocumentationRule, FileRule, ImportRule,
+    NamingRule, RulesConfig, SecurityRule, SizeRule,
 };
-pub use engine::{RuleEngine, Violation, Severity};
+pub use engine::{RuleEngine, Severity, Violation};
+pub use plugin::RulesPlugin;
 
 use anyhow::Result;
 use std::path::Path;
@@ -21,7 +20,10 @@ pub fn load_rules_config<P: AsRef<Path>>(path: P) -> Result<RulesConfig> {
     config::load_config(path)
 }
 
-pub fn validate_project<P: AsRef<Path>>(project_path: P, config: &RulesConfig) -> Result<Vec<Violation>> {
+pub fn validate_project<P: AsRef<Path>>(
+    project_path: P,
+    config: &RulesConfig,
+) -> Result<Vec<Violation>> {
     let engine = RuleEngine::new(config.clone());
     engine.validate(project_path)
 }

@@ -1,10 +1,10 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -47,11 +47,11 @@ pub struct ServerInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerCapabilities {
     #[serde(default)]
-    pub resources: serde_json::Value,  // Can be bool or object
+    pub resources: serde_json::Value, // Can be bool or object
     #[serde(default)]
-    pub tools: serde_json::Value,      // Can be bool or object
+    pub tools: serde_json::Value, // Can be bool or object
     #[serde(default)]
-    pub prompts: serde_json::Value,    // Can be bool or object
+    pub prompts: serde_json::Value, // Can be bool or object
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -99,12 +99,17 @@ impl McpClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
 
-        let mut process = cmd.spawn()
+        let mut process = cmd
+            .spawn()
             .with_context(|| format!("Failed to spawn MCP server: {}", command))?;
 
-        let stdin = process.stdin.take()
+        let stdin = process
+            .stdin
+            .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to get stdin"))?;
-        let stdout = process.stdout.take()
+        let stdout = process
+            .stdout
+            .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to get stdout"))?;
         let stdout = BufReader::new(stdout);
 
@@ -122,26 +127,32 @@ impl McpClient {
     }
 
     async fn initialize(&mut self) -> Result<()> {
-        let response = self.send_request("initialize", json!({
-            "protocolVersion": "2025-06-18",
-            "capabilities": {
-                "roots": {
-                    "listChanged": true
-                },
-                "sampling": {}
-            },
-            "clientInfo": {
-                "name": "gestalt-mcp-client",
-                "version": "0.1.0"
-            }
-        })).await?;
+        let response = self
+            .send_request(
+                "initialize",
+                json!({
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {
+                        "roots": {
+                            "listChanged": true
+                        },
+                        "sampling": {}
+                    },
+                    "clientInfo": {
+                        "name": "gestalt-mcp-client",
+                        "version": "0.1.0"
+                    }
+                }),
+            )
+            .await?;
 
         if let Some(result) = response.result {
             self.server_info = Some(serde_json::from_value(result)?);
         }
 
         // Send initialized notification
-        self.send_notification("notifications/initialized", json!({})).await?;
+        self.send_notification("notifications/initialized", json!({}))
+            .await?;
 
         Ok(())
     }
@@ -164,20 +175,21 @@ impl McpClient {
         loop {
             let mut line = String::new();
             self.stdout.read_line(&mut line).await?;
-            
+
             // eprintln!("DEBUG: Received from server while waiting for {} response: {}", method, line.trim());
-            
+
             // Try to parse as a generic JSON value first
             let json_value: Value = serde_json::from_str(&line)
                 .with_context(|| format!("Failed to parse JSON: {}", line))?;
-            
+
             // Check if this is a request from the server (has method but no result/error)
-            if json_value.get("method").is_some() && 
-               json_value.get("result").is_none() && 
-               json_value.get("error").is_none() {
+            if json_value.get("method").is_some()
+                && json_value.get("result").is_none()
+                && json_value.get("error").is_none()
+            {
                 // This is a request from the server, handle it
                 // eprintln!("DEBUG: Received server request: {}", json_value.get("method").unwrap());
-                
+
                 // Handle roots/list request
                 if json_value.get("method") == Some(&json!("roots/list")) {
                     let server_id = json_value.get("id").cloned().unwrap_or(json!(null));
@@ -195,20 +207,20 @@ impl McpClient {
                     self.stdin.flush().await?;
                     // eprintln!("DEBUG: Sent roots/list response");
                 }
-                
+
                 // Continue waiting for our actual response
                 continue;
             }
-            
+
             // This should be a response
             let response: JsonRpcResponse = serde_json::from_value(json_value)
                 .with_context(|| format!("Failed to parse response: {}", line))?;
-            
+
             // Check if this is the response to our request
             if response.id == id {
                 return Ok(response);
             }
-            
+
             // If not our response, continue waiting
             // eprintln!("DEBUG: Response ID {} doesn't match our request ID {}, continuing...", response.id, id);
         }
@@ -231,18 +243,18 @@ impl McpClient {
 
     pub async fn list_resources(&mut self) -> Result<Vec<Resource>> {
         let response = self.send_request("resources/list", json!({})).await?;
-        
+
         if let Some(result) = response.result {
             // Debug: Print the raw result
             // eprintln!("DEBUG: Raw resources/list result: {}", serde_json::to_string_pretty(&result).unwrap_or_default());
-            
+
             // The result might be an array directly, or wrapped in a "resources" field
             let resources_value = if result.is_array() {
                 result
             } else {
                 result.get("resources").unwrap_or(&json!([])).clone()
             };
-            
+
             let resources: Vec<Resource> = serde_json::from_value(resources_value)?;
             Ok(resources)
         } else {
@@ -252,35 +264,41 @@ impl McpClient {
     }
 
     pub async fn read_resource(&mut self, uri: &str) -> Result<Value> {
-        let response = self.send_request("resources/read", json!({
-            "uri": uri
-        })).await?;
-        
-        response.result
+        let response = self
+            .send_request(
+                "resources/read",
+                json!({
+                    "uri": uri
+                }),
+            )
+            .await?;
+
+        response
+            .result
             .ok_or_else(|| anyhow::anyhow!("No result from resource read"))
     }
 
     pub async fn list_tools(&mut self) -> Result<Vec<Tool>> {
         // eprintln!("DEBUG: Sending tools/list request");
         let response = self.send_request("tools/list", json!({})).await?;
-        
+
         // Check for error first
         if let Some(error) = response.error {
             // eprintln!("DEBUG: Error from tools/list: {:?}", error);
             return Err(anyhow::anyhow!("MCP error: {}", error.message));
         }
-        
+
         if let Some(result) = response.result {
             // Debug: Print the raw result
             // eprintln!("DEBUG: Raw tools/list result: {}", serde_json::to_string_pretty(&result).unwrap_or_default());
-            
+
             // The result might be an array directly, or wrapped in a "tools" field
             let tools_value = if result.is_array() {
                 result
             } else {
                 result.get("tools").unwrap_or(&json!([])).clone()
             };
-            
+
             let tools: Vec<Tool> = serde_json::from_value(tools_value)?;
             Ok(tools)
         } else {
@@ -290,22 +308,27 @@ impl McpClient {
     }
 
     pub async fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value> {
-        let response = self.send_request("tools/call", json!({
-            "name": name,
-            "arguments": arguments
-        })).await?;
-        
-        response.result
+        let response = self
+            .send_request(
+                "tools/call",
+                json!({
+                    "name": name,
+                    "arguments": arguments
+                }),
+            )
+            .await?;
+
+        response
+            .result
             .ok_or_else(|| anyhow::anyhow!("No result from tool call"))
     }
 
     pub async fn list_prompts(&mut self) -> Result<Vec<Prompt>> {
         let response = self.send_request("prompts/list", json!({})).await?;
-        
+
         if let Some(result) = response.result {
-            let prompts: Vec<Prompt> = serde_json::from_value(
-                result.get("prompts").unwrap_or(&json!([])).clone()
-            )?;
+            let prompts: Vec<Prompt> =
+                serde_json::from_value(result.get("prompts").unwrap_or(&json!([])).clone())?;
             Ok(prompts)
         } else {
             Ok(vec![])
@@ -313,12 +336,18 @@ impl McpClient {
     }
 
     pub async fn get_prompt(&mut self, name: &str, arguments: Value) -> Result<Value> {
-        let response = self.send_request("prompts/get", json!({
-            "name": name,
-            "arguments": arguments
-        })).await?;
-        
-        response.result
+        let response = self
+            .send_request(
+                "prompts/get",
+                json!({
+                    "name": name,
+                    "arguments": arguments
+                }),
+            )
+            .await?;
+
+        response
+            .result
             .ok_or_else(|| anyhow::anyhow!("No result from prompt get"))
     }
 
@@ -327,7 +356,9 @@ impl McpClient {
     }
 
     pub async fn close(mut self) -> Result<()> {
-        self.send_notification("notifications/cancelled", json!({})).await.ok();
+        self.send_notification("notifications/cancelled", json!({}))
+            .await
+            .ok();
         self.process.kill().await?;
         Ok(())
     }
