@@ -33,13 +33,21 @@ impl MetarepoCli {
             .valid(clap::builder::styling::AnsiColor::BrightGreen.on_default())
             .invalid(clap::builder::styling::AnsiColor::BrightRed.on_default());
             
-        let base_app = Command::new("meta")
+        let mut app = Command::new("meta")
             .version(env!("CARGO_PKG_VERSION"))
             .about("A tool for managing multi-project systems and libraries")
             .author("Metarepo Contributors")
             .styles(styles)
             .color(ColorChoice::Always)
             .disable_help_subcommand(true)
+            .args_conflicts_with_subcommands(true)
+            .subcommand_precedence_over_arg(true);
+            
+        // First add all subcommands from plugins
+        app = self.registry.build_cli_with_flags(app, experimental);
+        
+        // Then add global options after subcommands
+        app = app
             .arg(
                 Arg::new("verbose")
                     .long("verbose")
@@ -65,7 +73,7 @@ impl MetarepoCli {
                     .global(true)
             );
             
-        self.registry.build_cli_with_flags(base_app, experimental)
+        app
     }
     
     pub fn run(&self, args: Vec<String>) -> Result<()> {
