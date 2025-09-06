@@ -25,16 +25,18 @@ impl PluginRegistry {
     }
     
     pub fn register_all_workspace_plugins_with_flags(&mut self, experimental: bool) {
+        use crate::plugins;
+        
         // Register built-in workspace plugins
-        self.register(Box::new(metarepo_init::InitPlugin::new()));
-        self.register(Box::new(metarepo_git::GitPlugin::new()));
-        self.register(Box::new(metarepo_project::ProjectPlugin::new()));
-        self.register(Box::new(metarepo_exec::ExecPlugin::new()));
-        self.register(Box::new(metarepo_rules::RulesPlugin::new()));
+        self.register(Box::new(plugins::init::InitPlugin::new()));
+        self.register(Box::new(plugins::git::GitPlugin::new()));
+        self.register(Box::new(plugins::project::ProjectPlugin::new()));
+        self.register(Box::new(plugins::exec::ExecPlugin::new()));
+        self.register(Box::new(plugins::rules::RulesPlugin::new()));
         
         // Only register experimental plugins if flag is set
         if experimental {
-            self.register(Box::new(metarepo_mcp::McpPlugin::new()));
+            self.register(Box::new(plugins::mcp::McpPlugin::new()));
         }
         
         // TODO: Enable more plugins as they're implemented
