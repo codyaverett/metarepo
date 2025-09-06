@@ -45,7 +45,8 @@ impl MetarepoCli {
             .color(ColorChoice::Always)
             .disable_help_subcommand(true)
             .args_conflicts_with_subcommands(true)
-            .subcommand_precedence_over_arg(true);
+            .subcommand_precedence_over_arg(true)
+            .disable_version_flag(true);
             
         // First add all subcommands from plugins
         app = self.registry.borrow().build_cli_with_flags(app, experimental);
@@ -53,11 +54,11 @@ impl MetarepoCli {
         // Then add global options after subcommands
         app = app
             .arg(
-                Arg::new("verbose")
-                    .long("verbose")
+                Arg::new("version")
+                    .long("version")
                     .short('v')
-                    .action(clap::ArgAction::SetTrue)
-                    .help("Enable verbose output")
+                    .action(clap::ArgAction::Version)
+                    .help("Print version information")
                     .global(true)
             )
             .arg(
@@ -67,7 +68,6 @@ impl MetarepoCli {
                     .action(clap::ArgAction::SetTrue)
                     .help("Suppress output")
                     .global(true)
-                    .conflicts_with("verbose")
             )
             .arg(
                 Arg::new("experimental")
@@ -100,11 +100,6 @@ impl MetarepoCli {
         // Load runtime configuration
         let config = create_runtime_config(false)?;
         
-        // Handle global flags
-        if matches.get_flag("verbose") {
-            tracing::debug!("Verbose mode enabled");
-        }
-        
         // Route to appropriate plugin
         match matches.subcommand() {
             Some((command_name, sub_matches)) => {
@@ -133,11 +128,6 @@ impl MetarepoCli {
         
         // Load runtime configuration with experimental flag
         let config = create_runtime_config(true)?;
-        
-        // Handle global flags
-        if matches.get_flag("verbose") {
-            tracing::debug!("Verbose mode enabled");
-        }
         
         tracing::debug!("Experimental features enabled");
         
