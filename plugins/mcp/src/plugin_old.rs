@@ -3,7 +3,7 @@ use clap::{Arg, ArgMatches, Command};
 use metarepo_core::{MetaPlugin, RuntimeConfig};
 use crate::server::{McpServerManager, McpServerConfig};
 use crate::client::McpClient;
-use crate::mcp_server::{GestaltMcpServer, print_vscode_config};
+use crate::mcp_server::{MetarepoMcpServer, print_vscode_config};
 use crate::config::McpConfig;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -32,7 +32,7 @@ impl McpPlugin {
     }
     
     fn show_help(&self) -> Result<()> {
-        let mut app = Command::new("gest mcp")
+        let mut app = Command::new("meta mcp")
             .about("Manage MCP (Model Context Protocol) servers")
             .subcommand(
                 Command::new("start")
@@ -94,7 +94,7 @@ impl McpPlugin {
             )
             .subcommand(
                 Command::new("serve")
-                    .about("Run Gestalt as an MCP server exposing CLI tools")
+                    .about("Run Metarepo as an MCP server exposing CLI tools")
             )
             .subcommand(
                 Command::new("config")
@@ -159,7 +159,7 @@ impl McpPlugin {
                 let saved_config = McpConfig::load()?;
                 saved_config.get_server(name)
                     .ok_or_else(|| anyhow::anyhow!(
-                        "Server '{}' not found in configuration. Use 'gest mcp add' to add it first, or provide a command directly.",
+                        "Server '{}' not found in configuration. Use 'meta mcp add' to add it first, or provide a command directly.",
                         name
                     ))?
                     .clone()
@@ -267,7 +267,7 @@ impl McpPlugin {
         }
 
         println!("\nServer connected successfully!");
-        println!("Use 'gest mcp list-resources' or 'gest mcp list-tools' to explore capabilities");
+        println!("Use 'meta mcp list-resources' or 'meta mcp list-tools' to explore capabilities");
         
         client.close().await?;
         Ok(())
@@ -352,7 +352,7 @@ impl McpPlugin {
     }
 
     fn handle_serve(&self) -> Result<()> {
-        let mut server = GestaltMcpServer::new();
+        let mut server = MetarepoMcpServer::new();
         server.run()?;
         Ok(())
     }
@@ -400,7 +400,7 @@ impl McpPlugin {
         manager.add_server(config)?;
         
         println!("Added MCP server configuration '{}'", name);
-        println!("Use 'gest mcp start {}' to start the server", name);
+        println!("Use 'meta mcp start {}' to start the server", name);
         Ok(())
     }
     
@@ -525,7 +525,7 @@ impl MetaPlugin for McpPlugin {
                 )
                 .subcommand(
                     Command::new("serve")
-                        .about("Run Gestalt as an MCP server exposing CLI tools")
+                        .about("Run Metarepo as an MCP server exposing CLI tools")
                 )
                 .subcommand(
                     Command::new("config")

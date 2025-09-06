@@ -1,6 +1,6 @@
-# Gestalt Rules Plugin
+# Metarepo Rules Plugin
 
-A file structure enforcement plugin for Gestalt that helps maintain consistent project organization across repositories.
+A file structure enforcement plugin for Metarepo that helps maintain consistent project organization across repositories.
 
 ## Features
 
@@ -19,10 +19,10 @@ A file structure enforcement plugin for Gestalt that helps maintain consistent p
 
 ```bash
 # Initialize workspace rules
-gest rules init
+meta rules init
 
 # Initialize project-specific rules
-gest rules init --project frontend
+meta rules init --project frontend
 ```
 
 Creates a `.rules.yaml` file with example configuration.
@@ -31,54 +31,54 @@ Creates a `.rules.yaml` file with example configuration.
 
 ```bash
 # Check all projects
-gest rules check
+meta rules check
 
 # Check specific project
-gest rules check --project my-project
+meta rules check --project my-project
 
 # Auto-fix violations
-gest rules check --fix
+meta rules check --fix
 ```
 
 ### Create New Rules
 
 ```bash
 # Create directory rule
-gest rules create directory src/utils --required --description "Utility functions"
+meta rules create directory src/utils --required --description "Utility functions"
 
 # Create component rule
-gest rules create component 'components/**/' --structure '[ComponentName].vue,[ComponentName].test.js'
+meta rules create component 'components/**/' --structure '[ComponentName].vue,[ComponentName].test.js'
 
 # Create file rule
-gest rules create file '**/*.ts' --requires 'test:*.test.ts,doc:*.md'
+meta rules create file '**/*.ts' --requires 'test:*.test.ts,doc:*.md'
 
 # Add rule to specific project
-gest rules create directory src/hooks --project frontend
+meta rules create directory src/hooks --project frontend
 ```
 
 ### View Documentation
 
 ```bash
 # Full documentation
-gest rules docs
+meta rules docs
 
 # Specific rule type docs
-gest rules docs directory
-gest rules docs component
-gest rules docs file
+meta rules docs directory
+meta rules docs component
+meta rules docs file
 ```
 
 ### Manage Project Rules
 
 ```bash
 # Show rules status for all projects
-gest rules status
+meta rules status
 
 # Copy workspace rules to a project
-gest rules copy frontend
+meta rules copy frontend
 
 # List rules for specific project
-gest rules list --project frontend
+meta rules list --project frontend
 ```
 
 ## Rule Priority and Inheritance
@@ -92,7 +92,7 @@ The rules plugin supports multiple configuration levels:
 When checking a project:
 - If the project has its own `.rules.yaml`, only those rules are used
 - Otherwise, workspace rules are applied
-- Use `gest rules copy <project>` to start with workspace rules and customize
+- Use `meta rules copy <project>` to start with workspace rules and customize
 
 ## Configuration Format
 
@@ -162,14 +162,14 @@ files:
 
 This plugin is particularly useful for AI assistants to:
 
-1. **Quick Context Building**: Run `gest rules check` to understand project structure before making changes
+1. **Quick Context Building**: Run `meta rules check` to understand project structure before making changes
 2. **Ensure Consistency**: Validate that new components follow conventions
 3. **Auto-Generate Structure**: Use `--fix` to create required directories
 
 Example workflow for Claude:
 ```bash
 # Check current structure
-gest rules check --project frontend
+meta rules check --project frontend
 
 # Create new component following rules
 mkdir -p components/Button
@@ -178,7 +178,7 @@ mkdir -p components/Button/__tests__
 touch components/Button/__tests__/Button.test.js
 
 # Verify structure
-gest rules check --project frontend
+meta rules check --project frontend
 ```
 
 ## Examples
@@ -235,7 +235,7 @@ Each project can have its own rules that completely override workspace rules:
 
 ```bash
 # Initialize rules for a specific project
-gest rules init --project frontend
+meta rules init --project frontend
 
 # Edit frontend/.rules.yaml to customize
 # Now frontend will use its own rules instead of workspace rules
@@ -247,10 +247,10 @@ The plugin supports creating rules through command-line arguments or interactive
 
 ```bash
 # With arguments
-gest rules create directory src/config --required
+meta rules create directory src/config --required
 
 # Interactive mode (when structure items aren't provided)
-gest rules create component 'components/**/'
+meta rules create component 'components/**/'
 > Enter structure items (empty line to finish):
 > [ComponentName].tsx
 > [ComponentName].test.tsx
@@ -264,15 +264,15 @@ Access comprehensive documentation without leaving the terminal:
 
 ```bash
 # Learn about all rule types
-gest rules docs
+meta rules docs
 
 # Get examples for specific rule type
-gest rules docs component
+meta rules docs component
 ```
 
 ### Integration with Project Plugin
 
-The rules plugin integrates with the Gestalt project plugin to:
+The rules plugin integrates with the Metarepo project plugin to:
 - Automatically discover projects from `.meta` configuration
 - Support project-specific rule paths
 - Validate multiple projects in one command
@@ -280,7 +280,7 @@ The rules plugin integrates with the Gestalt project plugin to:
 ## Dependencies
 
 This plugin depends on:
-- `meta-core` - Core Gestalt plugin interfaces
+- `meta-core` - Core Metarepo plugin interfaces
 - `meta-project` - Project management functionality
 
 ## Future Enhancements

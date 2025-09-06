@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Test script for Gestalt MCP Server mode
+# Test script for Metarepo MCP Server mode
 # Run from the project root: ./plugins/mcp/tests/test_mcp_server.sh
 
-echo "Testing Gestalt as an MCP Server"
+echo "Testing Metarepo as an MCP Server"
 echo "================================="
 
 # Navigate to project root

@@ -57,22 +57,22 @@ Control nested repository behavior with CLI flags:
 
 ```bash
 # Import with recursive processing of nested repos
-gest project import my-project https://github.com/user/meta-repo.git --recursive
+meta project import my-project https://github.com/user/meta-repo.git --recursive
 
 # Limit recursion depth
-gest project import my-project repo-url --recursive --max-depth 2
+meta project import my-project repo-url --recursive --max-depth 2
 
 # Import with flattening (all nested projects at root level)
-gest project import my-project repo-url --recursive --flatten
+meta project import my-project repo-url --recursive --flatten
 
 # Skip recursive import even if configured
-gest project import my-project repo-url --no-recursive
+meta project import my-project repo-url --no-recursive
 
 # Show nested repository tree structure
-gest project tree
+meta project tree
 
 # List projects with hierarchy
-gest project list --tree
+meta project list --tree
 ```
 
 ## Use Cases
@@ -192,10 +192,10 @@ Choose which nested repositories to work with:
 
 ```bash
 # Only import specific nested projects
-gest project import my-project repo-url --recursive --only frontend,backend
+meta project import my-project repo-url --recursive --only frontend,backend
 
 # Exclude specific nested projects
-gest project import my-project repo-url --recursive --exclude tests,docs
+meta project import my-project repo-url --recursive --exclude tests,docs
 ```
 
 ### Update Strategies
@@ -203,13 +203,13 @@ Different strategies for updating nested repositories:
 
 ```bash
 # Update all nested repositories
-gest project update --recursive
+meta project update --recursive
 
 # Update only direct children
-gest project update --depth 1
+meta project update --depth 1
 
 # Update specific branch of nested repos
-gest project update --recursive --branch develop
+meta project update --recursive --branch develop
 ```
 
 ## Implementation Details
@@ -264,10 +264,10 @@ Enable detailed logging for troubleshooting:
 
 ```bash
 # Verbose output for import operations
-RUST_LOG=debug gest project import my-project repo-url --recursive
+RUST_LOG=debug meta project import my-project repo-url --recursive
 
 # Dry run to preview import
-gest project import my-project repo-url --recursive --dry-run
+meta project import my-project repo-url --recursive --dry-run
 ```
 
 ## Best Practices
@@ -287,7 +287,7 @@ gest project import my-project repo-url --recursive --dry-run
 2. Create intermediate meta repositories for each group
 3. Update the root `.meta` file to reference group repositories
 4. Test with `--dry-run` before actual migration
-5. Use `gest project tree` to verify structure
+5. Use `meta project tree` to verify structure
 
 ### From Nested to Flat
 1. Use `--flatten` flag during import

@@ -1,6 +1,6 @@
 # MCP (Model Context Protocol) Plugin
 
-A comprehensive MCP implementation for Gestalt that provides both client and server functionality.
+A comprehensive MCP implementation for Metarepo that provides both client and server functionality.
 
 ## Features
 
@@ -11,14 +11,14 @@ A comprehensive MCP implementation for Gestalt that provides both client and ser
 - Manage MCP server processes (start, stop, restart)
 
 ### MCP Server
-- Run Gestalt as an MCP server
-- Expose all Gestalt plugins as MCP tools
+- Run Metarepo as an MCP server
+- Expose all Metarepo plugins as MCP tools
 - Compatible with VS Code, Claude Desktop, and other MCP clients
 - Full JSON-RPC protocol implementation
 
 ## Installation
 
-The MCP plugin is included in the Gestalt workspace. Build it with:
+The MCP plugin is included in the Metarepo workspace. Build it with:
 
 ```bash
 cargo build
@@ -30,33 +30,33 @@ cargo build
 
 ```bash
 # Connect to an MCP server
-gest mcp connect npx -y @modelcontextprotocol/server-filesystem /path
+meta mcp connect npx -y @modelcontextprotocol/server-filesystem /path
 
 # List available tools
-gest mcp list-tools npx -y @modelcontextprotocol/server-filesystem /path
+meta mcp list-tools npx -y @modelcontextprotocol/server-filesystem /path
 
 # Call a tool
-gest mcp call-tool npx -y @modelcontextprotocol/server-filesystem /path read_file --args '{"path": "file.txt"}'
+meta mcp call-tool npx -y @modelcontextprotocol/server-filesystem /path read_file --args '{"path": "file.txt"}'
 
 # Manage server processes
-gest mcp start myserver npx -y @modelcontextprotocol/server-git
-gest mcp status
-gest mcp stop myserver
+meta mcp start myserver npx -y @modelcontextprotocol/server-git
+meta mcp status
+meta mcp stop myserver
 ```
 
-### Server Mode - Running Gestalt as an MCP Server
+### Server Mode - Running Metarepo as an MCP Server
 
 ```bash
 # Get configuration for VS Code or Claude Desktop
-gest mcp config
+meta mcp config
 
 # Run as MCP server
-gest mcp serve
+meta mcp serve
 ```
 
 ## Available Tools (Server Mode)
 
-When running as an MCP server, Gestalt exposes:
+When running as an MCP server, Metarepo exposes:
 
 - **Git Tools**: `git_status`, `git_diff`, `git_commit`, `git_pull`, `git_push`
 - **Project Tools**: `project_list`, `project_add`, `project_remove`
@@ -70,8 +70,8 @@ Add to `settings.json`:
 ```json
 {
   "mcpServers": {
-    "gestalt": {
-      "command": "gest",
+    "metarepo": {
+      "command": "meta",
       "args": ["mcp", "serve"]
     }
   }
@@ -83,8 +83,8 @@ Add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "gestalt": {
-      "command": "/path/to/gest",
+    "metarepo": {
+      "command": "/path/to/meta",
       "args": ["mcp", "serve"]
     }
   }
@@ -106,7 +106,7 @@ Run the test scripts from the project root:
 ## Documentation
 
 - [MCP Usage Guide](mcp_usage.md) - Detailed usage examples
-- [Server Documentation](docs/MCP_SERVER_USAGE.md) - Running Gestalt as an MCP server
+- [Server Documentation](docs/MCP_SERVER_USAGE.md) - Running Metarepo as an MCP server
 - [Test Documentation](tests/README.md) - Testing guide
 
 ## Architecture
@@ -118,7 +118,7 @@ plugins/mcp/
 │   ├── plugin.rs        # CLI plugin interface
 │   ├── client.rs        # MCP client implementation
 │   ├── server.rs        # Process management for MCP servers
-│   └── mcp_server.rs    # Gestalt as MCP server
+│   └── mcp_server.rs    # Metarepo as MCP server
 ├── tests/               # Test scripts
 ├── docs/                # Documentation
 └── Cargo.toml
@@ -136,4 +136,4 @@ Popular MCP servers you can connect to:
 
 ## Contributing
 
-When adding new Gestalt plugins, consider exposing their functionality through the MCP server by updating `mcp_server.rs`.
+When adding new Metarepo plugins, consider exposing their functionality through the MCP server by updating `mcp_server.rs`.

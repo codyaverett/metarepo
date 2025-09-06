@@ -129,7 +129,7 @@ pub fn create_project(project_path: &str, repo_url: &str, base_path: &Path) -> R
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
     }
     
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
@@ -166,7 +166,7 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
     }
     
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
@@ -312,7 +312,7 @@ pub fn import_project_recursive(
     // Load the root meta config
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
     }
     
     let config = MetaConfig::load_from_file(&meta_file_path)?;
@@ -617,14 +617,14 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
     }
     
     let config = MetaConfig::load_from_file(&meta_file_path)?;
     
     if config.projects.is_empty() {
         println!("\n  {} {}", "📦".bright_blue(), "No projects found in workspace".dimmed());
-        println!("  {} {}", "".dimmed(), "Use 'gest project import' to add projects".dimmed());
+        println!("  {} {}", "".dimmed(), "Use 'meta project import' to add projects".dimmed());
         println!();
         return Ok(());
     }
@@ -694,14 +694,14 @@ pub fn show_project_tree(base_path: &Path) -> Result<()> {
     // Load the root meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
     }
     
     let config = MetaConfig::load_from_file(&meta_file_path)?;
     
     if config.projects.is_empty() {
         println!("\n  {} {}", "📦".bright_blue(), "No projects found in workspace".dimmed());
-        println!("  {} {}", "".dimmed(), "Use 'gest project import' to add projects".dimmed());
+        println!("  {} {}", "".dimmed(), "Use 'meta project import' to add projects".dimmed());
         println!();
         return Ok(());
     }
@@ -926,7 +926,7 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
     // Load the meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
     }
     
     let config = MetaConfig::load_from_file(&meta_file_path)?;
@@ -1072,7 +1072,7 @@ pub fn remove_project(project_name: &str, base_path: &Path, force: bool) -> Resu
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'gest init' first."));
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
     }
     
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;

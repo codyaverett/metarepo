@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
 use metarepo_core::{MetaPlugin, RuntimeConfig};
 use crate::client::McpClient;
-use crate::mcp_server::{GestaltMcpServer, print_vscode_config};
+use crate::mcp_server::{MetarepoMcpServer, print_vscode_config};
 use crate::config::McpConfig;
 use crate::server::McpServerConfig;
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ impl McpPlugin {
     }
     
     fn show_help(&self) -> Result<()> {
-        let mut app = Command::new("gest mcp")
+        let mut app = Command::new("meta mcp")
             .about("Manage MCP (Model Context Protocol) servers")
             .subcommand(
                 Command::new("add")
@@ -74,7 +74,7 @@ impl McpPlugin {
             )
             .subcommand(
                 Command::new("serve")
-                    .about("Run Gestalt as an MCP server exposing CLI tools")
+                    .about("Run Metarepo as an MCP server exposing CLI tools")
             )
             .subcommand(
                 Command::new("config")
@@ -120,8 +120,8 @@ impl McpPlugin {
         saved_config.add_server(config)?;
         
         println!("Added MCP server configuration '{}'", name);
-        println!("Use 'gest mcp connect {}' to test the connection", name);
-        println!("Use 'gest mcp list-tools {}' to see available tools", name);
+        println!("Use 'meta mcp connect {}' to test the connection", name);
+        println!("Use 'meta mcp list-tools {}' to see available tools", name);
         Ok(())
     }
     
@@ -131,8 +131,8 @@ impl McpPlugin {
         
         if servers.is_empty() {
             println!("No configured MCP servers");
-            println!("\nAdd a server with: gest mcp add <name> <command> [args]");
-            println!("Example: gest mcp add playwright npx -- --yes @modelcontextprotocol/server-playwright");
+            println!("\nAdd a server with: meta mcp add <name> <command> [args]");
+            println!("Example: meta mcp add playwright npx -- --yes @modelcontextprotocol/server-playwright");
             return Ok(());
         }
         
@@ -165,9 +165,9 @@ impl McpPlugin {
         }
         
         println!("\nUsage:");
-        println!("  gest mcp connect <name>     - Test connection");
-        println!("  gest mcp list-tools <name>  - List available tools");
-        println!("  gest mcp call-tool <name> <tool> --args '{{}}'");
+        println!("  meta mcp connect <name>     - Test connection");
+        println!("  meta mcp list-tools <name>  - List available tools");
+        println!("  meta mcp call-tool <name> <tool> --args '{{}}'");
         
         Ok(())
     }
@@ -320,7 +320,7 @@ impl McpPlugin {
     }
 
     fn handle_serve(&self) -> Result<()> {
-        let mut server = GestaltMcpServer::new();
+        let mut server = MetarepoMcpServer::new();
         server.run()?;
         Ok(())
     }
@@ -399,7 +399,7 @@ impl MetaPlugin for McpPlugin {
                 )
                 .subcommand(
                     Command::new("serve")
-                        .about("Run Gestalt as an MCP server exposing CLI tools")
+                        .about("Run Metarepo as an MCP server exposing CLI tools")
                 )
                 .subcommand(
                     Command::new("config")

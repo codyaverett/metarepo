@@ -11,7 +11,7 @@ impl GitPlugin {
     }
     
     fn show_help(&self) -> Result<()> {
-        let mut app = Command::new("gest git")
+        let mut app = Command::new("meta git")
             .about("Git operations across multiple repositories")
             .subcommand(
                 Command::new("clone")

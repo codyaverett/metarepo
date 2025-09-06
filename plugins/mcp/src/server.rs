@@ -83,7 +83,7 @@ impl McpServerInstance {
                 "protocolVersion": "0.1.0",
                 "capabilities": {},
                 "clientInfo": {
-                    "name": "gestalt-mcp",
+                    "name": "metarepo-mcp",
                     "version": "0.1.0"
                 }
             }

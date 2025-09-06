@@ -1,10 +1,10 @@
-# Gestalt MCP Server Setup
+# Metarepo MCP Server Setup
 
-The Gestalt MCP server exposes all Gestalt CLI functionality as MCP tools, allowing AI assistants like Claude to interact with your development environment.
+The Metarepo MCP server exposes all Metarepo CLI functionality as MCP tools, allowing AI assistants like Claude to interact with your development environment.
 
 ## Available Tools
 
-The Gestalt MCP server exposes the following tools:
+The Metarepo MCP server exposes the following tools:
 
 ### General
 - `help` - Get help and list available commands
@@ -34,13 +34,13 @@ The Gestalt MCP server exposes the following tools:
 Test the server manually:
 ```bash
 # Start the server
-gest mcp serve
+meta mcp serve
 
 # In another terminal, send JSON-RPC commands:
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | gest mcp serve
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | meta mcp serve
 
 # List available tools
-printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | gest mcp serve
+printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | meta mcp serve
 ```
 
 ## Claude Desktop Configuration
@@ -53,8 +53,8 @@ Add to your Claude Desktop configuration file:
 ```json
 {
   "mcpServers": {
-    "gestalt": {
-      "command": "/path/to/gest",
+    "metarepo": {
+      "command": "/path/to/meta",
       "args": ["mcp", "serve"],
       "env": {}
     }
@@ -62,9 +62,9 @@ Add to your Claude Desktop configuration file:
 }
 ```
 
-Replace `/path/to/gest` with the full path to your Gestalt binary. You can find this with:
+Replace `/path/to/meta` with the full path to your Metarepo binary. You can find this with:
 ```bash
-which gest
+which meta
 ```
 
 ## VS Code Configuration
@@ -74,11 +74,11 @@ Add to your VS Code `settings.json`:
 ```json
 {
   "mcp.servers": {
-    "gestalt": {
-      "command": "/path/to/gest",
+    "metarepo": {
+      "command": "/path/to/meta",
       "args": ["mcp", "serve"],
-      "name": "Gestalt Multi-Project Manager",
-      "description": "MCP server exposing Gestalt CLI tools for git, project, and execution management"
+      "name": "Metarepo Multi-Project Manager",
+      "description": "MCP server exposing Metarepo CLI tools for git, project, and execution management"
     }
   }
 }
@@ -86,7 +86,7 @@ Add to your VS Code `settings.json`:
 
 ## Usage Examples
 
-Once configured, Claude or other MCP clients can use Gestalt tools:
+Once configured, Claude or other MCP clients can use Metarepo tools:
 
 ```
 "Show me the git status of all my projects"
@@ -97,9 +97,9 @@ Once configured, Claude or other MCP clients can use Gestalt tools:
 
 ## Troubleshooting
 
-1. **Server not starting**: Ensure the Gestalt binary path is correct and executable
+1. **Server not starting**: Ensure the Metarepo binary path is correct and executable
 2. **Tools not appearing**: Check that the MCP client properly initialized the connection
-3. **Commands failing**: Verify that Gestalt has access to the directories and git repositories
+3. **Commands failing**: Verify that Metarepo has access to the directories and git repositories
 
 ## Development
 
