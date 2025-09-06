@@ -15,6 +15,11 @@ impl MetarepoCli {
         let mut registry = PluginRegistry::new();
         registry.register_all_workspace_plugins_with_flags(experimental);
         
+        // Try to load external plugins if we have a meta config
+        if let Ok(config) = metarepo_core::MetaConfig::load() {
+            registry.load_external_plugins(&config);
+        }
+        
         Self { registry }
     }
     

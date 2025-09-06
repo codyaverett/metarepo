@@ -3,6 +3,9 @@ members = [
     "meta-core",
     "meta",
 ]
+exclude = [
+    "examples/metarepo-plugin-example",
+]
 resolver = "2"
 
 [workspace.dependencies]

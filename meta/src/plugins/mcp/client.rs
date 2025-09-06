@@ -131,7 +131,7 @@ impl McpClient {
                 "sampling": {}
             },
             "clientInfo": {
-                "name": "gestalt-mcp-client",
+                "name": "metarepo-mcp-client",
                 "version": "0.1.0"
             }
         })).await?;
