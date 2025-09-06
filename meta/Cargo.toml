@@ -27,14 +27,22 @@ tracing-subscriber = { workspace = true }
 colored = "2.1"
 metarepo-core = { version = "0.2.1", path = "../meta-core" }
 
-# Plugin dependencies
-metarepo-init = { version = "0.2.1", path = "../plugins/init" }
-metarepo-git = { version = "0.2.1", path = "../plugins/git" }
-metarepo-project = { version = "0.2.1", path = "../plugins/project" }
-metarepo-exec = { version = "0.2.1", path = "../plugins/exec" }
-metarepo-mcp = { version = "0.2.1", path = "../plugins/mcp" }
-metarepo-rules = { version = "0.2.1", path = "../plugins/rules" }
-# meta-loop = { path = "../plugins/loop" }
+# Plugin dependencies (now built-in)
+# Git plugin dependencies
+git2 = { workspace = true }
+tokio = { workspace = true }
+
+# Rules plugin dependencies
+serde_yaml = "0.9"
+toml = "0.8"
+glob = "0.3"
+walkdir = "2.4"
+regex = "1.10"
 
 [dev-dependencies]
 tempfile = "3.0"
+
+[features]
+default = ["all-plugins"]
+all-plugins = []
+minimal = []

@@ -534,19 +534,20 @@ dependencies = [
  "anyhow",
  "clap",
  "colored",
+ "git2",
+ "glob",
  "metarepo-core",
- "metarepo-exec",
- "metarepo-git",
- "metarepo-init",
- "metarepo-mcp",
- "metarepo-project",
- "metarepo-rules",
+ "regex",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "thiserror",
+ "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
+ "walkdir",
 ]
 
 [[package]]
@@ -557,90 +558,6 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "metarepo-exec"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "metarepo-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "metarepo-git"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "git2",
- "metarepo-core",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "metarepo-init"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "metarepo-core",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "metarepo-mcp"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "metarepo-core",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "metarepo-project"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "colored",
- "git2",
- "metarepo-core",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "metarepo-rules"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "colored",
- "glob",
- "metarepo-core",
- "metarepo-project",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "toml",
- "walkdir",
 ]
 
 [[package]]

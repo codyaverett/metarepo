@@ -1,6 +1,7 @@
 pub mod plugin;
 pub mod config;
 pub mod cli;
+pub mod plugins;
 
 pub use plugin::PluginRegistry;
 pub use config::create_runtime_config;

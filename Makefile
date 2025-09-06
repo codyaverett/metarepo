@@ -1,8 +1,8 @@
-# Gestalt Makefile
-# Build and install the production binary locally
+# Metarepo Makefile
+# Build, install, and publish the metarepo packages
 
 # Variables
-BINARY_NAME = gest
+BINARY_NAME = meta
 CARGO = cargo
 INSTALL_PATH = $(HOME)/.local/bin
 BUILD_MODE = release
@@ -20,7 +20,7 @@ NC = \033[0m # No Color
 # Default target
 .PHONY: help
 help:
-	@echo "$(CYAN)Gestalt Build System$(NC)"
+	@echo "$(CYAN)Metarepo Build System$(NC)"
 	@echo "$(WHITE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Production:$(NC)"
@@ -39,6 +39,15 @@ help:
 	@echo "  $(GREEN)make fmt$(NC)         - Format code"
 	@echo "  $(GREEN)make lint$(NC)        - Run clippy linter"
 	@echo "  $(GREEN)make audit$(NC)       - Check for security vulnerabilities"
+	@echo ""
+	@echo "$(YELLOW)Publishing:$(NC)"
+	@echo "  $(GREEN)make publish-dry$(NC) - Dry run all package publishing"
+	@echo "  $(GREEN)make publish-all$(NC) - Publish all packages to crates.io"
+	@echo "  $(GREEN)make publish-core$(NC) - Publish metarepo-core only"
+	@echo ""
+	@echo "$(YELLOW)Version Management:$(NC)"
+	@echo "  $(GREEN)make check-versions$(NC) - Check version consistency"
+	@echo "  $(GREEN)make bump-version V=X.Y.Z$(NC) - Update all versions"
 	@echo ""
 	@echo "$(YELLOW)Install Paths:$(NC)"
 	@echo "  Binary: $(CYAN)$(INSTALL_PATH)/$(BINARY_NAME)$(NC)"
@@ -145,8 +154,8 @@ install-to: build
 # Version info
 .PHONY: version
 version:
-	@echo "$(CYAN)Gestalt Version Information:$(NC)"
-	@grep "^version" gestalt/Cargo.toml | head -1 | cut -d'"' -f2
+	@echo "$(CYAN)Metarepo Version Information:$(NC)"
+	@grep "^version" meta/Cargo.toml | head -1 | cut -d'"' -f2
 
 # Watch for changes and rebuild
 .PHONY: watch
@@ -156,3 +165,80 @@ watch:
 
 .PHONY: all
 all: fmt check test build
+
+# ============================================================================
+# Publishing Commands
+# ============================================================================
+
+# Check version consistency across all packages
+.PHONY: check-versions
+check-versions:
+	@echo "$(CYAN)🔍 Checking version consistency...$(NC)"
+	@VERSION=$$(grep "^version" meta-core/Cargo.toml | head -1 | cut -d'"' -f2); \
+	echo "Core version: $$VERSION"; \
+	META_VERSION=$$(grep "^version" meta/Cargo.toml | head -1 | cut -d'"' -f2); \
+	if [ "$$META_VERSION" != "$$VERSION" ]; then \
+		echo "$(RED)❌ Version mismatch in meta: $$META_VERSION != $$VERSION$(NC)"; \
+		exit 1; \
+	fi; \
+	echo "$(GREEN)✅ Both packages have version $$VERSION$(NC)"
+
+# Bump version for all packages
+.PHONY: bump-version
+bump-version:
+	@if [ -z "$(V)" ]; then \
+		echo "$(RED)❌ Please specify version: make bump-version V=X.Y.Z$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)📝 Updating packages to version $(V)...$(NC)"
+	@sed -i '' 's/^version = ".*"/version = "$(V)"/' meta-core/Cargo.toml
+	@sed -i '' 's/^version = ".*"/version = "$(V)"/' meta/Cargo.toml
+	@sed -i '' 's/metarepo-core = { version = "[^"]*"/metarepo-core = { version = "$(V)"/' meta/Cargo.toml
+	@echo "$(GREEN)✅ Both packages updated to version $(V)$(NC)"
+
+# Publishing commands (only 2 packages now!)
+.PHONY: publish-core
+publish-core:
+	@echo "$(CYAN)📦 Publishing metarepo-core...$(NC)"
+	@cd meta-core && cargo publish
+	@echo "$(GREEN)✅ Published metarepo-core$(NC)"
+
+.PHONY: publish-main
+publish-main:
+	@echo "$(CYAN)📦 Publishing metarepo (main package with built-in plugins)...$(NC)"
+	@cd meta && cargo publish
+	@echo "$(GREEN)✅ Published metarepo$(NC)"
+
+# Dry run for all packages
+.PHONY: publish-dry
+publish-dry:
+	@echo "$(CYAN)🧪 Dry run: Testing package publishing...$(NC)"
+	@echo "$(YELLOW)Testing metarepo-core...$(NC)"
+	@cd meta-core && cargo publish --dry-run
+	@echo "$(YELLOW)Testing metarepo (main with built-in plugins)...$(NC)"
+	@cd meta && cargo publish --dry-run
+	@echo "$(GREEN)✅ Both packages passed dry run$(NC)"
+
+# Publish all packages in dependency order
+.PHONY: publish-all
+publish-all: check-versions
+	@echo "$(CYAN)🚀 Publishing packages to crates.io...$(NC)"
+	@echo "$(YELLOW)⚠️  This will publish the following packages:$(NC)"
+	@echo "  1. metarepo-core (plugin API)"
+	@echo "  2. metarepo (main CLI with built-in plugins)"
+	@echo ""
+	@read -p "$(YELLOW)Continue? (y/N): $(NC)" confirm && [ "$$confirm" = "y" ] || exit 1
+	@echo "$(CYAN)Starting publish sequence...$(NC)"
+	@echo "$(BLUE)[1/2] Publishing metarepo-core...$(NC)"
+	@cd meta-core && cargo publish
+	@echo "$(GREEN)✅ Published metarepo-core$(NC)"
+	@sleep 10
+	@echo "$(BLUE)[2/2] Publishing metarepo (main package with built-in plugins)...$(NC)"
+	@cd meta && cargo publish
+	@echo "$(GREEN)✅ Published metarepo$(NC)"
+	@echo ""
+	@echo "$(GREEN)🎉 Successfully published both packages!$(NC)"
+
+# Publish with pre-checks
+.PHONY: publish-safe
+publish-safe: fmt check test publish-dry publish-all
