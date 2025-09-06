@@ -1,9 +1,10 @@
 use crate::{PluginRegistry, create_runtime_config};
 use anyhow::Result;
 use clap::{Arg, Command, ColorChoice};
+use std::cell::RefCell;
 
 pub struct MetarepoCli {
-    registry: PluginRegistry,
+    registry: RefCell<PluginRegistry>,
 }
 
 impl MetarepoCli {
@@ -15,12 +16,10 @@ impl MetarepoCli {
         let mut registry = PluginRegistry::new();
         registry.register_all_workspace_plugins_with_flags(experimental);
         
-        // Try to load external plugins if we have a meta config
-        if let Ok(config) = metarepo_core::MetaConfig::load() {
-            registry.load_external_plugins(&config);
-        }
+        // Don't load external plugins here - do it lazily when needed
+        // This prevents plugin output during --version or --help
         
-        Self { registry }
+        Self { registry: RefCell::new(registry) }
     }
     
     pub fn build_app(&self) -> Command {
@@ -49,7 +48,7 @@ impl MetarepoCli {
             .subcommand_precedence_over_arg(true);
             
         // First add all subcommands from plugins
-        app = self.registry.build_cli_with_flags(app, experimental);
+        app = self.registry.borrow().build_cli_with_flags(app, experimental);
         
         // Then add global options after subcommands
         app = app
@@ -109,7 +108,13 @@ impl MetarepoCli {
         // Route to appropriate plugin
         match matches.subcommand() {
             Some((command_name, sub_matches)) => {
-                self.registry.handle_command(command_name, sub_matches, &config)
+                // Load external plugins only when we have an actual command to run
+                // This prevents plugin output during --version or --help
+                if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
+                    self.registry.borrow_mut().load_external_plugins(&meta_config);
+                }
+                
+                self.registry.borrow().handle_command(command_name, sub_matches, &config)
             }
             None => {
                 // No subcommand provided, show help
@@ -139,7 +144,12 @@ impl MetarepoCli {
         // Route to appropriate plugin
         match matches.subcommand() {
             Some((command_name, sub_matches)) => {
-                self.registry.handle_command(command_name, sub_matches, &config)
+                // Load external plugins only when we have an actual command to run
+                if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
+                    self.registry.borrow_mut().load_external_plugins(&meta_config);
+                }
+                
+                self.registry.borrow().handle_command(command_name, sub_matches, &config)
             }
             None => {
                 // No subcommand provided, show help
