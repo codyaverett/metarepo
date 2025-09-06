@@ -47,14 +47,14 @@ impl PluginRegistry {
         // Load plugins from configuration
         let external_plugins = PluginLoader::load_from_config(config);
         for plugin in external_plugins {
-            eprintln!("Loaded external plugin: {}", plugin.name());
+            tracing::debug!("Loaded external plugin: {}", plugin.name());
             self.register(plugin);
         }
         
         // Discover plugins in standard locations
         let discovered = PluginLoader::discover_plugins();
         for plugin in discovered {
-            eprintln!("Discovered plugin: {}", plugin.name());
+            tracing::debug!("Discovered plugin: {}", plugin.name());
             self.register(plugin);
         }
     }

@@ -125,8 +125,9 @@ impl ExternalPlugin {
             }
         };
 
-        // Log plugin information
-        eprintln!("Loaded plugin '{}' v{} from {:?}", name, version, path);
+        // Log plugin information only in verbose mode
+        // eprintln!("Loaded plugin '{}' v{} from {:?}", name, version, path);
+        tracing::debug!("Loaded plugin '{}' v{} from {:?}", name, version, path);
         
         Ok(Box::new(ExternalPlugin {
             path: path.to_path_buf(),
