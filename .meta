@@ -6,10 +6,7 @@
     "target",
     ".DS_Store"
   ],
-  "projects": {
-    "work/first": "https://github.com/codyaverett/codyaverett",
-    "test-repo": "https://github.com/octocat/Hello-World.git"
-  },
+  "projects": {},
   "plugins": null,
   "nested": null
 }
