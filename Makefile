@@ -200,14 +200,36 @@ bump-version:
 .PHONY: publish-core
 publish-core:
 	@echo "$(CYAN)📦 Publishing metarepo-core...$(NC)"
-	@cd meta-core && cargo publish
-	@echo "$(GREEN)✅ Published metarepo-core$(NC)"
+	@cd meta-core && cargo publish 2>/dev/null && echo "$(GREEN)✅ Published metarepo-core$(NC)" || echo "$(YELLOW)⚠️  metarepo-core already published or error occurred$(NC)"
 
 .PHONY: publish-main
 publish-main:
 	@echo "$(CYAN)📦 Publishing metarepo (main package with built-in plugins)...$(NC)"
-	@cd meta && cargo publish
-	@echo "$(GREEN)✅ Published metarepo$(NC)"
+	@cd meta && cargo publish 2>/dev/null && echo "$(GREEN)✅ Published metarepo$(NC)" || echo "$(YELLOW)⚠️  metarepo already published or error occurred$(NC)"
+
+# Smart publish - only publishes packages that aren't already published
+.PHONY: publish
+publish: check-versions
+	@echo "$(CYAN)🔍 Checking which packages need publishing...$(NC)"
+	@CORE_VERSION=$$(grep '^version' meta-core/Cargo.toml | head -1 | cut -d'"' -f2); \
+	META_VERSION=$$(grep '^version' meta/Cargo.toml | head -1 | cut -d'"' -f2); \
+	CORE_PUBLISHED=$$(cargo search metarepo-core --limit 1 2>/dev/null | grep "^metarepo-core = " | cut -d'"' -f2); \
+	META_PUBLISHED=$$(cargo search metarepo --limit 1 2>/dev/null | grep "^metarepo = " | cut -d'"' -f2); \
+	echo "Local versions: metarepo-core=$$CORE_VERSION, metarepo=$$META_VERSION"; \
+	echo "Published versions: metarepo-core=$$CORE_PUBLISHED, metarepo=$$META_PUBLISHED"; \
+	if [ "$$CORE_VERSION" != "$$CORE_PUBLISHED" ]; then \
+		echo "$(CYAN)Publishing metarepo-core $$CORE_VERSION...$(NC)"; \
+		cd meta-core && cargo publish && echo "$(GREEN)✅ Published metarepo-core $$CORE_VERSION$(NC)" || echo "$(RED)❌ Failed to publish metarepo-core$(NC)"; \
+		sleep 10; \
+	else \
+		echo "$(YELLOW)metarepo-core $$CORE_VERSION already published$(NC)"; \
+	fi; \
+	if [ "$$META_VERSION" != "$$META_PUBLISHED" ]; then \
+		echo "$(CYAN)Publishing metarepo $$META_VERSION...$(NC)"; \
+		cd meta && cargo publish && echo "$(GREEN)✅ Published metarepo $$META_VERSION$(NC)" || echo "$(RED)❌ Failed to publish metarepo$(NC)"; \
+	else \
+		echo "$(YELLOW)metarepo $$META_VERSION already published$(NC)"; \
+	fi
 
 # Dry run for all packages
 .PHONY: publish-dry
@@ -219,7 +241,7 @@ publish-dry:
 	@cd meta && cargo publish --dry-run
 	@echo "$(GREEN)✅ Both packages passed dry run$(NC)"
 
-# Publish all packages in dependency order
+# Publish all packages in dependency order (with error handling)
 .PHONY: publish-all
 publish-all: check-versions
 	@echo "$(CYAN)🚀 Publishing packages to crates.io...$(NC)"
@@ -230,14 +252,23 @@ publish-all: check-versions
 	@read -p "$(YELLOW)Continue? (y/N): $(NC)" confirm && [ "$$confirm" = "y" ] || exit 1
 	@echo "$(CYAN)Starting publish sequence...$(NC)"
 	@echo "$(BLUE)[1/2] Publishing metarepo-core...$(NC)"
-	@cd meta-core && cargo publish
-	@echo "$(GREEN)✅ Published metarepo-core$(NC)"
-	@sleep 10
+	@if cd meta-core && cargo publish 2>/dev/null; then \
+		echo "$(GREEN)✅ Published metarepo-core$(NC)"; \
+		sleep 10; \
+	else \
+		echo "$(YELLOW)⚠️  metarepo-core v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) already published or error occurred$(NC)"; \
+		echo "$(CYAN)Continuing with metarepo...$(NC)"; \
+	fi
 	@echo "$(BLUE)[2/2] Publishing metarepo (main package with built-in plugins)...$(NC)"
-	@cd meta && cargo publish
-	@echo "$(GREEN)✅ Published metarepo$(NC)"
-	@echo ""
-	@echo "$(GREEN)🎉 Successfully published both packages!$(NC)"
+	@if cd meta && cargo publish 2>/dev/null; then \
+		echo "$(GREEN)✅ Published metarepo$(NC)"; \
+		echo ""; \
+		echo "$(GREEN)🎉 Successfully published metarepo!$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  metarepo v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) already published or error occurred$(NC)"; \
+		echo "$(YELLOW)Check if both packages are already at the desired version on crates.io$(NC)"; \
+	fi
+
 
 # Publish with pre-checks
 .PHONY: publish-safe
