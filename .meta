@@ -7,9 +7,9 @@
     ".DS_Store"
   ],
   "projects": {
-    "test-repo": "https://github.com/octocat/Hello-World.git",
     "work/first": "https://github.com/codyaverett/codyaverett",
-    "video-chat": "external:git@github.com:codyaverett/video-chat.git"
+    "test-repo": "https://github.com/octocat/Hello-World.git"
   },
-  "plugins": null
+  "plugins": null,
+  "nested": null
 }

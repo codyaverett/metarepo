@@ -26,6 +26,7 @@ impl RulesPlugin {
         Command::new("rules")
             .visible_alias("r")
             .about("Enforce project file structure rules")
+            .version("0.3.3")
             .disable_help_subcommand(true)
             .subcommand(
                 Command::new("check")
