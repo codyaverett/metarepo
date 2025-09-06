@@ -1,0 +1,26 @@
+[package]
+name = "metarepo-plugin-example"
+version = "0.1.0"
+edition = "2021"
+authors = ["Metarepo Contributors"]
+description = "Example external plugin for metarepo CLI"
+documentation = "https://github.com/metarepo/metarepo"
+homepage = "https://github.com/metarepo/metarepo"
+repository = "https://github.com/metarepo/metarepo"
+license = "MIT"
+keywords = ["metarepo", "plugin", "meta", "monorepo", "example"]
+categories = ["development-tools"]
+
+[dependencies]
+metarepo-core = { path = "../../meta-core" }
+anyhow = "1.0"
+clap = "4.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[bin]]
+name = "metarepo-plugin-example"
+path = "src/main.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]

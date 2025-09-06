@@ -33,14 +33,30 @@ impl PluginRegistry {
         self.register(Box::new(plugins::project::ProjectPlugin::new()));
         self.register(Box::new(plugins::exec::ExecPlugin::new()));
         self.register(Box::new(plugins::rules::RulesPlugin::new()));
+        self.register(Box::new(plugins::plugin_manager::PluginManagerPlugin::new()));
         
         // Only register experimental plugins if flag is set
         if experimental {
             self.register(Box::new(plugins::mcp::McpPlugin::new()));
         }
+    }
+
+    pub fn load_external_plugins(&mut self, config: &metarepo_core::MetaConfig) {
+        use crate::plugins::PluginLoader;
         
-        // TODO: Enable more plugins as they're implemented
-        // self.register(Box::new(meta_loop::LoopPlugin::new()));
+        // Load plugins from configuration
+        let external_plugins = PluginLoader::load_from_config(config);
+        for plugin in external_plugins {
+            eprintln!("Loaded external plugin: {}", plugin.name());
+            self.register(plugin);
+        }
+        
+        // Discover plugins in standard locations
+        let discovered = PluginLoader::discover_plugins();
+        for plugin in discovered {
+            eprintln!("Discovered plugin: {}", plugin.name());
+            self.register(plugin);
+        }
     }
     
     pub fn build_cli(&self, base_app: Command) -> Command {
