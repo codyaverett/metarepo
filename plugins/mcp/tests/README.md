@@ -13,7 +13,7 @@ Tests the MCP client functionality - connecting to external MCP servers, listing
 ```
 
 ### `test_mcp_server.sh`  
-Tests Gestalt running as an MCP server, exposing plugin functionality as MCP tools.
+Tests Metarepo running as an MCP server, exposing plugin functionality as MCP tools.
 
 ```bash
 # Run from project root
@@ -53,7 +53,7 @@ To test with real MCP clients:
 
 1. **VS Code**: Add configuration from `cargo run -- mcp config` to settings.json
 2. **Claude Desktop**: Add configuration to claude_desktop_config.json
-3. **Custom Client**: Connect via stdio to `gest mcp serve`
+3. **Custom Client**: Connect via stdio to `meta mcp serve`
 
 ## Common MCP Servers for Testing
 

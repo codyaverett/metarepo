@@ -11,7 +11,7 @@ impl ProjectPlugin {
     }
     
     fn show_help(&self) -> Result<()> {
-        let mut app = Command::new("gest project")
+        let mut app = Command::new("meta project")
             .about("Project management operations")
             .subcommand(
                 Command::new("create")

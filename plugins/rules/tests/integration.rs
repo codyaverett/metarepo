@@ -1,6 +1,6 @@
-use gestalt_rules::{RulesConfig, RuleEngine};
-use gestalt_rules::config::{DirectoryRule, ComponentRule, FileRule};
-use gestalt_rules::project::RulesStats;
+use metarepo_rules::{RulesConfig, RuleEngine};
+use metarepo_rules::config::{DirectoryRule, ComponentRule, FileRule};
+use metarepo_rules::project::RulesStats;
 use std::collections::HashMap;
 use tempfile::tempdir;
 use std::fs;
@@ -32,13 +32,13 @@ fn test_project_specific_rules() {
     
     // Save project rules
     let rules_file = project_path.join(".rules.yaml");
-    gestalt_rules::config::save_config(&rules_file, &project_rules).unwrap();
+    metarepo_rules::config::save_config(&rules_file, &project_rules).unwrap();
     
     // Verify file was created
     assert!(rules_file.exists());
     
     // Load and verify
-    let loaded = gestalt_rules::config::load_config(&rules_file).unwrap();
+    let loaded = metarepo_rules::config::load_config(&rules_file).unwrap();
     assert_eq!(loaded.directories.len(), 1);
     assert_eq!(loaded.directories[0].path, "src/components");
 }
@@ -95,19 +95,19 @@ fn test_create_directory_rule() {
     
     // Create initial config
     let config = RulesConfig::new();
-    gestalt_rules::config::save_config(&rules_file, &config).unwrap();
+    metarepo_rules::config::save_config(&rules_file, &config).unwrap();
     
     // Load, modify, and save
-    let mut loaded = gestalt_rules::config::load_config(&rules_file).unwrap();
+    let mut loaded = metarepo_rules::config::load_config(&rules_file).unwrap();
     loaded.directories.push(DirectoryRule {
         path: "src/utils".to_string(),
         required: true,
         description: Some("Utility functions".to_string()),
     });
-    gestalt_rules::config::save_config(&rules_file, &loaded).unwrap();
+    metarepo_rules::config::save_config(&rules_file, &loaded).unwrap();
     
     // Verify the rule was added
-    let final_config = gestalt_rules::config::load_config(&rules_file).unwrap();
+    let final_config = metarepo_rules::config::load_config(&rules_file).unwrap();
     assert_eq!(final_config.directories.len(), 1);
     assert_eq!(final_config.directories[0].path, "src/utils");
 }
@@ -204,8 +204,8 @@ fn test_yaml_and_json_config_compatibility() {
     fs::write(&json_path, &json_content).unwrap();
     
     // Load both and compare
-    let from_yaml = gestalt_rules::config::load_config(&yaml_path).unwrap();
-    let from_json = gestalt_rules::config::load_config(&json_path).unwrap();
+    let from_yaml = metarepo_rules::config::load_config(&yaml_path).unwrap();
+    let from_json = metarepo_rules::config::load_config(&json_path).unwrap();
     
     assert_eq!(from_yaml.directories.len(), from_json.directories.len());
     assert_eq!(from_yaml.components.len(), from_json.components.len());

@@ -86,21 +86,21 @@ echo "2. Creating test workspace..."
 mkdir workspace
 cd workspace
 
-# Initialize gestalt
-echo "3. Initializing gestalt workspace..."
-/Users/caavere/Projects/gestalt/target/debug/gest init
+# Initialize metarepo
+echo "3. Initializing metarepo workspace..."
+/Users/caavere/Projects/metarepo/target/debug/meta init
 echo "✓ Workspace initialized"
 echo
 
 # Test 1: Import with recursive flag
 echo "4. Testing recursive import..."
-/Users/caavere/Projects/gestalt/target/debug/gest project import parent file:///tmp/test-nested-repos/parent-repo --recursive --max-depth 2
+/Users/caavere/Projects/metarepo/target/debug/meta project import parent file:///tmp/test-nested-repos/parent-repo --recursive --max-depth 2
 echo "✓ Recursive import completed"
 echo
 
 # List projects to verify
 echo "5. Listing imported projects..."
-/Users/caavere/Projects/gestalt/target/debug/gest project list
+/Users/caavere/Projects/metarepo/target/debug/meta project list
 echo
 
 # Check directory structure
@@ -143,7 +143,7 @@ cd ..
 
 cd workspace
 echo "Attempting to import repositories with circular dependency (should fail)..."
-if /Users/caavere/Projects/gestalt/target/debug/gest project import cycle1 file:///tmp/test-nested-repos/cycle-repo1 --recursive 2>&1 | grep -q "Circular dependency"; then
+if /Users/caavere/Projects/metarepo/target/debug/meta project import cycle1 file:///tmp/test-nested-repos/cycle-repo1 --recursive 2>&1 | grep -q "Circular dependency"; then
     echo "✓ Cycle detection working correctly"
 else
     echo "✗ Cycle detection failed"
@@ -155,8 +155,8 @@ echo "8. Testing flatten mode..."
 cd /tmp/test-nested-repos
 mkdir workspace-flat
 cd workspace-flat
-/Users/caavere/Projects/gestalt/target/debug/gest init
-/Users/caavere/Projects/gestalt/target/debug/gest project import parent file:///tmp/test-nested-repos/parent-repo --recursive --flatten
+/Users/caavere/Projects/metarepo/target/debug/meta init
+/Users/caavere/Projects/metarepo/target/debug/meta project import parent file:///tmp/test-nested-repos/parent-repo --recursive --flatten
 echo "Directory structure with flatten:"
 ls -la | grep -v "^\." | head -10
 echo

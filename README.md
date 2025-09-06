@@ -6,7 +6,7 @@ A Rust implementation inspired by the Node.js [meta](https://github.com/mateodel
 
 ✅ **Phase 1 Complete**: Core Infrastructure
 - ✅ Cargo workspace structure setup
-- ✅ Core `gest` binary crate created
+- ✅ Core `meta` binary crate created
 - ✅ Basic CLI framework with `clap`
 - ✅ Plugin trait and registry system
 - ✅ `.meta` file parsing (JSON format)
@@ -76,22 +76,22 @@ metarepo/
 - ✅ Auto-discovery of `.meta` files in parent directories
 
 ### Init Plugin (Fully Working)
-- ✅ `gest init` command to initialize repositories
+- ✅ `meta init` command to initialize repositories
 - ✅ Creates `.meta` file with proper JSON structure
 - ✅ Updates `.gitignore` with meta-specific patterns
 - ✅ Prevents double-initialization with error handling
 - ✅ Compatible with existing Node.js meta configurations
 
 ### Git Plugin (Fully Working)
-- ✅ `gest git clone <url>` - Clone meta repo and all child repositories
-- ✅ `gest git status` - Show git status across all repositories
-- ✅ `gest git update` - Clone missing repositories
+- ✅ `meta git clone <url>` - Clone meta repo and all child repositories
+- ✅ `meta git status` - Show git status across all repositories
+- ✅ `meta git update` - Clone missing repositories
 - ✅ Handles missing repositories gracefully
 - ✅ Real git operations using `git2` crate
 
 ### Project Plugin (Fully Working)
-- ✅ `gest project create <path> <repo_url>` - Create and clone new project
-- ✅ `gest project import <path> <repo_url>` - Import existing project
+- ✅ `meta project create <path> <repo_url>` - Create and clone new project
+- ✅ `meta project import <path> <repo_url>` - Import existing project
 - ✅ Automatically updates `.meta` file and `.gitignore`
 - ✅ Validates project doesn't already exist
 - ✅ Handles both new and existing directories

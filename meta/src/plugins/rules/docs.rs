@@ -13,7 +13,7 @@ fn print_full_documentation_formatted(ai_mode: bool) {
         print_ai_optimized_docs();
     } else {
         println!("{}", "═══════════════════════════════════════════════════════════════".blue().bold());
-        println!("{}", "           GESTALT RULES - COMPLETE DOCUMENTATION".cyan().bold());
+        println!("{}", "           METAREPO RULES - COMPLETE DOCUMENTATION".cyan().bold());
         println!("{}", "═══════════════════════════════════════════════════════════════".blue().bold());
         println!();
         
@@ -381,8 +381,8 @@ fn print_best_practices() {
     println!("6. {} - Add rules check to CI/CD pipeline", "Enforce".green());
     println!();
     println!("{}", "AI Assistant Integration:".yellow());
-    println!("• Run 'gest rules check' before making structural changes");
-    println!("• Use 'gest rules docs' to understand project conventions");
+    println!("• Run 'meta rules check' before making structural changes");
+    println!("• Use 'meta rules docs' to understand project conventions");
     println!("• Apply '--fix' to quickly scaffold required structure");
     println!();
 }
@@ -394,9 +394,9 @@ pub fn print_create_help() {
     println!("Use the create subcommands to add new rules:");
     println!();
     println!("{}", "Available Commands:".yellow());
-    println!("  {} - Add a directory rule", "gest rules create directory <path>".green());
-    println!("  {} - Add a component rule", "gest rules create component <pattern>".green());
-    println!("  {} - Add a file rule", "gest rules create file <pattern>".green());
+    println!("  {} - Add a directory rule", "meta rules create directory <path>".green());
+    println!("  {} - Add a component rule", "meta rules create component <pattern>".green());
+    println!("  {} - Add a file rule", "meta rules create file <pattern>".green());
     println!();
     println!("{}", "Options:".yellow());
     println!("  {} - Target specific project", "--project <name>".cyan());
@@ -404,14 +404,14 @@ pub fn print_create_help() {
     println!("  {} - Add description", "--description <text>".cyan());
     println!();
     println!("{}", "Examples:".yellow());
-    println!("  gest rules create directory src/utils --required");
-    println!("  gest rules create component 'components/**/' --project frontend");
-    println!("  gest rules create file '**/*.ts' --description 'TypeScript files'");
+    println!("  meta rules create directory src/utils --required");
+    println!("  meta rules create component 'components/**/' --project frontend");
+    println!("  meta rules create file '**/*.ts' --description 'TypeScript files'");
     println!();
 }
 
 fn print_ai_optimized_docs() {
-    println!("# Gestalt Rules Plugin");
+    println!("# Metarepo Rules Plugin");
     println!();
     println!("## Available Rule Types");
     println!();
