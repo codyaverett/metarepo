@@ -249,7 +249,7 @@ publish-all: check-versions
 	@echo "  1. metarepo-core (plugin API)"
 	@echo "  2. metarepo (main CLI with built-in plugins)"
 	@echo ""
-	@read -p "$(YELLOW)Continue? (y/N): $(NC)" confirm && [ "$$confirm" = "y" ] || exit 1
+	@printf "$(YELLOW)Continue? (y/N): $(NC)" && read confirm && [ "$$confirm" = "y" ] || exit 1
 	@echo "$(CYAN)Starting publish sequence...$(NC)"
 	@echo "$(BLUE)[1/2] Publishing metarepo-core...$(NC)"
 	@if cd meta-core && cargo publish 2>/dev/null; then \
