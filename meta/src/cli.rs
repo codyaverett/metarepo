@@ -44,7 +44,6 @@ impl MetarepoCli {
             .styles(styles)
             .color(ColorChoice::Always)
             .disable_help_subcommand(true)
-            .args_conflicts_with_subcommands(true)
             .subcommand_precedence_over_arg(true)
             .disable_version_flag(true);
             

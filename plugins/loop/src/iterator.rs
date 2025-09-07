@@ -3,16 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MetaConfig {
-    #[serde(default)]
-    pub ignore: Vec<String>,
-    #[serde(default)]
-    pub projects: HashMap<String, String>,
-    #[serde(default)]
-    pub plugins: Option<HashMap<String, String>>,
-}
-
 pub struct ProjectIterator {
     projects: Vec<ProjectInfo>,
     current: usize,
@@ -21,7 +11,7 @@ pub struct ProjectIterator {
 }
 
 impl ProjectIterator {
-    pub fn new(config: &MetaConfig, base_path: &Path) -> Self {
+    pub fn new(config: &crate::MetaConfig, base_path: &Path) -> Self {
         let mut projects = Vec::new();
         
         for (path_str, repo_url) in &config.projects {
@@ -143,7 +133,7 @@ mod tests {
         projects.insert("service1".to_string(), "https://github.com/test/service1.git".to_string());
         projects.insert("missing".to_string(), "https://github.com/test/missing.git".to_string());
         
-        let config = MetaConfig {
+        let config = crate::MetaConfig {
             ignore: vec![],
             projects,
             plugins: None,
@@ -172,7 +162,7 @@ mod tests {
         projects.insert("service1".to_string(), "https://github.com/test/service1.git".to_string());
         projects.insert("app2".to_string(), "https://github.com/test/app2.git".to_string());
         
-        let config = MetaConfig {
+        let config = crate::MetaConfig {
             ignore: vec![],
             projects,
             plugins: None,

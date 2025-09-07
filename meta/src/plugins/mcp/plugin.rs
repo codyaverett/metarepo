@@ -344,6 +344,7 @@ impl MetaPlugin for McpPlugin {
         app.subcommand(
             Command::new("mcp")
                 .about("Manage MCP (Model Context Protocol) servers")
+                .version(env!("CARGO_PKG_VERSION"))
                 .subcommand(
                     Command::new("add")
                         .about("Add a saved MCP server configuration")

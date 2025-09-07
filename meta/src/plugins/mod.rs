@@ -9,6 +9,7 @@ pub mod mcp;
 pub mod rules;
 pub mod plugin_loader;
 pub mod plugin_manager;
+pub mod r#loop;
 
 // Re-export plugin structs for convenience
 pub use init::InitPlugin;
@@ -18,6 +19,7 @@ pub use exec::ExecPlugin;
 pub use mcp::McpPlugin;
 pub use rules::RulesPlugin;
 pub use plugin_manager::PluginManagerPlugin;
+pub use r#loop::LoopPlugin;
 
 // Re-export plugin loader
 pub use plugin_loader::{PluginLoader, ExternalPlugin};
