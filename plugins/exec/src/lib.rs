@@ -1,12 +1,14 @@
 use anyhow::Result;
-use metarepo_core::{MetaConfig};
+use metarepo_core::MetaConfig;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 
+pub mod iterator;
 pub mod plugin;
 
 pub use plugin::ExecPlugin;
+pub use iterator::{ProjectIterator, ProjectInfo};
 
 pub fn execute_command_in_directory<P: AsRef<Path>>(
     command: &str, 
@@ -51,6 +53,90 @@ pub fn execute_command_in_directory<P: AsRef<Path>>(
     Ok(())
 }
 
+pub fn execute_with_iterator(
+    command: &str, 
+    args: &[&str], 
+    iterator: ProjectIterator,
+    include_main: bool,
+    parallel: bool,
+) -> Result<()> {
+    let projects: Vec<_> = iterator.collect();
+    
+    if projects.is_empty() && !include_main {
+        println!("No projects matched the criteria");
+        return Ok(());
+    }
+    
+    let total = projects.len() + if include_main { 1 } else { 0 };
+    println!("Executing command in {} project(s)", total);
+    println!("Command: {} {}", command, args.join(" "));
+    if parallel {
+        println!("Mode: Parallel execution");
+    }
+    println!();
+    
+    // Execute in main repository if requested
+    if include_main {
+        let meta_file = MetaConfig::find_meta_file()
+            .ok_or_else(|| anyhow::anyhow!("No .meta file found"))?;
+        let base_path = meta_file.parent().unwrap();
+        
+        println!("=== Main Repository ===");
+        if let Err(e) = execute_command_in_directory(command, args, base_path) {
+            eprintln!("Failed in main repository: {}", e);
+        }
+    }
+    
+    // Execute in projects
+    if parallel {
+        use std::thread;
+        let mut handles = vec![];
+        
+        for project in projects {
+            let cmd = command.to_string();
+            let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+            
+            let handle = thread::spawn(move || {
+                println!("[{}] Starting...", project.name);
+                if !project.exists {
+                    println!("[{}] ⚠️  Directory does not exist, skipping", project.name);
+                    return;
+                }
+                
+                let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                if let Err(e) = execute_command_in_directory(&cmd, &args_refs, &project.path) {
+                    eprintln!("[{}] Failed: {}", project.name, e);
+                } else {
+                    println!("[{}] ✅ Complete", project.name);
+                }
+            });
+            handles.push(handle);
+        }
+        
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    } else {
+        for (idx, project) in projects.iter().enumerate() {
+            println!("[{}/{}] {}", idx + 1, projects.len(), project.name);
+            
+            if !project.exists {
+                println!("  ⚠️  Directory does not exist, skipping");
+                continue;
+            }
+            
+            if let Err(e) = execute_command_in_directory(command, args, &project.path) {
+                eprintln!("  ❌ Failed: {}", e);
+            } else {
+                println!("  ✅ Success");
+            }
+        }
+    }
+    
+    println!("\n=== Execution Complete ===");
+    Ok(())
+}
+
 pub fn execute_in_all_projects(command: &str, args: &[&str]) -> Result<()> {
     let meta_file = MetaConfig::find_meta_file()
         .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
@@ -58,32 +144,8 @@ pub fn execute_in_all_projects(command: &str, args: &[&str]) -> Result<()> {
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
     
-    println!("Executing '{}' across all repositories", 
-        format!("{} {}", command, args.join(" ")));
-    
-    // Execute in main repository first
-    println!("\n=== Main Repository ===");
-    if let Err(e) = execute_command_in_directory(command, args, base_path) {
-        eprintln!("Failed in main repository: {}", e);
-    }
-    
-    // Execute in each project
-    for (project_path, _repo_url) in &config.projects {
-        let full_path = base_path.join(project_path);
-        
-        if full_path.exists() {
-            if let Err(e) = execute_command_in_directory(command, args, &full_path) {
-                eprintln!("Failed in {}: {}", project_path, e);
-                // Continue with other projects even if one fails
-            }
-        } else {
-            println!("\n=== {} ===", project_path);
-            println!("Project directory not found, skipping");
-        }
-    }
-    
-    println!("\n=== Execution Complete ===");
-    Ok(())
+    let iterator = ProjectIterator::new(&config, base_path);
+    execute_with_iterator(command, args, iterator, true, false)
 }
 
 pub fn execute_in_specific_projects(command: &str, args: &[&str], projects: &[&str]) -> Result<()> {
