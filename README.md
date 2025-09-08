@@ -12,21 +12,22 @@ metarepo/
 │   └── ARCHITECTURE.md
 ├── meta-core/              # Shared plugin interfaces
 │   └── src/lib.rs          # Plugin traits and data types
-├── meta/                   # Core binary crate
+├── meta/                   # Core binary crate with built-in plugins
 │   ├── src/
 │   │   ├── lib.rs          # Main library
 │   │   ├── config.rs       # Configuration handling
 │   │   ├── plugin.rs       # Plugin system
 │   │   ├── cli.rs          # CLI framework
-│   │   └── main.rs         # Binary entry point
+│   │   ├── main.rs         # Binary entry point
+│   │   └── plugins/        # Built-in plugins
+│   │       ├── init/       # Initialize new meta repositories
+│   │       ├── git/        # Git operations across repositories
+│   │       ├── project/    # Project management (create/import)
+│   │       ├── exec/       # Execute commands across repositories
+│   │       ├── rules/      # Project structure enforcement
+│   │       ├── mcp/        # Model Context Protocol integration
+│   │       └── plugin_manager/ # External plugin management
 │   └── Cargo.toml
-├── plugins/                # Plugin crates
-│   ├── init/              # Initialize new meta repositories
-│   ├── git/               # Git operations across repositories
-│   ├── project/           # Project management (create/import)
-│   ├── exec/              # Execute commands across repositories
-│   ├── rules/             # Project structure enforcement
-│   └── mcp/               # Model Context Protocol integration
 └── README.md
 ```
 
