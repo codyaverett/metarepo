@@ -404,3 +404,218 @@ pub fn command(name: impl Into<String>) -> CommandBuilder {
 pub fn arg(name: impl Into<String>) -> ArgBuilder {
     ArgBuilder::new(name)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_plugin_builder_basic() {
+        let plugin = plugin("test-plugin")
+            .version("1.0.0")
+            .description("Test plugin")
+            .author("Test Author")
+            .experimental(true)
+            .build();
+        
+        assert_eq!(plugin.name(), "test-plugin");
+        assert_eq!(plugin.version(), Some("1.0.0"));
+        assert_eq!(plugin.description(), Some("Test plugin"));
+        assert_eq!(plugin.author(), Some("Test Author"));
+        assert!(plugin.is_experimental());
+    }
+    
+    #[test]
+    fn test_plugin_builder_with_commands() {
+        let test_handler = |_matches: &ArgMatches, _config: &RuntimeConfig| -> Result<()> {
+            Ok(())
+        };
+        
+        let plugin = plugin("test-plugin")
+            .command(
+                command("test-cmd")
+                    .about("Test command")
+                    .arg(
+                        arg("input")
+                            .short('i')
+                            .long("input")
+                            .help("Input file")
+                            .takes_value(true)
+                    )
+            )
+            .handler("test-cmd", test_handler)
+            .build();
+        
+        let app = Command::new("test");
+        let app_with_plugin = plugin.register_commands(app);
+        
+        // Check that the plugin command was added
+        let plugin_cmd = app_with_plugin.find_subcommand("test-plugin");
+        assert!(plugin_cmd.is_some());
+        
+        let plugin_cmd = plugin_cmd.unwrap();
+        let test_cmd = plugin_cmd.find_subcommand("test-cmd");
+        assert!(test_cmd.is_some());
+    }
+    
+    #[test]
+    fn test_command_builder() {
+        let cmd = command("test")
+            .about("Test command")
+            .long_about("This is a longer description")
+            .aliases(vec!["t".to_string(), "tst".to_string()])
+            .arg(
+                arg("verbose")
+                    .short('v')
+                    .long("verbose")
+                    .help("Enable verbose output")
+            )
+            .build();
+        
+        assert_eq!(cmd.get_name(), "test");
+        assert_eq!(cmd.get_about().map(|s| s.to_string()), Some("Test command".to_string()));
+        assert_eq!(cmd.get_long_about().map(|s| s.to_string()), Some("This is a longer description".to_string()));
+        
+        // Check aliases
+        let aliases: Vec<&str> = cmd.get_visible_aliases().map(|a| a).collect();
+        assert!(aliases.contains(&"t"));
+        assert!(aliases.contains(&"tst"));
+        
+        // Check arguments
+        let verbose_arg = cmd.get_arguments().find(|a| a.get_id() == "verbose");
+        assert!(verbose_arg.is_some());
+    }
+    
+    #[test]
+    fn test_arg_builder_flag() {
+        let arg = arg("verbose")
+            .short('v')
+            .long("verbose")
+            .help("Enable verbose output")
+            .build();
+        
+        assert_eq!(arg.get_id().to_string(), "verbose");
+        assert_eq!(arg.get_short(), Some('v'));
+        assert_eq!(arg.get_long(), Some("verbose"));
+        assert_eq!(arg.get_help().map(|s| s.to_string()), Some("Enable verbose output".to_string()));
+    }
+    
+    #[test]
+    fn test_arg_builder_with_value() {
+        let arg = arg("input")
+            .long("input")
+            .help("Input file")
+            .required(true)
+            .takes_value(true)
+            .default_value("default.txt")
+            .build();
+        
+        assert_eq!(arg.get_id().to_string(), "input");
+        assert_eq!(arg.get_long(), Some("input"));
+        assert!(arg.is_required_set());
+        assert_eq!(arg.get_default_values(), &["default.txt"]);
+    }
+    
+    #[test]
+    fn test_arg_builder_with_possible_values() {
+        let arg = arg("format")
+            .long("format")
+            .help("Output format")
+            .takes_value(true)
+            .possible_value("json")
+            .possible_value("yaml")
+            .possible_value("text")
+            .build();
+        
+        assert_eq!(arg.get_id().to_string(), "format");
+        // Note: Testing possible values would require checking the value parser
+        // which is not directly accessible from the Arg struct
+    }
+    
+    #[test]
+    fn test_command_builder_with_subcommands() {
+        let cmd = command("parent")
+            .about("Parent command")
+            .subcommand(
+                command("child1")
+                    .about("First child")
+            )
+            .subcommand(
+                command("child2")
+                    .about("Second child")
+                    .arg(
+                        arg("option")
+                            .long("option")
+                            .takes_value(true)
+                    )
+            )
+            .build();
+        
+        assert_eq!(cmd.get_name(), "parent");
+        
+        let child1 = cmd.find_subcommand("child1");
+        assert!(child1.is_some());
+        assert_eq!(child1.unwrap().get_about().map(|s| s.to_string()), Some("First child".to_string()));
+        
+        let child2 = cmd.find_subcommand("child2");
+        assert!(child2.is_some());
+        let child2 = child2.unwrap();
+        assert_eq!(child2.get_about().map(|s| s.to_string()), Some("Second child".to_string()));
+        
+        let option_arg = child2.get_arguments().find(|a| a.get_id() == "option");
+        assert!(option_arg.is_some());
+    }
+    
+    #[test]
+    fn test_command_builder_external_subcommands() {
+        let cmd = command("exec")
+            .about("Execute commands")
+            .allow_external_subcommands(true)
+            .build();
+        
+        assert_eq!(cmd.get_name(), "exec");
+        assert!(cmd.is_allow_external_subcommands_set());
+    }
+    
+    #[test]
+    fn test_plugin_handler_execution() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        
+        let executed = Arc::new(AtomicBool::new(false));
+        let executed_clone = executed.clone();
+        
+        let test_handler = move |_matches: &ArgMatches, _config: &RuntimeConfig| -> Result<()> {
+            executed_clone.store(true, Ordering::SeqCst);
+            Ok(())
+        };
+        
+        let plugin = plugin("test-plugin")
+            .command(
+                command("test-cmd")
+                    .about("Test command")
+            )
+            .handler("test-cmd", test_handler)
+            .build();
+        
+        // Create mock matches for the plugin and its test-cmd subcommand
+        // The plugin expects matches to have the subcommand structure
+        let app = Command::new("test-plugin")
+            .subcommand(Command::new("test-cmd"));
+        let matches = app.clone().get_matches_from(vec!["test-plugin", "test-cmd"]);
+        
+        // Create a dummy runtime config
+        let config = RuntimeConfig {
+            meta_config: crate::MetaConfig::default(),
+            working_dir: std::path::PathBuf::from("."),
+            meta_file_path: None,
+            experimental: false,
+        };
+        
+        // Handle the command - the plugin will look for subcommands in the matches
+        plugin.handle_command(&matches, &config).unwrap();
+        
+        // Check that the handler was executed
+        assert!(executed.load(Ordering::SeqCst));
+    }
+}

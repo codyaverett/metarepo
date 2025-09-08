@@ -167,3 +167,168 @@ impl MetaConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+    
+    #[test]
+    fn test_meta_config_default() {
+        let config = MetaConfig::default();
+        assert_eq!(config.ignore.len(), 4);
+        assert!(config.ignore.contains(&".git".to_string()));
+        assert!(config.ignore.contains(&".vscode".to_string()));
+        assert!(config.ignore.contains(&"node_modules".to_string()));
+        assert!(config.ignore.contains(&"target".to_string()));
+        assert!(config.projects.is_empty());
+        assert!(config.plugins.is_none());
+        assert!(config.nested.is_none());
+    }
+    
+    #[test]
+    fn test_meta_config_save_and_load() {
+        let temp_dir = tempdir().unwrap();
+        let meta_file = temp_dir.path().join(".meta");
+        
+        // Create a config with some data
+        let mut config = MetaConfig::default();
+        config.projects.insert("project1".to_string(), "https://github.com/user/repo.git".to_string());
+        config.projects.insert("project2".to_string(), "https://github.com/user/repo2.git".to_string());
+        
+        // Save the config
+        config.save_to_file(&meta_file).unwrap();
+        
+        // Load the config back
+        let loaded_config = MetaConfig::load_from_file(&meta_file).unwrap();
+        
+        // Verify the loaded config matches
+        assert_eq!(loaded_config.projects.len(), 2);
+        assert_eq!(loaded_config.projects.get("project1"), Some(&"https://github.com/user/repo.git".to_string()));
+        assert_eq!(loaded_config.projects.get("project2"), Some(&"https://github.com/user/repo2.git".to_string()));
+        assert_eq!(loaded_config.ignore, config.ignore);
+    }
+    
+    #[test]
+    fn test_meta_config_with_nested() {
+        let temp_dir = tempdir().unwrap();
+        let meta_file = temp_dir.path().join(".meta");
+        
+        // Create a config with nested configuration
+        let mut config = MetaConfig::default();
+        config.nested = Some(NestedConfig {
+            recursive_import: true,
+            max_depth: 5,
+            flatten: true,
+            cycle_detection: false,
+            ignore_nested: vec!["ignored-project".to_string()],
+            namespace_separator: Some("::".to_string()),
+            preserve_structure: true,
+        });
+        
+        // Save and load
+        config.save_to_file(&meta_file).unwrap();
+        let loaded_config = MetaConfig::load_from_file(&meta_file).unwrap();
+        
+        // Verify nested configuration
+        assert!(loaded_config.nested.is_some());
+        let nested = loaded_config.nested.unwrap();
+        assert_eq!(nested.recursive_import, true);
+        assert_eq!(nested.max_depth, 5);
+        assert_eq!(nested.flatten, true);
+        assert_eq!(nested.cycle_detection, false);
+        assert_eq!(nested.ignore_nested, vec!["ignored-project".to_string()]);
+        assert_eq!(nested.namespace_separator, Some("::".to_string()));
+        assert_eq!(nested.preserve_structure, true);
+    }
+    
+    #[test]
+    fn test_find_meta_file() {
+        let temp_dir = tempdir().unwrap();
+        let nested_dir = temp_dir.path().join("nested").join("deep");
+        fs::create_dir_all(&nested_dir).unwrap();
+        
+        // Create .meta file in temp_dir
+        let meta_file = temp_dir.path().join(".meta");
+        let config = MetaConfig::default();
+        config.save_to_file(&meta_file).unwrap();
+        
+        // Change to nested directory
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&nested_dir).unwrap();
+        
+        // Find meta file should traverse up
+        let found_file = MetaConfig::find_meta_file();
+        assert!(found_file.is_some());
+        // Compare canonical paths to handle symlinks like /private/var vs /var on macOS
+        assert_eq!(found_file.unwrap().canonicalize().unwrap(), meta_file.canonicalize().unwrap());
+        
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+    
+    #[test]
+    fn test_nested_config_default() {
+        let nested = NestedConfig::default();
+        assert_eq!(nested.recursive_import, false);
+        assert_eq!(nested.max_depth, 3);
+        assert_eq!(nested.flatten, false);
+        assert_eq!(nested.cycle_detection, true);
+        assert!(nested.ignore_nested.is_empty());
+        assert!(nested.namespace_separator.is_none());
+        assert_eq!(nested.preserve_structure, false);
+    }
+    
+    #[test]
+    fn test_runtime_config_has_meta_file() {
+        let temp_dir = tempdir().unwrap();
+        let meta_file = temp_dir.path().join(".meta");
+        
+        let config_with_meta = RuntimeConfig {
+            meta_config: MetaConfig::default(),
+            working_dir: temp_dir.path().to_path_buf(),
+            meta_file_path: Some(meta_file.clone()),
+            experimental: false,
+        };
+        
+        let config_without_meta = RuntimeConfig {
+            meta_config: MetaConfig::default(),
+            working_dir: temp_dir.path().to_path_buf(),
+            meta_file_path: None,
+            experimental: false,
+        };
+        
+        assert!(config_with_meta.has_meta_file());
+        assert!(!config_without_meta.has_meta_file());
+    }
+    
+    #[test]
+    fn test_runtime_config_meta_root() {
+        let temp_dir = tempdir().unwrap();
+        let meta_file = temp_dir.path().join("subdir").join(".meta");
+        fs::create_dir_all(meta_file.parent().unwrap()).unwrap();
+        
+        let config = RuntimeConfig {
+            meta_config: MetaConfig::default(),
+            working_dir: temp_dir.path().to_path_buf(),
+            meta_file_path: Some(meta_file.clone()),
+            experimental: false,
+        };
+        
+        assert_eq!(config.meta_root(), Some(temp_dir.path().join("subdir")));
+    }
+    
+    #[test]
+    fn test_load_invalid_json() {
+        let temp_dir = tempdir().unwrap();
+        let meta_file = temp_dir.path().join(".meta");
+        
+        // Write invalid JSON
+        fs::write(&meta_file, "{ invalid json }").unwrap();
+        
+        // Should return an error
+        let result = MetaConfig::load_from_file(&meta_file);
+        assert!(result.is_err());
+    }
+}

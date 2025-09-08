@@ -242,3 +242,133 @@ fn extract_command_info(app: &Command) -> CommandInfo {
             .collect(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_help_format_from_str() {
+        assert_eq!(HelpFormat::from_str("terminal"), Some(HelpFormat::Terminal));
+        assert_eq!(HelpFormat::from_str("term"), Some(HelpFormat::Terminal));
+        assert_eq!(HelpFormat::from_str("json"), Some(HelpFormat::Json));
+        assert_eq!(HelpFormat::from_str("yaml"), Some(HelpFormat::Yaml));
+        assert_eq!(HelpFormat::from_str("yml"), Some(HelpFormat::Yaml));
+        assert_eq!(HelpFormat::from_str("markdown"), Some(HelpFormat::Markdown));
+        assert_eq!(HelpFormat::from_str("md"), Some(HelpFormat::Markdown));
+        assert_eq!(HelpFormat::from_str("unknown"), None);
+        
+        // Test case insensitive
+        assert_eq!(HelpFormat::from_str("JSON"), Some(HelpFormat::Json));
+        assert_eq!(HelpFormat::from_str("Terminal"), Some(HelpFormat::Terminal));
+    }
+    
+    #[test]
+    fn test_help_format_display() {
+        assert_eq!(format!("{}", HelpFormat::Terminal), "terminal");
+        assert_eq!(format!("{}", HelpFormat::Json), "json");
+        assert_eq!(format!("{}", HelpFormat::Yaml), "yaml");
+        assert_eq!(format!("{}", HelpFormat::Markdown), "markdown");
+    }
+    
+    #[test]
+    fn test_extract_command_info() {
+        let app = Command::new("test-app")
+            .version("1.0.0")
+            .about("Test application")
+            .arg(
+                clap::Arg::new("verbose")
+                    .short('v')
+                    .long("verbose")
+                    .help("Enable verbose output")
+            )
+            .arg(
+                clap::Arg::new("input")
+                    .long("input")
+                    .help("Input file")
+                    .required(true)
+                    .value_name("FILE")
+            )
+            .subcommand(
+                Command::new("sub")
+                    .about("Subcommand")
+                    .arg(
+                        clap::Arg::new("flag")
+                            .short('f')
+                            .help("A flag")
+                    )
+            );
+        
+        let info = extract_command_info(&app);
+        
+        assert_eq!(info.name, "test-app");
+        assert_eq!(info.description, Some("Test application".to_string()));
+        assert_eq!(info.version, Some("1.0.0".to_string()));
+        assert_eq!(info.subcommands.len(), 1);
+        assert_eq!(info.subcommands[0].name, "sub");
+        
+        // Check arguments (note: clap includes help and version by default)
+        let verbose_arg = info.arguments.iter().find(|a| a.name == "verbose");
+        assert!(verbose_arg.is_some());
+        let verbose = verbose_arg.unwrap();
+        assert_eq!(verbose.short, Some('v'));
+        assert_eq!(verbose.long, Some("verbose".to_string()));
+        assert_eq!(verbose.help, Some("Enable verbose output".to_string()));
+        
+        let input_arg = info.arguments.iter().find(|a| a.name == "input");
+        assert!(input_arg.is_some());
+        let input = input_arg.unwrap();
+        assert_eq!(input.long, Some("input".to_string()));
+        assert!(input.required);
+    }
+    
+    #[test]
+    fn test_plugin_metadata() {
+        #[derive(Debug)]
+        struct TestPlugin;
+        
+        impl MetaPlugin for TestPlugin {
+            fn name(&self) -> &str {
+                "test"
+            }
+            
+            fn register_commands(&self, app: Command) -> Command {
+                app
+            }
+            
+            fn handle_command(&self, _matches: &clap::ArgMatches, _config: &crate::RuntimeConfig) -> Result<()> {
+                Ok(())
+            }
+            
+            fn is_experimental(&self) -> bool {
+                true
+            }
+        }
+        
+        impl BasePlugin for TestPlugin {
+            fn version(&self) -> Option<&str> {
+                Some("1.2.3")
+            }
+            
+            fn description(&self) -> Option<&str> {
+                Some("Test plugin")
+            }
+            
+            fn author(&self) -> Option<&str> {
+                Some("Test Author")
+            }
+        }
+        
+        let plugin = TestPlugin;
+        let metadata = plugin.metadata();
+        
+        assert_eq!(metadata.name, "test");
+        assert_eq!(metadata.version, "1.2.3");
+        assert_eq!(metadata.description, "Test plugin");
+        assert_eq!(metadata.author, "Test Author");
+        assert!(metadata.experimental);
+    }
+    
+    // Note: Testing formatter types is not directly possible due to trait object limitations
+    // The test above for HelpFormat::from_str and display is sufficient
+}

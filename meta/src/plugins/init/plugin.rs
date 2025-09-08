@@ -24,7 +24,7 @@ impl InitPlugin {
                 command("init")
                     .about("Initialize a new meta repository")
                     .long_about("Initialize the current directory as a meta repository by creating a .meta file with default configuration and updating .gitignore patterns.")
-                    .alias("i")
+                    .aliases(vec!["i".to_string()])
             )
             .handler("init", handle_init)
             .build()

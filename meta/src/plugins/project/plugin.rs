@@ -29,7 +29,7 @@ impl ProjectPlugin {
                                  • Add the project to the .meta file\n\
                                  • Update .gitignore to exclude the project\n\n\
                                  Fails if the directory already exists.")
-                    .alias("c")
+                    .aliases(vec!["c".to_string()])
                     .arg(
                         arg("path")
                             .help("Local directory name for the project (must not exist)")
@@ -46,7 +46,7 @@ impl ProjectPlugin {
             .command(
                 command("import")
                     .about("Import a project into the workspace")
-                    .alias("i")
+                    .aliases(vec!["i".to_string()])
                     .arg(
                         arg("path")
                             .help("Where to place the project in the workspace")
@@ -85,8 +85,7 @@ impl ProjectPlugin {
             .command(
                 command("list")
                     .about("List all projects in the workspace")
-                    .alias("ls")
-                    .alias("l")
+                    .aliases(vec!["ls".to_string(), "l".to_string()])
                     .arg(
                         arg("tree")
                             .long("tree")
@@ -101,7 +100,7 @@ impl ProjectPlugin {
             .command(
                 command("update")
                     .about("Update all projects (pull latest changes)")
-                    .alias("pull")
+                    .aliases(vec!["pull".to_string()])
                     .arg(
                         arg("recursive")
                             .long("recursive")
@@ -118,8 +117,7 @@ impl ProjectPlugin {
             .command(
                 command("remove")
                     .about("Remove a project from the workspace")
-                    .alias("rm")
-                    .alias("r")
+                    .aliases(vec!["rm".to_string(), "r".to_string()])
                     .arg(
                         arg("name")
                             .help("Name of the project to remove")
