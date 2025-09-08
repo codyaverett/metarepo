@@ -17,13 +17,13 @@ impl GitPlugin {
     /// Create the plugin using the builder pattern
     pub fn create_plugin() -> impl MetaPlugin {
         plugin("git")
-            .version("0.4.0")
+            .version(env!("CARGO_PKG_VERSION"))
             .description("Git operations across multiple repositories")
             .author("Metarepo Contributors")
             .command(
                 command("clone")
                     .about("Clone meta repository and all child repositories")
-                    .alias("c")
+                    .aliases(vec!["c".to_string()])
                     .arg(
                         arg("url")
                             .help("Repository URL to clone")
@@ -145,7 +145,7 @@ impl MetaPlugin for GitPlugin {
 
 impl BasePlugin for GitPlugin {
     fn version(&self) -> Option<&str> {
-        Some("0.4.0")
+        Some(env!("CARGO_PKG_VERSION"))
     }
     
     fn description(&self) -> Option<&str> {

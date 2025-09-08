@@ -28,8 +28,7 @@ impl RulesPlugin {
             .command(
                 command("check")
                     .about("Check project structure against configured rules")
-                    .alias("c")
-                    .alias("chk")
+                    .aliases(vec!["c".to_string(), "chk".to_string()])
                     .arg(
                         arg("project")
                             .long("project")
@@ -46,7 +45,7 @@ impl RulesPlugin {
             .command(
                 command("init")
                     .about("Initialize rules configuration file")
-                    .alias("i")
+                    .aliases(vec!["i".to_string()])
                     .arg(
                         arg("output")
                             .long("output")
@@ -66,8 +65,7 @@ impl RulesPlugin {
             .command(
                 command("list")
                     .about("List all configured rules")
-                    .alias("ls")
-                    .alias("l")
+                    .aliases(vec!["ls".to_string(), "l".to_string()])
                     .arg(
                         arg("project")
                             .long("project")
@@ -79,7 +77,7 @@ impl RulesPlugin {
             .command(
                 command("docs")
                     .about("Show documentation for creating and using rules")
-                    .alias("d")
+                    .aliases(vec!["d".to_string()])
                     .arg(
                         arg("type")
                             .help("Show docs for specific rule type (directory, component, file, naming, dependency, import, documentation, size, security)")
@@ -94,11 +92,11 @@ impl RulesPlugin {
             .command(
                 command("create")
                     .about("Create a new rule")
-                    .alias("new")
+                    .aliases(vec!["new".to_string()])
                     .subcommand(
                         command("directory")
                             .about("Create a directory rule")
-                            .alias("dir")
+                            .aliases(vec!["dir".to_string()])
                             .arg(
                                 arg("path")
                                     .help("Directory path")
@@ -128,7 +126,7 @@ impl RulesPlugin {
                     .subcommand(
                         command("component")
                             .about("Create a component rule")
-                            .alias("comp")
+                            .aliases(vec!["comp".to_string()])
                             .arg(
                                 arg("pattern")
                                     .help("Component directory pattern")
@@ -160,7 +158,7 @@ impl RulesPlugin {
                     .subcommand(
                         command("file")
                             .about("Create a file rule")
-                            .alias("f")
+                            .aliases(vec!["f".to_string()])
                             .arg(
                                 arg("pattern")
                                     .help("File pattern")
