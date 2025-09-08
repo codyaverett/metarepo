@@ -599,7 +599,7 @@ pub fn fix_violations<P: AsRef<Path>>(project_path: P, violations: &[Violation])
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::config::{DirectoryRule, NamingRule, SizeRule, SecurityRule};
+    use crate::plugins::rules::config::{DirectoryRule, NamingRule, SizeRule, SecurityRule};
     use tempfile::tempdir;
     use std::fs;
     

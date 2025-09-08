@@ -6,13 +6,7 @@
     "target",
     ".DS_Store"
   ],
-  "projects": {
-    "meta": "https://github.com/metarepo/meta.git",
-    "meta-core": "https://github.com/metarepo/meta-core.git",
-    "plugins/init": "https://github.com/metarepo/plugin-init.git",
-    "plugins/loop": "https://github.com/metarepo/plugin-loop.git",
-    "examples/metarepo-plugin-example": "https://github.com/metarepo/plugin-example.git"
-  },
+  "projects": {},
   "plugins": null,
   "nested": null
 }

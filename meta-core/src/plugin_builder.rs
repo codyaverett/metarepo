@@ -141,6 +141,24 @@ impl MetaPlugin for BuiltPlugin {
     }
 }
 
+impl BuiltPlugin {
+    fn build_help_command(&self) -> Command {
+        let name: &'static str = Box::leak(self.name.clone().into_boxed_str());
+        let desc: &'static str = Box::leak(self.description.clone().into_boxed_str());
+        let vers: &'static str = Box::leak(self.version.clone().into_boxed_str());
+        
+        let mut plugin_cmd = Command::new(name)
+            .about(desc)
+            .version(vers);
+        
+        for cmd_builder in &self.commands {
+            plugin_cmd = plugin_cmd.subcommand(cmd_builder.build());
+        }
+        
+        plugin_cmd
+    }
+}
+
 impl BasePlugin for BuiltPlugin {
     fn version(&self) -> Option<&str> {
         Some(&self.version)
@@ -163,6 +181,7 @@ pub struct CommandBuilder {
     aliases: Vec<String>,
     args: Vec<ArgBuilder>,
     subcommands: Vec<CommandBuilder>,
+    allow_external_subcommands: bool,
 }
 
 impl CommandBuilder {
@@ -175,6 +194,7 @@ impl CommandBuilder {
             aliases: Vec::new(),
             args: Vec::new(),
             subcommands: Vec::new(),
+            allow_external_subcommands: false,
         }
     }
     
@@ -214,6 +234,12 @@ impl CommandBuilder {
         self
     }
     
+    /// Allow external subcommands (for commands like exec that need to pass through arbitrary commands)
+    pub fn allow_external_subcommands(mut self, allow: bool) -> Self {
+        self.allow_external_subcommands = allow;
+        self
+    }
+    
     /// Build the clap Command
     fn build(&self) -> Command {
         let name: &'static str = Box::leak(self.name.clone().into_boxed_str());
@@ -240,6 +266,10 @@ impl CommandBuilder {
         
         for subcmd_builder in &self.subcommands {
             cmd = cmd.subcommand(subcmd_builder.build());
+        }
+        
+        if self.allow_external_subcommands {
+            cmd = cmd.allow_external_subcommands(true);
         }
         
         cmd

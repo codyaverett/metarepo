@@ -6,6 +6,7 @@ pub mod docs;
 pub mod create;
 pub mod project;
 
+// Export the main plugin
 pub use plugin::RulesPlugin;
 pub use config::{
     RulesConfig, DirectoryRule, ComponentRule, FileRule,

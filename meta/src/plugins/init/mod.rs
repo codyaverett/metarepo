@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+// Export the plugin
 pub use self::plugin::InitPlugin;
 
 mod plugin;
