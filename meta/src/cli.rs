@@ -74,6 +74,22 @@ impl MetarepoCli {
                     .action(clap::ArgAction::SetTrue)
                     .help("Enable experimental features")
                     .global(true)
+            )
+            .arg(
+                Arg::new("output-format")
+                    .long("output-format")
+                    .value_name("FORMAT")
+                    .help("Output format for help and command information")
+                    .value_parser(["terminal", "json", "yaml", "markdown"])
+                    .global(true)
+            )
+            .arg(
+                Arg::new("ai")
+                    .long("ai")
+                    .action(clap::ArgAction::SetTrue)
+                    .help("Show AI-friendly structured output (equivalent to --output-format=json)")
+                    .global(true)
+                    .conflicts_with("output-format")
             );
             
         app

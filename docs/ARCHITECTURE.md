@@ -63,9 +63,9 @@ pub trait MetaPlugin {
 ```
 
 #### Plugin Discovery
-1. **Workspace Plugins**: Built-in plugins in the `plugins/` directory
-2. **External Plugins**: Crates with `meta-plugin` in `Cargo.toml` metadata
-3. **Global Plugins**: Installed via `cargo install` with discovery via registry
+1. **Built-in Plugins**: Compiled directly into the binary from `meta/src/plugins/`
+2. **External Plugins**: Loaded dynamically via plugin loader
+3. **Global Plugins**: Installed in `~/.config/metarepo/plugins/`
 
 #### Plugin Registration
 ```rust
@@ -112,7 +112,7 @@ pub struct RuntimeConfig {
 
 ## Plugin Implementations
 
-### Init Plugin (`plugins/init/`)
+### Init Plugin (`meta/src/plugins/init/`)
 Initializes new meta repositories.
 
 **Responsibilities:**
@@ -124,7 +124,7 @@ Initializes new meta repositories.
 **Commands:**
 - `meta init` - Initialize current directory as meta repo
 
-### Git Plugin (`plugins/git/`)
+### Git Plugin (`meta/src/plugins/git/`)
 Handles git operations across multiple repositories.
 
 **Responsibilities:**
@@ -139,7 +139,7 @@ Handles git operations across multiple repositories.
 - `meta git status` - Show status across all repos
 - `meta git pull/push/fetch` - Execute git commands on all repos
 
-### Project Plugin (`plugins/project/`)
+### Project Plugin (`meta/src/plugins/project/`)
 Manages individual projects within the meta repository.
 
 **Responsibilities:**
@@ -154,7 +154,7 @@ Manages individual projects within the meta repository.
 - `meta project remove <path>` - Remove project from meta repo
 - `meta project migrate <path> <repo_url>` - Migrate directory to separate repo
 
-### Exec Plugin (`plugins/exec/`)
+### Exec Plugin (`meta/src/plugins/exec/`)
 Executes commands across multiple repositories.
 
 **Responsibilities:**
@@ -168,7 +168,7 @@ Executes commands across multiple repositories.
 - `meta exec <command> --parallel` - Execute in parallel
 - `meta exec <command> --include-only <projects>` - Target specific projects
 
-### Loop Plugin (`plugins/loop/`)
+### Loop Plugin (merged into Exec Plugin)
 Provides directory iteration utilities used by other plugins.
 
 **Responsibilities:**

@@ -8,16 +8,19 @@ This project recreates the tooling and experience of the Node.js [meta](https://
 ### Monorepo Structure
 The project will be organized as a Cargo workspace with the following structure:
 ```
-metarep/
+metarepo/
 ├── Cargo.toml              # Workspace configuration
 ├── docs/                   # Architecture and user documentation
-├── meta/                   # Core binary crate
-├── plugins/                # Built-in plugin crates
-│   ├── init/              # Initialize new meta repositories
-│   ├── git/               # Git operations across multiple repos
-│   ├── project/           # Project management (create/import)
-│   ├── exec/              # Execute commands across repos
-│   └── loop/              # Directory iteration utilities
+├── meta/                   # Core binary crate with built-in plugins
+│   └── src/
+│       └── plugins/        # Built-in plugins
+│           ├── init/       # Initialize new meta repositories
+│           ├── git/        # Git operations across multiple repos
+│           ├── project/    # Project management (create/import)
+│           ├── exec/       # Execute commands across repos (includes loop functionality)
+│           ├── rules/      # Project structure enforcement
+│           └── mcp/        # Model Context Protocol integration
+├── meta-core/              # Shared plugin interfaces and types
 └── tests/                  # Integration tests
 ```
 

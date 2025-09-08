@@ -4,6 +4,25 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+// New plugin system modules
+mod plugin_base;
+mod plugin_builder;
+mod plugin_manifest;
+
+pub use plugin_base::{
+    BasePlugin, PluginMetadata, HelpFormat, HelpFormatter,
+    TerminalHelpFormatter, JsonHelpFormatter, YamlHelpFormatter, MarkdownHelpFormatter,
+    CommandInfo, ArgumentInfo,
+};
+pub use plugin_builder::{
+    PluginBuilder, BuiltPlugin, CommandBuilder, ArgBuilder,
+    plugin, command, arg,
+};
+pub use plugin_manifest::{
+    PluginManifest, PluginInfo, ManifestCommand, ManifestArg,
+    ArgValueType, Example, PluginConfig, ExecutionConfig, Dependency,
+};
+
 /// Trait that all meta plugins must implement
 pub trait MetaPlugin: Send + Sync {
     /// Returns the plugin name (used for command routing)
