@@ -7,6 +7,7 @@ use std::io::{BufRead, BufReader};
 pub mod iterator;
 pub mod plugin;
 
+// Export the plugin
 pub use plugin::ExecPlugin;
 pub use iterator::{ProjectIterator, ProjectInfo};
 

@@ -11,6 +11,7 @@ use std::os::unix::fs;
 #[cfg(windows)]
 use std::os::windows::fs;
 
+// Export the main plugin
 pub use self::plugin::ProjectPlugin;
 
 mod plugin;

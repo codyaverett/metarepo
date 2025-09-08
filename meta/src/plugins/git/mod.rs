@@ -3,6 +3,7 @@ use git2::{RemoteCallbacks, FetchOptions, Cred, CredentialType};
 use metarepo_core::MetaConfig;
 use std::path::Path;
 
+// Export the main plugin
 pub use self::plugin::GitPlugin;
 
 mod plugin;
