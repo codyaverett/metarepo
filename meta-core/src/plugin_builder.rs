@@ -246,7 +246,8 @@ impl CommandBuilder {
         let about: &'static str = Box::leak(self.about.clone().into_boxed_str());
         
         let mut cmd = Command::new(name)
-            .about(about);
+            .about(about)
+            .version(env!("CARGO_PKG_VERSION"));
         
         if let Some(ref long_about) = self.long_about {
             let long_about_str: &'static str = Box::leak(long_about.clone().into_boxed_str());
