@@ -68,6 +68,23 @@ metarepo/
 ## Usage
 
 ### Building
+
+#### Linux Prerequisites
+Before building on Linux, ensure you have the following dependencies installed:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install -y libssl-dev pkg-config
+
+# Fedora/RHEL/CentOS
+sudo dnf install openssl-devel pkg-config
+
+# Arch Linux
+sudo pacman -S openssl pkg-config
+```
+
+#### Build Command
 ```bash
 cargo build
 ```
