@@ -122,46 +122,6 @@ impl ImportContext {
     }
 }
 
-pub fn create_project(project_path: &str, repo_url: &str, base_path: &Path) -> Result<()> {
-    println!("\n  {} {}", "🌱".green(), "Creating new project...".bold());
-    println!("     {} {}", "Name:".bright_black(), project_path.bright_white());
-    println!("     {} {}", "Source:".bright_black(), repo_url.bright_cyan());
-    
-    // Find and load the .meta file
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
-    }
-    
-    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
-    
-    // Check if project already exists in config
-    if config.projects.contains_key(project_path) {
-        return Err(anyhow::anyhow!("Project '{}' already exists in .meta file", project_path));
-    }
-    
-    // Clone the repository
-    let full_project_path = base_path.join(project_path);
-    if full_project_path.exists() {
-        return Err(anyhow::anyhow!("Directory '{}' already exists", project_path));
-    }
-    
-    println!("     {} {}", "Status:".bright_black(), "Cloning repository...".yellow());
-    clone_with_auth(repo_url, &full_project_path)?;
-    
-    // Add to .meta file
-    config.projects.insert(project_path.to_string(), repo_url.to_string());
-    config.save_to_file(&meta_file_path)?;
-    
-    // Update .gitignore
-    update_gitignore(base_path, project_path)?;
-    
-    println!("\n  {} {}", "✅".green(), format!("Successfully created '{}'", project_path).bold().green());
-    println!("     {} {}", "└".bright_black(), "Updated .meta file and .gitignore".italic().bright_black());
-    println!();
-    
-    Ok(())
-}
 
 pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path) -> Result<()> {
     // Find and load the .meta file
@@ -275,7 +235,10 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
     // If not external and directory doesn't exist, clone it
     if !is_external && !local_project_path.exists() {
         if !final_repo_url.starts_with("local:") && !final_repo_url.starts_with("external:") {
-            println!("Cloning {} to {}...", final_repo_url, project_path);
+            println!("\n  {} {}", "🌱".green(), "Adding new project...".bold());
+            println!("     {} {}", "Name:".bright_black(), project_path.bright_white());
+            println!("     {} {}", "Source:".bright_black(), final_repo_url.bright_cyan());
+            println!("     {} {}", "Status:".bright_black(), "Cloning repository...".yellow());
             clone_with_auth(&final_repo_url, &local_project_path)?;
         } else {
             return Err(anyhow::anyhow!("Cannot clone a local project URL"));
@@ -290,7 +253,7 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
     update_gitignore(base_path, project_path)?;
     
     // Success message
-    println!("\n  {} {}", "✅".green(), format!("Successfully imported '{}'", project_path).bold().green());
+    println!("\n  {} {}", "✅".green(), format!("Successfully added '{}'", project_path).bold().green());
     
     if is_external {
         println!("     {} {}", "└".bright_black(), "Created symlink to external directory".italic().bright_black());

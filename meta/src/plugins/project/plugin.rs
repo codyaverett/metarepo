@@ -4,7 +4,7 @@ use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
     plugin, command, arg,
 };
-use super::{create_project, import_project, import_project_recursive, list_projects, remove_project, show_project_tree, update_projects};
+use super::{import_project, import_project_recursive, list_projects, remove_project, show_project_tree, update_projects};
 
 /// ProjectPlugin using the new simplified plugin architecture
 pub struct ProjectPlugin;
@@ -21,35 +21,23 @@ impl ProjectPlugin {
             .description("Project management operations")
             .author("Metarepo Contributors")
             .command(
-                command("create")
-                    .about("Clone a new project into the workspace (directory must not exist)")
-                    .long_about("Clone a new project into the workspace.\n\n\
-                                 This command will:\n\
-                                 • Clone the repository into a new directory\n\
-                                 • Add the project to the .meta file\n\
-                                 • Update .gitignore to exclude the project\n\n\
-                                 Fails if the directory already exists.")
-                    .aliases(vec!["c".to_string()])
+                command("add")
+                    .about("Add a project to the workspace")
+                    .long_about("Add a project to the workspace.\n\n\
+                                 This command can:\n\
+                                 • Clone a new repository from a URL\n\
+                                 • Import an existing local repository\n\
+                                 • Create a symlink to an external directory\n\
+                                 • Auto-detect repository URLs from existing directories\n\
+                                 • Recursively import nested meta repositories\n\n\
+                                 Examples:\n\
+                                   meta project add myproject https://github.com/user/repo.git  # Clone new\n\
+                                   meta project add myproject ../external-repo                   # Symlink\n\
+                                   meta project add myproject                                    # Use existing")
+                    .aliases(vec!["import".to_string(), "i".to_string(), "a".to_string()])
                     .arg(
                         arg("path")
-                            .help("Local directory name for the project (must not exist)")
-                            .required(true)
-                            .takes_value(true)
-                    )
-                    .arg(
-                        arg("repo-url") 
-                            .help("Git repository URL to clone from")
-                            .required(true)
-                            .takes_value(true)
-                    )
-            )
-            .command(
-                command("import")
-                    .about("Import a project into the workspace")
-                    .aliases(vec!["i".to_string()])
-                    .arg(
-                        arg("path")
-                            .help("Where to place the project in the workspace")
+                            .help("Local directory name for the project")
                             .required(true)
                             .takes_value(true)
                     )
@@ -131,8 +119,7 @@ impl ProjectPlugin {
                             .help("Force removal even with uncommitted changes, and delete directory")
                     )
             )
-            .handler("create", handle_create)
-            .handler("import", handle_import)
+            .handler("add", handle_add)
             .handler("list", handle_list)
             .handler("tree", handle_tree)
             .handler("update", handle_update)
@@ -141,23 +128,8 @@ impl ProjectPlugin {
     }
 }
 
-/// Handler for the create command
-fn handle_create(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let path = matches.get_one::<String>("path").unwrap();
-    let repo_url = matches.get_one::<String>("repo-url").unwrap();
-    
-    let base_path = if config.meta_root().is_some() {
-        config.meta_root().unwrap()
-    } else {
-        config.working_dir.clone()
-    };
-    
-    create_project(path, repo_url, &base_path)?;
-    Ok(())
-}
-
-/// Handler for the import command
-fn handle_import(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+/// Handler for the add command
+fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let path = matches.get_one::<String>("path").unwrap();
     let source = matches.get_one::<String>("source").map(|s| s.as_str());
     
