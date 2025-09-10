@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
-    plugin, command,
+    plugin,
 };
 use super::initialize_meta_repo;
 
@@ -20,21 +20,8 @@ impl InitPlugin {
             .version(env!("CARGO_PKG_VERSION"))
             .description("Initialize a new meta repository")
             .author("Metarepo Contributors")
-            .command(
-                command("init")
-                    .about("Initialize a new meta repository")
-                    .long_about("Initialize the current directory as a meta repository by creating a .meta file with default configuration and updating .gitignore patterns.")
-                    .aliases(vec!["i".to_string()])
-            )
-            .handler("init", handle_init)
             .build()
     }
-}
-
-/// Handler for the init command
-fn handle_init(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    initialize_meta_repo(&config.working_dir)?;
-    Ok(())
 }
 
 // Traditional implementation for backward compatibility
@@ -44,27 +31,32 @@ impl MetaPlugin for InitPlugin {
     }
     
     fn register_commands(&self, app: clap::Command) -> clap::Command {
-        // Delegate to the builder-based plugin
-        let plugin = Self::create_plugin();
-        plugin.register_commands(app)
+        // Register the init command directly at the top level
+        app.subcommand(
+            clap::Command::new("init")
+                .about("Initialize a new meta repository")
+                .long_about("Initialize the current directory as a meta repository by creating a .meta file with default configuration and updating .gitignore patterns.")
+                .visible_aliases(vec!["i"])
+                .version(env!("CARGO_PKG_VERSION"))
+        )
     }
     
-    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    fn handle_command(&self, _matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         // Check for output format flag
-        if let Some(format_str) = matches.get_one::<String>("output-format") {
+        if let Some(format_str) = _matches.get_one::<String>("output-format") {
             if let Some(format) = HelpFormat::from_str(format_str) {
                 return self.show_help(format);
             }
         }
         
         // Check for AI help flag
-        if matches.get_flag("ai") {
+        if _matches.get_flag("ai") {
             return self.show_ai_help();
         }
         
-        // Delegate to the builder-based plugin
-        let plugin = Self::create_plugin();
-        plugin.handle_command(matches, config)
+        // Directly initialize the meta repository
+        initialize_meta_repo(&config.working_dir)?;
+        Ok(())
     }
 }
 
