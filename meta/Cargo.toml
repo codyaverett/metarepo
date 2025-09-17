@@ -25,7 +25,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 colored = "2.1"
-metarepo-core = { version = "0.5.1", path = "../meta-core" }
+metarepo-core = { version = "0.5.2", path = "../meta-core" }
 
 # Plugin dependencies (now built-in)
 # Git plugin dependencies
