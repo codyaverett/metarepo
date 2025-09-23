@@ -4,7 +4,7 @@ use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
     plugin, command, arg,
 };
-use super::{import_project, import_project_recursive, list_projects, remove_project, show_project_tree, update_projects};
+use super::{import_project_with_options, import_project_recursive_with_options, list_projects, remove_project, show_project_tree, update_projects, update_project_gitignore};
 
 /// ProjectPlugin using the new simplified plugin architecture
 pub struct ProjectPlugin;
@@ -69,6 +69,11 @@ impl ProjectPlugin {
                             .long("no-recursive")
                             .help("Disable recursive import even if configured in .meta")
                     )
+                    .arg(
+                        arg("init-git")
+                            .long("init-git")
+                            .help("Automatically initialize git repository if directory is not a git repo")
+                    )
             )
             .command(
                 command("list")
@@ -119,11 +124,22 @@ impl ProjectPlugin {
                             .help("Force removal even with uncommitted changes, and delete directory")
                     )
             )
+            .command(
+                command("update-gitignore")
+                    .about("Update .gitignore for a project that now has a remote")
+                    .arg(
+                        arg("name")
+                            .help("Name of the project to update")
+                            .required(true)
+                            .takes_value(true)
+                    )
+            )
             .handler("add", handle_add)
             .handler("list", handle_list)
             .handler("tree", handle_tree)
             .handler("update", handle_update)
             .handler("remove", handle_remove)
+            .handler("update-gitignore", handle_update_gitignore)
             .build()
     }
 }
@@ -132,6 +148,7 @@ impl ProjectPlugin {
 fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let path = matches.get_one::<String>("path").unwrap();
     let source = matches.get_one::<String>("source").map(|s| s.as_str());
+    let init_git = matches.get_flag("init-git");
     
     let base_path = if config.meta_root().is_some() {
         config.meta_root().unwrap()
@@ -159,9 +176,9 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     };
     
     if use_recursive || flatten || max_depth.is_some() {
-        import_project_recursive(path, source, &base_path, use_recursive, max_depth, flatten)?;
+        import_project_recursive_with_options(path, source, &base_path, use_recursive, max_depth, flatten, init_git)?;
     } else {
-        import_project(path, source, &base_path)?;
+        import_project_with_options(path, source, &base_path, init_git)?;
     }
     Ok(())
 }
@@ -223,6 +240,20 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     };
     
     remove_project(name, &base_path, force)?;
+    Ok(())
+}
+
+/// Handler for the update-gitignore command
+fn handle_update_gitignore(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let name = matches.get_one::<String>("name").unwrap();
+    
+    let base_path = if config.meta_root().is_some() {
+        config.meta_root().unwrap()
+    } else {
+        config.working_dir.clone()
+    };
+    
+    update_project_gitignore(name, &base_path)?;
     Ok(())
 }
 

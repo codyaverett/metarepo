@@ -4,6 +4,7 @@ use git2::{Cred, FetchOptions, RemoteCallbacks, Repository, Status, StatusOption
 use metarepo_core::{MetaConfig, NestedConfig};
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::io::{self, Write};
 
 #[cfg(unix)]
 use std::os::unix::fs;
@@ -124,6 +125,10 @@ impl ImportContext {
 
 
 pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path) -> Result<()> {
+    import_project_with_options(project_path, source, base_path, false)
+}
+
+pub fn import_project_with_options(project_path: &str, source: Option<&str>, base_path: &Path, init_git: bool) -> Result<()> {
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -210,23 +215,68 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
         }
     } else {
         // No URL provided, check if directory exists locally
-        if local_project_path.exists() && local_project_path.join(".git").exists() {
-            let repo = Repository::open(&local_project_path)?;
-            let remote_url = get_remote_url(&repo)?;
-            
-            let url = if let Some(detected_url) = remote_url {
-                println!("\n  {} {}", "📍".green(), "Using existing directory".bold());
-                println!("     {} {}", "Remote:".bright_black(), detected_url.green());
-                detected_url
+        if local_project_path.exists() {
+            if local_project_path.join(".git").exists() {
+                // Directory is already a git repository
+                let repo = Repository::open(&local_project_path)?;
+                let remote_url = get_remote_url(&repo)?;
+                
+                let url = if let Some(detected_url) = remote_url {
+                    println!("\n  {} {}", "📍".green(), "Using existing git repository".bold());
+                    println!("     {} {}", "Remote:".bright_black(), detected_url.green());
+                    detected_url
+                } else {
+                    println!("\n  {} {}", "📍".yellow(), "Using existing git repository".bold());
+                    println!("     {} {}", "Type:".bright_black(), "Local project (no remote)".yellow());
+                    format!("local:{}", project_path)
+                };
+                
+                (url, false)
             } else {
-                println!("\n  {} {}", "📍".yellow(), "Using existing directory".bold());
-                println!("     {} {}", "Type:".bright_black(), "Local project (no remote)".yellow());
-                format!("local:{}", project_path)
-            };
-            
-            (url, false)
-        } else if local_project_path.exists() {
-            return Err(anyhow::anyhow!("Directory '{}' exists but is not a git repository", project_path));
+                // Directory exists but is not a git repository
+                let should_init = if init_git {
+                    true
+                } else {
+                    // Try to prompt user to initialize git repo
+                    println!("\n  {} {}", "❓".yellow(), format!("Directory '{}' exists but is not a git repository", project_path).bold());
+                    print!("     {} Initialize as git repository? [y/N]: ", "→".bright_black());
+                    
+                    // Try to flush stdout and read input
+                    match io::stdout().flush() {
+                        Ok(_) => {
+                            let mut input = String::new();
+                            match io::stdin().read_line(&mut input) {
+                                Ok(_) => {
+                                    let response = input.trim().to_lowercase();
+                                    response == "y" || response == "yes"
+                                }
+                                Err(_) => {
+                                    // If we can't read input, provide helpful error
+                                    println!();
+                                    println!("     {} {}", "⚠️".yellow(), "Unable to read input from terminal".yellow());
+                                    println!("     {} {}", "└".bright_black(), "Use --init-git flag to automatically initialize git".dimmed());
+                                    return Err(anyhow::anyhow!("Directory '{}' exists but is not a git repository.\n\nOptions:\n  1. Use --init-git flag: meta project add {} --init-git\n  2. Initialize manually: cd {} && git init", project_path, project_path, project_path));
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            println!();
+                            println!("     {} {}", "⚠️".yellow(), "Terminal interaction not available".yellow());
+                            return Err(anyhow::anyhow!("Directory '{}' exists but is not a git repository.\n\nOptions:\n  1. Use --init-git flag: meta project add {} --init-git\n  2. Initialize manually: cd {} && git init", project_path, project_path, project_path));
+                        }
+                    }
+                };
+                
+                if should_init {
+                    println!("\n  {} {}", "🌱".green(), "Initializing git repository...".bold());
+                    Repository::init(&local_project_path)?;
+                    println!("     {} {}", "✅".green(), "Git repository initialized".green());
+                    println!("     {} {}", "Type:".bright_black(), "Local project (no remote)".yellow());
+                    (format!("local:{}", project_path), false)
+                } else {
+                    return Err(anyhow::anyhow!("Directory '{}' exists but is not a git repository.\n\nOptions:\n  1. Use --init-git flag: meta project add {} --init-git\n  2. Initialize manually: cd {} && git init", project_path, project_path, project_path));
+                }
+            }
         } else {
             return Err(anyhow::anyhow!("Directory '{}' doesn't exist and no repository URL provided", project_path));
         }
@@ -249,8 +299,10 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
     config.projects.insert(project_path.to_string(), final_repo_url.clone());
     config.save_to_file(&meta_file_path)?;
     
-    // Update .gitignore
-    update_gitignore(base_path, project_path)?;
+    // Update .gitignore only if project has a remote URL (not local:)
+    if !final_repo_url.starts_with("local:") {
+        update_gitignore(base_path, project_path)?;
+    }
     
     // Success message
     println!("\n  {} {}", "✅".green(), format!("Successfully added '{}'", project_path).bold().green());
@@ -258,7 +310,13 @@ pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path
     if is_external {
         println!("     {} {}", "└".bright_black(), "Created symlink to external directory".italic().bright_black());
     }
-    println!("     {} {}", "└".bright_black(), "Updated .meta file and .gitignore".italic().bright_black());
+    
+    if final_repo_url.starts_with("local:") {
+        println!("     {} {}", "└".bright_black(), "Updated .meta file (not added to .gitignore)".italic().bright_black());
+        println!("     {} {}", "ℹ".bright_black(), format!("Run 'meta project update-gitignore {}' after adding a remote", project_path).dimmed());
+    } else {
+        println!("     {} {}", "└".bright_black(), "Updated .meta file and .gitignore".italic().bright_black());
+    }
     println!();
     
     Ok(())
@@ -272,6 +330,18 @@ pub fn import_project_recursive(
     recursive: bool,
     max_depth: Option<usize>,
     flatten: bool,
+) -> Result<()> {
+    import_project_recursive_with_options(project_path, source, base_path, recursive, max_depth, flatten, false)
+}
+
+pub fn import_project_recursive_with_options(
+    project_path: &str, 
+    source: Option<&str>, 
+    base_path: &Path,
+    recursive: bool,
+    max_depth: Option<usize>,
+    flatten: bool,
+    init_git: bool,
 ) -> Result<()> {
     // Load the root meta config
     let meta_file_path = base_path.join(".meta");
@@ -294,7 +364,7 @@ pub fn import_project_recursive(
     let mut context = ImportContext::new(base_path, Some(&nested_config));
     
     // Import the root project
-    import_project(project_path, source, base_path)?;
+    import_project_with_options(project_path, source, base_path, init_git)?;
     
     // If recursive import is enabled, process nested repositories
     if nested_config.recursive_import {
@@ -1117,6 +1187,60 @@ fn remove_from_gitignore(base_path: &Path, project_name: &str) -> Result<()> {
     
     std::fs::write(&gitignore_path, new_content.join("\n") + "\n")?;
     // Silent - shown in summary
+    
+    Ok(())
+}
+
+/// Update gitignore for a project that now has a remote
+pub fn update_project_gitignore(project_name: &str, base_path: &Path) -> Result<()> {
+    // Load the .meta file
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
+    }
+    
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
+    
+    // Check if project exists in config
+    if !config.projects.contains_key(project_name) {
+        return Err(anyhow::anyhow!("Project '{}' not found in .meta file", project_name));
+    }
+    
+    let project_path = base_path.join(project_name);
+    let current_url = config.projects.get(project_name).unwrap();
+    
+    // Check if project is currently marked as local
+    if !current_url.starts_with("local:") {
+        println!("\n  {} {}", "ℹ".bright_black(), format!("Project '{}' already has a remote URL", project_name).dimmed());
+        return Ok(());
+    }
+    
+    // Check if directory exists and has git
+    if !project_path.exists() || !project_path.join(".git").exists() {
+        return Err(anyhow::anyhow!("Project '{}' directory doesn't exist or is not a git repository", project_name));
+    }
+    
+    // Check for remote URL
+    let repo = Repository::open(&project_path)?;
+    let remote_url = get_remote_url(&repo)?;
+    
+    if let Some(detected_url) = remote_url {
+        // Update the URL in config
+        config.projects.insert(project_name.to_string(), detected_url.clone());
+        config.save_to_file(&meta_file_path)?;
+        
+        // Add to gitignore
+        update_gitignore(base_path, project_name)?;
+        
+        println!("\n  {} {}", "✅".green(), format!("Updated project '{}'", project_name).bold().green());
+        println!("     {} {}", "Remote:".bright_black(), detected_url.green());
+        println!("     {} {}", "└".bright_black(), "Added to .gitignore".italic().bright_black());
+        println!();
+    } else {
+        println!("\n  {} {}", "⚠️".yellow(), format!("Project '{}' still has no remote", project_name).bold().yellow());
+        println!("     {} {}", "└".bright_black(), "Add a remote with: git remote add origin <url>".dimmed());
+        println!();
+    }
     
     Ok(())
 }

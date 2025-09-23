@@ -4,3 +4,5 @@ node_modules/
 target/
 test-repo
 work/first
+plugins/containers
+plugins/doop
