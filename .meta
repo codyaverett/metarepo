@@ -6,7 +6,10 @@
     "target",
     ".DS_Store"
   ],
-  "projects": {},
+  "projects": {
+    "plugins/containers": "git@github.com:codyaverett/metarepo-container.git",
+    "plugins/doop": "local:plugins/doop"
+  },
   "plugins": null,
   "nested": null
 }
