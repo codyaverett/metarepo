@@ -3,6 +3,7 @@ use metarepo_core::MetaConfig;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
+use std::sync::Arc;
 
 pub mod iterator;
 pub mod plugin;
@@ -10,6 +11,7 @@ pub mod plugin;
 // Export the plugin
 pub use plugin::ExecPlugin;
 pub use iterator::{ProjectIterator, ProjectInfo};
+use crate::plugins::shared::{OutputManager, ProgressIndicator};
 
 pub fn execute_command_in_directory<P: AsRef<Path>>(
     command: &str, 
@@ -60,6 +62,8 @@ pub fn execute_with_iterator(
     iterator: ProjectIterator,
     include_main: bool,
     parallel: bool,
+    no_progress: bool,
+    streaming: bool,
 ) -> Result<()> {
     let projects: Vec<_> = iterator.collect();
     
@@ -89,26 +93,47 @@ pub fn execute_with_iterator(
     }
     
     // Execute in projects
-    if parallel {
+    if parallel && projects.len() > 1 && !streaming {
+        // Use buffered output for parallel execution
+        let project_names: Vec<String> = projects.iter().map(|p| p.name.clone()).collect();
+        let output_manager = Arc::new(OutputManager::new(project_names));
+        let mut progress_indicator = ProgressIndicator::new(Arc::clone(&output_manager), format!("{} {}", command, args.join(" ")));
+        
+        println!("Executing command in {} project(s) [parallel mode]", projects.len());
+        println!("Command: {} {}", command, args.join(" "));
+        
+        if !no_progress {
+            progress_indicator.start();
+        }
+        
         use std::thread;
         let mut handles = vec![];
         
-        for project in projects {
+        for project in projects.clone() {
             let cmd = command.to_string();
             let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+            let output_manager_clone = Arc::clone(&output_manager);
+            let project_name = project.name.clone();
             
             let handle = thread::spawn(move || {
-                println!("[{}] Starting...", project.name);
+                output_manager_clone.start_project(&project_name);
+                
                 if !project.exists {
-                    println!("[{}] ⚠️  Directory does not exist, skipping", project.name);
+                    let error_msg = "Directory does not exist, skipping";
+                    output_manager_clone.complete_project(&project_name, -1, Vec::new(), error_msg.as_bytes().to_vec());
                     return;
                 }
                 
                 let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                if let Err(e) = execute_command_in_directory(&cmd, &args_refs, &project.path) {
-                    eprintln!("[{}] Failed: {}", project.name, e);
-                } else {
-                    println!("[{}] ✅ Complete", project.name);
+                match execute_command_in_directory_buffered(&cmd, &args_refs, &project.path) {
+                    Ok((exit_code, stdout, stderr, command_str)) => {
+                        output_manager_clone.set_project_command(&project_name, command_str);
+                        output_manager_clone.complete_project(&project_name, exit_code, stdout, stderr);
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Error: {}", e);
+                        output_manager_clone.complete_project(&project_name, -1, Vec::new(), error_msg.into_bytes());
+                    }
                 }
             });
             handles.push(handle);
@@ -117,6 +142,17 @@ pub fn execute_with_iterator(
         for handle in handles {
             handle.join().unwrap();
         }
+        
+        // Stop progress indicator and display results
+        if !no_progress {
+            progress_indicator.stop();
+        } else {
+            // Clear any partial output and show completion without progress
+            print!("\r\x1b[K");
+        }
+        output_manager.display_final_results(&format!("{} {}", command, args.join(" ")));
+        
+        return Ok(());
     } else {
         for (idx, project) in projects.iter().enumerate() {
             println!("[{}/{}] {}", idx + 1, projects.len(), project.name);
@@ -138,6 +174,32 @@ pub fn execute_with_iterator(
     Ok(())
 }
 
+/// Execute command in directory with buffered output (for parallel execution)
+pub fn execute_command_in_directory_buffered<P: AsRef<Path>>(
+    command: &str, 
+    args: &[&str], 
+    directory: P
+) -> Result<(i32, Vec<u8>, Vec<u8>, String)> {
+    let dir = directory.as_ref();
+    let command_str = if args.is_empty() {
+        command.to_string()
+    } else {
+        format!("{} {}", command, args.join(" "))
+    };
+    
+    let mut cmd = Command::new(command);
+    cmd.args(args).current_dir(dir);
+    
+    let output = cmd.output()?;
+    
+    Ok((
+        output.status.code().unwrap_or(-1),
+        output.stdout,
+        output.stderr,
+        command_str,
+    ))
+}
+
 pub fn execute_in_all_projects(command: &str, args: &[&str]) -> Result<()> {
     let meta_file = MetaConfig::find_meta_file()
         .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
@@ -146,7 +208,7 @@ pub fn execute_in_all_projects(command: &str, args: &[&str]) -> Result<()> {
     let base_path = meta_file.parent().unwrap();
     
     let iterator = ProjectIterator::new(&config, base_path);
-    execute_with_iterator(command, args, iterator, true, false)
+    execute_with_iterator(command, args, iterator, true, false, false, false)
 }
 
 pub fn execute_in_specific_projects(command: &str, args: &[&str], projects: &[&str]) -> Result<()> {

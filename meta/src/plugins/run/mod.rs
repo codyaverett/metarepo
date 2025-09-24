@@ -4,7 +4,9 @@ use metarepo_core::{MetaConfig, ProjectEntry};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
 use crate::plugins::exec::ProjectIterator;
+use crate::plugins::shared::{OutputManager, ProgressIndicator};
 
 pub use self::plugin::RunPlugin;
 
@@ -19,6 +21,8 @@ pub fn run_script(
     parallel: bool,
     existing_only: bool,
     git_only: bool,
+    no_progress: bool,
+    streaming: bool,
     env_vars: &HashMap<String, String>,
 ) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
@@ -86,29 +90,71 @@ pub fn run_script(
     let mut success_count = 0;
     let mut failed = Vec::new();
 
-    if parallel && selected_projects.len() > 1 {
+    if parallel && selected_projects.len() > 1 && !streaming {
+        // Use buffered output for parallel execution
+        let output_manager = Arc::new(OutputManager::new(selected_projects.clone()));
+        let mut progress_indicator = ProgressIndicator::new(Arc::clone(&output_manager), script_name.to_string());
+        
+        println!("\n  {} {} [parallel mode]", "🚀".cyan(), format!("Running '{}' in {} project(s)", script_name, selected_projects.len()).bold());
+        
+        if !no_progress {
+            progress_indicator.start();
+        }
+        
         use std::thread;
         let mut handles = vec![];
         
-        for project_name in selected_projects {
+        for project_name in selected_projects.clone() {
             let script_name = script_name.to_string();
             let base_path = base_path.to_path_buf();
             let config = config.clone();
             let env_vars = env_vars.clone();
             let project_name_clone = project_name.clone();
+            let output_manager_clone = Arc::clone(&output_manager);
             
             let handle = thread::spawn(move || {
-                execute_script_in_project(&script_name, &project_name_clone, &base_path, &config, &env_vars)
+                output_manager_clone.start_project(&project_name_clone);
+                
+                match execute_script_in_project_buffered(&script_name, &project_name_clone, &base_path, &config, &env_vars) {
+                    Ok((exit_code, stdout, stderr, command)) => {
+                        output_manager_clone.set_project_command(&project_name_clone, command);
+                        output_manager_clone.complete_project(&project_name_clone, exit_code, stdout, stderr);
+                    }
+                    Err(e) => {
+                        // Command execution failed (couldn't start process)
+                        let error_msg = format!("Error: {}", e);
+                        output_manager_clone.complete_project(&project_name_clone, -1, Vec::new(), error_msg.into_bytes());
+                    }
+                }
             });
             handles.push((project_name, handle));
         }
         
+        // Wait for all threads to complete
         for (project_name, handle) in handles {
             match handle.join() {
-                Ok(Ok(())) => success_count += 1,
-                _ => failed.push(project_name),
+                Ok(()) => {
+                    if let Some(output) = output_manager.get_project_output(&project_name) {
+                        match output.status {
+                            crate::plugins::shared::JobStatus::Completed => success_count += 1,
+                            _ => failed.push(project_name),
+                        }
+                    }
+                }
+                Err(_) => failed.push(project_name),
             }
         }
+        
+        // Stop progress indicator and display results
+        if !no_progress {
+            progress_indicator.stop();
+        } else {
+            // Clear any partial output and show completion without progress
+            print!("\r\x1b[K");
+        }
+        output_manager.display_final_results(script_name);
+        
+        return Ok(());
     } else {
         for project_name in &selected_projects {
             match execute_script_in_project(script_name, project_name, base_path, &config, env_vars) {
@@ -196,6 +242,61 @@ fn execute_script_in_project(
     }
 
     Ok(())
+}
+
+/// Execute a script in a specific project with buffered output (for parallel execution)
+fn execute_script_in_project_buffered(
+    script_name: &str,
+    project_name: &str,
+    base_path: &Path,
+    config: &MetaConfig,
+    env_vars: &HashMap<String, String>,
+) -> Result<(i32, Vec<u8>, Vec<u8>, String)> {
+    let project_path = base_path.join(project_name);
+    
+    if !project_path.exists() {
+        return Err(anyhow::anyhow!("Project directory '{}' not found", project_name));
+    }
+
+    // Get the script command
+    let scripts = config.get_all_scripts(Some(project_name));
+    let script_cmd = scripts.get(script_name)
+        .ok_or_else(|| anyhow::anyhow!("Script '{}' not found for project '{}'", script_name, project_name))?;
+
+    // Parse the command (simple split by spaces - could be improved)
+    let parts: Vec<&str> = script_cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return Err(anyhow::anyhow!("Empty script command"));
+    }
+
+    let mut cmd = Command::new(parts[0]);
+    if parts.len() > 1 {
+        cmd.args(&parts[1..]);
+    }
+    
+    cmd.current_dir(&project_path);
+    
+    // Add environment variables
+    for (key, value) in env_vars {
+        cmd.env(key, value);
+    }
+    
+    // Add project-specific environment variables
+    if let Some(ProjectEntry::Metadata(metadata)) = config.projects.get(project_name) {
+        for (key, value) in &metadata.env {
+            cmd.env(key, value);
+        }
+    }
+
+    let output = cmd.output()
+        .context(format!("Failed to execute script for {}", project_name))?;
+
+    Ok((
+        output.status.code().unwrap_or(-1),
+        output.stdout,
+        output.stderr,
+        script_cmd.to_string(),
+    ))
 }
 
 /// Find all projects that have a specific script defined
