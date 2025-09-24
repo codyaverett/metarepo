@@ -11,6 +11,7 @@ pub mod worktree;
 pub mod run;
 pub mod plugin_loader;
 pub mod plugin_manager;
+pub mod shared;
 
 // Re-export plugin structs for convenience
 pub use init::InitPlugin;

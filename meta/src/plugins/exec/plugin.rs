@@ -128,8 +128,10 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                 
                 let parallel = matches.get_flag("parallel");
                 let include_main = matches.get_flag("include-main");
+                let no_progress = matches.get_flag("no-progress");
+                let streaming = matches.get_flag("streaming");
                 
-                execute_with_iterator(command, &args, iterator, include_main, parallel)?;
+                execute_with_iterator(command, &args, iterator, include_main, parallel, no_progress, streaming)?;
                 return Ok(());
             }
             
@@ -200,8 +202,10 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
             
             let parallel = matches.get_flag("parallel");
             let include_main = matches.get_flag("include-main");
+            let no_progress = matches.get_flag("no-progress");
+            let streaming = matches.get_flag("streaming");
             
-            execute_with_iterator(command, &args, iterator, include_main, parallel)?;
+            execute_with_iterator(command, &args, iterator, include_main, parallel, no_progress, streaming)?;
             
             Ok(())
         }
@@ -284,6 +288,18 @@ impl MetaPlugin for ExecPlugin {
                 clap::Arg::new("include-main")
                     .long("include-main")
                     .help("Include the main meta repository")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
+                clap::Arg::new("no-progress")
+                    .long("no-progress")
+                    .help("Disable progress indicators (useful for CI environments)")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
+                clap::Arg::new("streaming")
+                    .long("streaming")
+                    .help("Show output as it happens instead of buffered (legacy behavior)")
                     .action(clap::ArgAction::SetTrue)
             );
         

@@ -72,6 +72,16 @@ impl RunPlugin {
                             .help("Only run in git repositories")
                     )
                     .arg(
+                        arg("no-progress")
+                            .long("no-progress")
+                            .help("Disable progress indicators (useful for CI environments)")
+                    )
+                    .arg(
+                        arg("streaming")
+                            .long("streaming")
+                            .help("Show output as it happens instead of buffered (legacy behavior)")
+                    )
+                    .arg(
                         arg("env")
                             .long("env")
                             .short('e')
@@ -106,6 +116,8 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
     let parallel = matches.get_flag("parallel");
     let existing_only = matches.get_flag("existing-only");
     let git_only = matches.get_flag("git-only");
+    let no_progress = matches.get_flag("no-progress");
+    let streaming = matches.get_flag("streaming");
     
     let base_path = config.meta_root()
         .unwrap_or(config.working_dir.clone());
@@ -148,7 +160,7 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
     }
     // If no projects specified, will use current project or find projects with script
     
-    run_script(script_name, &projects, &base_path, current_project.as_deref(), parallel, existing_only, git_only, &env_vars)?;
+    run_script(script_name, &projects, &base_path, current_project.as_deref(), parallel, existing_only, git_only, no_progress, streaming, &env_vars)?;
     Ok(())
 }
 
@@ -235,6 +247,18 @@ impl MetaPlugin for RunPlugin {
                 clap::Arg::new("git-only")
                     .long("git-only")
                     .help("Only run in git repositories")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
+                clap::Arg::new("no-progress")
+                    .long("no-progress")
+                    .help("Disable progress indicators (useful for CI environments)")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
+                clap::Arg::new("streaming")
+                    .long("streaming")
+                    .help("Show output as it happens instead of buffered (legacy behavior)")
                     .action(clap::ArgAction::SetTrue)
             );
         
