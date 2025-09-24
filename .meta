@@ -7,8 +7,25 @@
     ".DS_Store"
   ],
   "projects": {
-    "plugins/containers": "git@github.com:codyaverett/metarepo-container.git",
-    "plugins/doop": "local:plugins/doop"
+    "plugins/containers": {
+      "url": "git@github.com:codyaverett/metarepo-container.git",
+      "scripts": {
+        "build": "docker build -t container .",
+        "test": "echo 'Testing container plugin'"
+      }
+    },
+    "plugins/doop": {
+      "url": "local:plugins/doop",
+      "aliases": ["doop"],
+      "scripts": {
+        "hello": "echo 'Hello from doop!'",
+        "test": "echo 'Testing doop plugin'"
+      }
+    }
+  },
+  "scripts": {
+    "test": "echo 'Global test script'",
+    "build": "cargo build --release"
   },
   "plugins": null,
   "nested": null

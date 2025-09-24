@@ -34,6 +34,7 @@ impl PluginRegistry {
         self.register(Box::new(plugins::exec::ExecPlugin::new()));
         self.register(Box::new(plugins::rules::RulesPlugin::new()));
         self.register(Box::new(plugins::worktree::WorktreePlugin::new()));
+        self.register(Box::new(plugins::run::RunPlugin::new()));
         self.register(Box::new(plugins::plugin_manager::PluginManagerPlugin::new()));
         
         // Only register experimental plugins if flag is set

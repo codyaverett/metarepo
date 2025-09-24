@@ -8,6 +8,7 @@ pub mod exec;
 pub mod mcp;
 pub mod rules;
 pub mod worktree;
+pub mod run;
 pub mod plugin_loader;
 pub mod plugin_manager;
 
@@ -19,6 +20,7 @@ pub use exec::ExecPlugin;
 pub use mcp::McpPlugin;
 pub use rules::RulesPlugin;
 pub use worktree::WorktreePlugin;
+pub use run::RunPlugin;
 pub use plugin_manager::PluginManagerPlugin;
 
 // Re-export plugin loader

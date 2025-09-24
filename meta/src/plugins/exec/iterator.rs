@@ -39,10 +39,11 @@ impl ProjectIterator {
     pub fn new(config: &MetaConfig, base_path: &Path) -> Self {
         let mut projects = Vec::new();
         
-        for (path_str, repo_url) in &config.projects {
+        for (path_str, _entry) in &config.projects {
             let path = base_path.join(path_str);
             let name = path_str.clone();
-            projects.push(ProjectInfo::new(name, path, repo_url.clone()));
+            let repo_url = config.get_project_url(path_str).unwrap_or_else(|| "local".to_string());
+            projects.push(ProjectInfo::new(name, path, repo_url));
         }
         
         Self {

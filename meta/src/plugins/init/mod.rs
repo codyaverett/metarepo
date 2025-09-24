@@ -21,6 +21,8 @@ fn create_default_config() -> MetaConfig {
         projects: HashMap::new(),
         plugins: None,
         nested: None,
+        aliases: None,
+        scripts: None,
     }
 }
 
