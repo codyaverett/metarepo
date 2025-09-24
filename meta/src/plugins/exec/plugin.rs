@@ -26,11 +26,23 @@ impl ExecPlugin {
                     .aliases(vec!["e".to_string(), "x".to_string()])
                     .allow_external_subcommands(true)
                     .arg(
-                        arg("projects")
+                        arg("project")
                             .short('p')
+                            .long("project")
+                            .help("Single project to run command in")
+                            .takes_value(true)
+                    )
+                    .arg(
+                        arg("projects")
                             .long("projects")
                             .help("Comma-separated list of specific projects")
                             .takes_value(true)
+                    )
+                    .arg(
+                        arg("all")
+                            .short('a')
+                            .long("all")
+                            .help("Run command in all projects")
                     )
                     .arg(
                         arg("include-only")
@@ -71,29 +83,98 @@ impl ExecPlugin {
 }
 
 /// Handler for the exec command
-fn handle_exec(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
+fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<()> {
     // Load meta configuration
     let meta_file = MetaConfig::find_meta_file()
         .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
     
+    // Get the external subcommand (the actual command to run)
     match matches.subcommand() {
         Some((command, sub_matches)) => {
-            // Parse remaining arguments
+            // Parse remaining arguments from the external subcommand
             let args: Vec<&str> = match sub_matches.get_many::<std::ffi::OsString>("") {
                 Some(os_args) => os_args.map(|s| s.to_str().unwrap_or("")).collect(),
                 None => Vec::new()
             };
             
-            // Check if specific projects were specified
-            if let Some(projects_str) = matches.get_one::<String>("projects") {
-                let project_list: Vec<&str> = projects_str.split(',').collect();
-                execute_in_specific_projects(command, &args, &project_list)?;
+            // Collect selected projects
+            let mut selected_projects = Vec::new();
+            
+            // Check for --all flag
+            if matches.get_flag("all") {
+                // Run in all projects
+                let mut iterator = ProjectIterator::new(&config, base_path);
+                
+                // Apply additional filters if provided
+                if let Some(patterns_str) = matches.get_one::<String>("include-only") {
+                    let pattern_vec: Vec<String> = patterns_str.split(',').map(|s| s.to_string()).collect();
+                    iterator = iterator.with_include_patterns(pattern_vec);
+                }
+                
+                if let Some(patterns_str) = matches.get_one::<String>("exclude") {
+                    let pattern_vec: Vec<String> = patterns_str.split(',').map(|s| s.to_string()).collect();
+                    iterator = iterator.with_exclude_patterns(pattern_vec);
+                }
+                
+                if matches.get_flag("existing-only") {
+                    iterator = iterator.filter_existing();
+                }
+                
+                if matches.get_flag("git-only") {
+                    iterator = iterator.filter_git_repos();
+                }
+                
+                let parallel = matches.get_flag("parallel");
+                let include_main = matches.get_flag("include-main");
+                
+                execute_with_iterator(command, &args, iterator, include_main, parallel)?;
                 return Ok(());
             }
             
-            // Build iterator with filters
+            // Check for single project
+            if let Some(project_id) = matches.get_one::<String>("project") {
+                // Use resolve_project to handle aliases
+                if let Some(resolved) = runtime_config.resolve_project(project_id) {
+                    selected_projects.push(resolved);
+                } else {
+                    selected_projects.push(project_id.clone());
+                }
+            }
+            
+            // Check for multiple projects
+            if let Some(projects_str) = matches.get_one::<String>("projects") {
+                for p in projects_str.split(',') {
+                    let trimmed = p.trim();
+                    // Use resolve_project to handle aliases
+                    if let Some(resolved) = runtime_config.resolve_project(trimmed) {
+                        selected_projects.push(resolved);
+                    } else {
+                        selected_projects.push(trimmed.to_string());
+                    }
+                }
+            }
+            
+            // If no projects specified, check for current project context
+            if selected_projects.is_empty() {
+                if let Some(current) = runtime_config.current_project() {
+                    selected_projects.push(current);
+                } else {
+                    // No context and no projects specified - show help
+                    println!("No project context found. Use --project, --projects, or --all to specify targets.");
+                    return Ok(());
+                }
+            }
+            
+            // Execute in selected projects
+            if !selected_projects.is_empty() {
+                let project_refs: Vec<&str> = selected_projects.iter().map(|s| s.as_str()).collect();
+                execute_in_specific_projects(command, &args, &project_refs)?;
+                return Ok(());
+            }
+            
+            // Build iterator with filters (for backward compatibility)
             let mut iterator = ProjectIterator::new(&config, base_path);
             
             // Apply include patterns
@@ -125,12 +206,14 @@ fn handle_exec(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
             Ok(())
         }
         None => {
-            // Show help using the v2 system
-            let plugin = ExecPlugin::create_plugin();
-            let app = plugin.register_commands(clap::Command::new("meta"));
-            let mut help_app = app.clone();
-            help_app.print_help()?;
-            Ok(())
+            // No command specified - show error
+            eprintln!("Error: No command specified");
+            eprintln!("Usage: meta exec [OPTIONS] <COMMAND> [ARGS]...");
+            eprintln!("\nExamples:");
+            eprintln!("  meta exec pwd                    # Run in current project context");
+            eprintln!("  meta exec --all git status       # Run in all projects");
+            eprintln!("  meta exec -p doop npm install    # Run in specific project");
+            std::process::exit(1);
         }
     }
 }
@@ -142,9 +225,69 @@ impl MetaPlugin for ExecPlugin {
     }
     
     fn register_commands(&self, app: clap::Command) -> clap::Command {
-        // Delegate to the builder-based plugin
-        let plugin = Self::create_plugin();
-        plugin.register_commands(app)
+        // Register exec as a direct command with allow_external_subcommands
+        let exec_cmd = clap::Command::new("exec")
+            .about("Execute commands across multiple repositories")
+            .version(env!("CARGO_PKG_VERSION"))
+            .allow_external_subcommands(true)
+            .arg(
+                clap::Arg::new("project")
+                    .short('p')
+                    .long("project")
+                    .help("Single project to run command in")
+                    .value_name("PROJECT")
+            )
+            .arg(
+                clap::Arg::new("projects")
+                    .long("projects")
+                    .help("Comma-separated list of specific projects")
+                    .value_name("PROJECTS")
+            )
+            .arg(
+                clap::Arg::new("all")
+                    .short('a')
+                    .long("all")
+                    .help("Run command in all projects")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
+                clap::Arg::new("include-only")
+                    .long("include-only")
+                    .help("Only include projects matching these patterns (comma-separated)")
+                    .value_name("PATTERNS")
+            )
+            .arg(
+                clap::Arg::new("exclude")
+                    .long("exclude")
+                    .help("Exclude projects matching these patterns (comma-separated)")
+                    .value_name("PATTERNS")
+            )
+            .arg(
+                clap::Arg::new("existing-only")
+                    .long("existing-only")
+                    .help("Only iterate over existing projects")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
+                clap::Arg::new("git-only")
+                    .long("git-only")
+                    .help("Only iterate over git repositories")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
+                clap::Arg::new("parallel")
+                    .long("parallel")
+                    .help("Execute commands in parallel")
+                    .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
+                clap::Arg::new("include-main")
+                    .long("include-main")
+                    .help("Include the main meta repository")
+                    .action(clap::ArgAction::SetTrue)
+            );
+        
+        app.subcommand(exec_cmd)
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
@@ -160,9 +303,8 @@ impl MetaPlugin for ExecPlugin {
             return self.show_ai_help();
         }
         
-        // Delegate to the builder-based plugin
-        let plugin = Self::create_plugin();
-        plugin.handle_command(matches, config)
+        // Call the handler directly
+        handle_exec(matches, config)
     }
 }
 

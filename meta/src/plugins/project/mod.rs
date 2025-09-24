@@ -1,7 +1,7 @@
 use anyhow::Result;
 use colored::*;
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository, Status, StatusOptions};
-use metarepo_core::{MetaConfig, NestedConfig};
+use metarepo_core::{MetaConfig, NestedConfig, ProjectEntry};
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::io::{self, Write};
@@ -296,7 +296,7 @@ pub fn import_project_with_options(project_path: &str, source: Option<&str>, bas
     }
     
     // Add to .meta file
-    config.projects.insert(project_path.to_string(), final_repo_url.clone());
+    config.projects.insert(project_path.to_string(), ProjectEntry::Url(final_repo_url.clone()));
     config.save_to_file(&meta_file_path)?;
     
     // Update .gitignore only if project has a remote URL (not local:)
@@ -403,12 +403,13 @@ fn process_nested_repositories(
     
     // Process each project in the nested meta file
     let mut import_queue = VecDeque::new();
-    for (name, url) in &nested_meta.projects {
+    for (name, _entry) in &nested_meta.projects {
         if context.should_ignore(name) {
             println!("     {} {}", "⏭".bright_black(), format!("Skipping ignored project '{}'", name).dimmed());
             continue;
         }
-        import_queue.push_back((name.clone(), url.clone()));
+        let url = nested_meta.get_project_url(name).unwrap_or_else(|| format!("local:{}", name));
+        import_queue.push_back((name.clone(), url));
     }
     
     println!("     {} {}", "📦".blue(), format!("Found {} nested projects to import", import_queue.len()).bright_white());
@@ -666,8 +667,9 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
     println!("\n  {} {}", "📦".bright_blue(), "Workspace Projects".bold());
     println!("  {}", "═".repeat(60).bright_black());
     
-    for (name, url) in &config.projects {
+    for (name, entry) in &config.projects {
         let project_path = base_path.join(name);
+        let url = config.get_project_url(name).unwrap_or_else(|| "unknown".to_string());
         
         // Check if it's a symlink
         let is_symlink = project_path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false);
@@ -976,7 +978,7 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
     let mut updated = 0;
     let mut failed = 0;
     
-    for (name, _url) in &config.projects {
+    for (name, _entry) in &config.projects {
         let project_path = base_path.join(name);
         
         if !project_path.exists() {
@@ -1207,7 +1209,7 @@ pub fn update_project_gitignore(project_name: &str, base_path: &Path) -> Result<
     }
     
     let project_path = base_path.join(project_name);
-    let current_url = config.projects.get(project_name).unwrap();
+    let current_url = config.get_project_url(project_name).unwrap_or_else(|| "".to_string());
     
     // Check if project is currently marked as local
     if !current_url.starts_with("local:") {
@@ -1226,7 +1228,7 @@ pub fn update_project_gitignore(project_name: &str, base_path: &Path) -> Result<
     
     if let Some(detected_url) = remote_url {
         // Update the URL in config
-        config.projects.insert(project_name.to_string(), detected_url.clone());
+        config.projects.insert(project_name.to_string(), ProjectEntry::Url(detected_url.clone()));
         config.save_to_file(&meta_file_path)?;
         
         // Add to gitignore

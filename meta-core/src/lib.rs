@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{ArgMatches, Command};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -61,6 +62,82 @@ impl RuntimeConfig {
     pub fn is_experimental(&self) -> bool {
         self.experimental
     }
+    
+    /// Detect if we're currently inside a project directory and return its name
+    pub fn current_project(&self) -> Option<String> {
+        let meta_root = self.meta_root()?;
+        let cwd = &self.working_dir;
+        
+        // Check if we're inside the meta root
+        if !cwd.starts_with(&meta_root) {
+            return None;
+        }
+        
+        // Get relative path from meta root
+        let relative = cwd.strip_prefix(&meta_root).ok()?;
+        
+        // Check each project to see if we're inside it
+        for (project_name, _) in &self.meta_config.projects {
+            let project_path = meta_root.join(project_name);
+            if cwd.starts_with(&project_path) {
+                return Some(project_name.clone());
+            }
+        }
+        
+        None
+    }
+    
+    /// Resolve a project identifier (could be full name, basename, or alias)
+    pub fn resolve_project(&self, identifier: &str) -> Option<String> {
+        // First, check if it's a full project name
+        if self.meta_config.projects.contains_key(identifier) {
+            return Some(identifier.to_string());
+        }
+        
+        // Check global aliases
+        if let Some(aliases) = &self.meta_config.aliases {
+            if let Some(project_path) = aliases.get(identifier) {
+                return Some(project_path.clone());
+            }
+        }
+        
+        // Check project-specific aliases
+        for (project_name, entry) in &self.meta_config.projects {
+            if let ProjectEntry::Metadata(metadata) = entry {
+                if metadata.aliases.contains(&identifier.to_string()) {
+                    return Some(project_name.clone());
+                }
+            }
+        }
+        
+        // Check if it's a basename match
+        for project_name in self.meta_config.projects.keys() {
+            if let Some(basename) = std::path::Path::new(project_name).file_name() {
+                if basename.to_string_lossy() == identifier {
+                    return Some(project_name.clone());
+                }
+            }
+        }
+        
+        None
+    }
+    
+    /// Get all valid identifiers for a project (full name, basename, aliases)
+    pub fn project_identifiers(&self, project_name: &str) -> Vec<String> {
+        let mut identifiers = vec![project_name.to_string()];
+        
+        // Add basename if different from full name
+        if let Some(basename) = std::path::Path::new(project_name).file_name() {
+            let basename_str = basename.to_string_lossy().to_string();
+            if basename_str != project_name {
+                identifiers.push(basename_str);
+            }
+        }
+        
+        // TODO: Add custom aliases when implemented
+        
+        identifiers
+    }
 }
 
 /// Configuration for nested repository handling
@@ -100,17 +177,43 @@ impl Default for NestedConfig {
     }
 }
 
+/// Project metadata including scripts and configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ProjectEntry {
+    /// Simple string format (backwards compatible)
+    Url(String),
+    /// Full metadata format with scripts
+    Metadata(ProjectMetadata),
+}
+
+/// Detailed project metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectMetadata {
+    pub url: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub scripts: HashMap<String, String>,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+}
+
 /// The .meta file configuration format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetaConfig {
     #[serde(default)]
     pub ignore: Vec<String>,
     #[serde(default)]
-    pub projects: HashMap<String, String>, // path -> repo_url
+    pub projects: HashMap<String, ProjectEntry>, // Now supports both String and ProjectMetadata
     #[serde(default)]
     pub plugins: Option<HashMap<String, String>>, // name -> version/path
     #[serde(default)]
     pub nested: Option<NestedConfig>, // nested repository configuration
+    #[serde(default)]
+    pub aliases: Option<HashMap<String, String>>, // Global aliases: alias -> project_path
+    #[serde(default)]
+    pub scripts: Option<HashMap<String, String>>, // Global scripts
 }
 
 impl Default for MetaConfig {
@@ -121,10 +224,13 @@ impl Default for MetaConfig {
                 ".vscode".to_string(),
                 "node_modules".to_string(),
                 "target".to_string(),
+                ".DS_Store".to_string(),
             ],
             projects: HashMap::new(),
             plugins: None,
             nested: None,
+            aliases: None,
+            scripts: None,
         }
     }
 }
@@ -165,6 +271,52 @@ impl MetaConfig {
         } else {
             Err(anyhow::anyhow!("No .meta file found"))
         }
+    }
+    
+    /// Get the URL for a project (handles both string and metadata formats)
+    pub fn get_project_url(&self, project_name: &str) -> Option<String> {
+        self.projects.get(project_name).map(|entry| match entry {
+            ProjectEntry::Url(url) => url.clone(),
+            ProjectEntry::Metadata(metadata) => metadata.url.clone(),
+        })
+    }
+    
+    /// Get scripts for a specific project
+    pub fn get_project_scripts(&self, project_name: &str) -> Option<HashMap<String, String>> {
+        self.projects.get(project_name).and_then(|entry| match entry {
+            ProjectEntry::Url(_) => None,
+            ProjectEntry::Metadata(metadata) => {
+                if metadata.scripts.is_empty() {
+                    None
+                } else {
+                    Some(metadata.scripts.clone())
+                }
+            }
+        })
+    }
+    
+    /// Get all available scripts (project-specific and global)
+    pub fn get_all_scripts(&self, project_name: Option<&str>) -> HashMap<String, String> {
+        let mut scripts = HashMap::new();
+        
+        // Add global scripts first
+        if let Some(global_scripts) = &self.scripts {
+            scripts.extend(global_scripts.clone());
+        }
+        
+        // Add project-specific scripts (overrides global)
+        if let Some(project) = project_name {
+            if let Some(project_scripts) = self.get_project_scripts(project) {
+                scripts.extend(project_scripts);
+            }
+        }
+        
+        scripts
+    }
+    
+    /// Check if a project exists (for backwards compatibility)
+    pub fn project_exists(&self, project_name: &str) -> bool {
+        self.projects.contains_key(project_name)
     }
 }
 

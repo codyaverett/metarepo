@@ -25,6 +25,26 @@ pub struct ProjectWorktrees {
     pub worktrees: Vec<WorktreeInfo>,
 }
 
+/// Resolve a project identifier to its full name
+fn resolve_project_identifier(config: &MetaConfig, identifier: &str) -> Option<String> {
+    // First check if it's a full project name
+    if config.projects.contains_key(identifier) {
+        return Some(identifier.to_string());
+    }
+    
+    // Check if it's a basename match
+    for project_name in config.projects.keys() {
+        if let Some(basename) = std::path::Path::new(project_name).file_name() {
+            if basename.to_string_lossy() == identifier {
+                return Some(project_name.clone());
+            }
+        }
+    }
+    
+    // TODO: Check custom aliases when implemented
+    None
+}
+
 /// List all worktrees for a given repository
 pub fn list_worktrees(repo_path: &Path) -> Result<Vec<WorktreeInfo>> {
     let output = Command::new("git")
@@ -90,6 +110,7 @@ pub fn add_worktrees(
     base_path: &Path,
     path_suffix: Option<&str>,
     create_branch: bool,
+    current_project: Option<&str>,
 ) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -100,19 +121,27 @@ pub fn add_worktrees(
     
     // Determine which projects to operate on
     let selected_projects = if projects.is_empty() {
-        // Interactive selection
-        select_projects_interactive(&config)?
+        // If no projects specified, check for current project context
+        if let Some(current) = current_project {
+            println!("  {} Using current project: {}", "📍".cyan(), current.bold());
+            vec![current.to_string()]
+        } else {
+            // Interactive selection
+            select_projects_interactive(&config)?
+        }
     } else if projects.len() == 1 && projects[0] == "--all" {
         config.projects.keys().cloned().collect()
     } else {
-        // Validate that specified projects exist
+        // Resolve project identifiers (could be aliases or basenames)
         let mut selected = Vec::new();
-        for project in projects {
-            if !config.projects.contains_key(project) {
-                eprintln!("  {} Project '{}' not found in workspace", "⚠️".yellow(), project);
-                continue;
+        for project_id in projects {
+            // Try to find the project by full name, basename, or alias
+            let resolved = resolve_project_identifier(&config, project_id);
+            if let Some(project_name) = resolved {
+                selected.push(project_name);
+            } else {
+                eprintln!("  {} Project '{}' not found in workspace", "⚠️".yellow(), project_id);
             }
-            selected.push(project.clone());
         }
         selected
     };
@@ -201,6 +230,7 @@ pub fn remove_worktrees(
     projects: &[String],
     base_path: &Path,
     force: bool,
+    current_project: Option<&str>,
 ) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -224,14 +254,37 @@ pub fn remove_worktrees(
         }
     }
 
-    let selected_projects = if projects.is_empty() && !projects_with_worktree.is_empty() {
-        // Interactive selection from projects that have this worktree
-        select_projects_for_removal(&projects_with_worktree, branch)?
+    let selected_projects = if projects.is_empty() {
+        // If no projects specified, check for current project context
+        if let Some(current) = current_project {
+            // Check if current project has this worktree
+            if projects_with_worktree.contains(&current.to_string()) {
+                println!("  {} Using current project: {}", "📍".cyan(), current.bold());
+                vec![current.to_string()]
+            } else {
+                println!("  {} Current project '{}' doesn't have worktree '{}'", "⚠️".yellow(), current, branch);
+                return Ok(());
+            }
+        } else if !projects_with_worktree.is_empty() {
+            // Interactive selection from projects that have this worktree
+            select_projects_for_removal(&projects_with_worktree, branch)?
+        } else {
+            Vec::new()
+        }
     } else if projects.len() == 1 && projects[0] == "--all" {
         projects_with_worktree
     } else {
-        // Use specified projects
-        projects.to_vec()
+        // Resolve project identifiers
+        let mut selected = Vec::new();
+        for project_id in projects {
+            let resolved = resolve_project_identifier(&config, project_id);
+            if let Some(project_name) = resolved {
+                selected.push(project_name);
+            } else {
+                eprintln!("  {} Project '{}' not found", "⚠️".yellow(), project_id);
+            }
+        }
+        selected
     };
 
     if selected_projects.is_empty() {

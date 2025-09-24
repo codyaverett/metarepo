@@ -151,21 +151,35 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let base_path = config.meta_root()
         .unwrap_or(config.working_dir.clone());
     
+    // Get current project context
+    let current_project = config.current_project();
+    
     // Collect selected projects
     let mut projects = Vec::new();
     
     if matches.get_flag("all") {
         projects.push("--all".to_string());
     } else if let Some(project) = matches.get_one::<String>("project") {
-        projects.push(project.clone());
+        // Use resolve_project to handle aliases
+        if let Some(resolved) = config.resolve_project(project) {
+            projects.push(resolved);
+        } else {
+            projects.push(project.clone());
+        }
     } else if let Some(project_list) = matches.get_one::<String>("projects") {
         for p in project_list.split(',') {
-            projects.push(p.trim().to_string());
+            let trimmed = p.trim();
+            // Use resolve_project to handle aliases
+            if let Some(resolved) = config.resolve_project(trimmed) {
+                projects.push(resolved);
+            } else {
+                projects.push(trimmed.to_string());
+            }
         }
     }
-    // If no projects specified, will trigger interactive selection
+    // If no projects specified, will use current project or trigger interactive selection
     
-    add_worktrees(branch, &projects, &base_path, path_suffix, create_branch)?;
+    add_worktrees(branch, &projects, &base_path, path_suffix, create_branch, current_project.as_deref())?;
     Ok(())
 }
 
@@ -177,21 +191,35 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let base_path = config.meta_root()
         .unwrap_or(config.working_dir.clone());
     
+    // Get current project context
+    let current_project = config.current_project();
+    
     // Collect selected projects
     let mut projects = Vec::new();
     
     if matches.get_flag("all") {
         projects.push("--all".to_string());
     } else if let Some(project) = matches.get_one::<String>("project") {
-        projects.push(project.clone());
+        // Use resolve_project to handle aliases
+        if let Some(resolved) = config.resolve_project(project) {
+            projects.push(resolved);
+        } else {
+            projects.push(project.clone());
+        }
     } else if let Some(project_list) = matches.get_one::<String>("projects") {
         for p in project_list.split(',') {
-            projects.push(p.trim().to_string());
+            let trimmed = p.trim();
+            // Use resolve_project to handle aliases
+            if let Some(resolved) = config.resolve_project(trimmed) {
+                projects.push(resolved);
+            } else {
+                projects.push(trimmed.to_string());
+            }
         }
     }
-    // If no projects specified, will trigger interactive selection
+    // If no projects specified, will use current project or trigger interactive selection
     
-    remove_worktrees(branch, &projects, &base_path, force)?;
+    remove_worktrees(branch, &projects, &base_path, force, current_project.as_deref())?;
     Ok(())
 }
 
