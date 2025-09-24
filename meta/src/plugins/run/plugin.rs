@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
+    BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
 };
 use std::collections::HashMap;
