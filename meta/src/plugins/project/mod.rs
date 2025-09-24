@@ -667,7 +667,7 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
     println!("\n  {} {}", "📦".bright_blue(), "Workspace Projects".bold());
     println!("  {}", "═".repeat(60).bright_black());
     
-    for (name, entry) in &config.projects {
+    for (name, _entry) in &config.projects {
         let project_path = base_path.join(name);
         let url = config.get_project_url(name).unwrap_or_else(|| "unknown".to_string());
         

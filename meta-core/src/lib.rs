@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::{ArgMatches, Command};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -74,7 +73,7 @@ impl RuntimeConfig {
         }
         
         // Get relative path from meta root
-        let relative = cwd.strip_prefix(&meta_root).ok()?;
+        let _relative = cwd.strip_prefix(&meta_root).ok()?;
         
         // Check each project to see if we're inside it
         for (project_name, _) in &self.meta_config.projects {
