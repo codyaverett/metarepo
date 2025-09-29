@@ -31,6 +31,7 @@ impl RunPlugin {
                                    meta run test --project foo      # Run in specific project\n\
                                    meta run build --all             # Run in all projects\n\
                                    meta run deploy --parallel       # Run in parallel")
+                    .with_help_formatting()
                     .arg(
                         arg("script")
                             .help("Name of the script to run")
@@ -93,6 +94,7 @@ impl RunPlugin {
                 command("list")
                     .about("List available scripts")
                     .aliases(vec!["ls".to_string(), "l".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("project")
                             .long("project")

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
+    BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
 };
 use super::{import_project_with_options, import_project_recursive_with_options, list_projects, remove_project, show_project_tree, update_projects, update_project_gitignore};
@@ -35,6 +35,7 @@ impl ProjectPlugin {
                                    meta project add myproject ../external-repo                   # Symlink\n\
                                    meta project add myproject                                    # Use existing")
                     .aliases(vec!["import".to_string(), "i".to_string(), "a".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("path")
                             .help("Local directory name for the project")
@@ -78,6 +79,7 @@ impl ProjectPlugin {
             .command(
                 command("list")
                     .about("List all projects in the workspace")
+                    .with_help_formatting()
                     .aliases(vec!["ls".to_string(), "l".to_string()])
                     .arg(
                         arg("tree")
@@ -89,11 +91,13 @@ impl ProjectPlugin {
             .command(
                 command("tree")
                     .about("Display project hierarchy as a tree")
+                    .with_help_formatting()
             )
             .command(
                 command("update")
                     .about("Update all projects (pull latest changes)")
                     .aliases(vec!["pull".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("recursive")
                             .long("recursive")
@@ -111,6 +115,7 @@ impl ProjectPlugin {
                 command("remove")
                     .about("Remove a project from the workspace")
                     .aliases(vec!["rm".to_string(), "r".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Name of the project to remove")
@@ -127,6 +132,7 @@ impl ProjectPlugin {
             .command(
                 command("update-gitignore")
                     .about("Update .gitignore for a project that now has a remote")
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Name of the project to update")
@@ -270,18 +276,6 @@ impl MetaPlugin for ProjectPlugin {
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        // Check for output format flag
-        if let Some(format_str) = matches.get_one::<String>("output-format") {
-            if let Some(format) = HelpFormat::from_str(format_str) {
-                return self.show_help(format);
-            }
-        }
-        
-        // Check for AI help flag
-        if matches.get_flag("ai") {
-            return self.show_ai_help();
-        }
-        
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
         plugin.handle_command(matches, config)

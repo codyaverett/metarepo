@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
+    BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
 };
 use super::{clone_repository, get_git_status, clone_missing_repos};
@@ -24,6 +24,7 @@ impl GitPlugin {
                 command("clone")
                     .about("Clone meta repository and all child repositories")
                     .aliases(vec!["c".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("url")
                             .help("Repository URL to clone")
@@ -35,11 +36,13 @@ impl GitPlugin {
                 command("status")
                     .about("Show git status across all repositories")
                     .aliases(vec!["st".to_string(), "s".to_string()])
+                    .with_help_formatting()
             )
             .command(
                 command("update")
                     .about("Clone missing repositories")
                     .aliases(vec!["up".to_string(), "u".to_string()])
+                    .with_help_formatting()
             )
             .handler("clone", handle_clone)
             .handler("status", handle_status)
@@ -125,18 +128,6 @@ impl MetaPlugin for GitPlugin {
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        // Check for output format flag
-        if let Some(format_str) = matches.get_one::<String>("output-format") {
-            if let Some(format) = HelpFormat::from_str(format_str) {
-                return self.show_help(format);
-            }
-        }
-        
-        // Check for AI help flag
-        if matches.get_flag("ai") {
-            return self.show_ai_help();
-        }
-        
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
         plugin.handle_command(matches, config)

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
+    BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
 };
 use super::config::RulesConfig;
@@ -29,6 +29,7 @@ impl RulesPlugin {
                 command("check")
                     .about("Check project structure against configured rules")
                     .aliases(vec!["c".to_string(), "chk".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("project")
                             .long("project")
@@ -46,6 +47,7 @@ impl RulesPlugin {
                 command("init")
                     .about("Initialize rules configuration file")
                     .aliases(vec!["i".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("output")
                             .long("output")
@@ -66,6 +68,7 @@ impl RulesPlugin {
                 command("list")
                     .about("List all configured rules")
                     .aliases(vec!["ls".to_string(), "l".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("project")
                             .long("project")
@@ -78,6 +81,7 @@ impl RulesPlugin {
                 command("docs")
                     .about("Show documentation for creating and using rules")
                     .aliases(vec!["d".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("type")
                             .help("Show docs for specific rule type (directory, component, file, naming, dependency, import, documentation, size, security)")
@@ -93,6 +97,7 @@ impl RulesPlugin {
                 command("create")
                     .about("Create a new rule")
                     .aliases(vec!["new".to_string()])
+                    .with_help_formatting()
                     .subcommand(
                         command("directory")
                             .about("Create a directory rule")
@@ -540,18 +545,6 @@ impl MetaPlugin for RulesPlugin {
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        // Check for output format flag
-        if let Some(format_str) = matches.get_one::<String>("output-format") {
-            if let Some(format) = HelpFormat::from_str(format_str) {
-                return self.show_help(format);
-            }
-        }
-        
-        // Check for AI help flag
-        if matches.get_flag("ai") {
-            return self.show_ai_help();
-        }
-        
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
         plugin.handle_command(matches, config)
