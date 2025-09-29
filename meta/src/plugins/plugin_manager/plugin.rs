@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::ArgMatches;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat, MetaConfig,
+    BasePlugin, MetaPlugin, RuntimeConfig, MetaConfig,
     plugin, command, arg,
 };
 use std::fs;
@@ -25,6 +25,7 @@ impl PluginManagerPlugin {
             .command(
                 command("add")
                     .about("Add a plugin from a local path")
+                    .with_help_formatting()
                     .arg(
                         arg("path")
                             .help("Path to the plugin executable")
@@ -35,6 +36,7 @@ impl PluginManagerPlugin {
             .command(
                 command("install")
                     .about("Install a plugin from crates.io")
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Name of the plugin to install")
@@ -45,6 +47,7 @@ impl PluginManagerPlugin {
             .command(
                 command("remove")
                     .about("Remove an installed plugin")
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Name of the plugin to remove")
@@ -55,10 +58,12 @@ impl PluginManagerPlugin {
             .command(
                 command("list")
                     .about("List all installed plugins")
+                    .with_help_formatting()
             )
             .command(
                 command("update")
                     .about("Update all plugins to their latest versions")
+                    .with_help_formatting()
             )
             .handler("add", handle_add)
             .handler("install", handle_install)
@@ -359,18 +364,6 @@ impl MetaPlugin for PluginManagerPlugin {
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        // Check for output format flag
-        if let Some(format_str) = matches.get_one::<String>("output-format") {
-            if let Some(format) = HelpFormat::from_str(format_str) {
-                return self.show_help(format);
-            }
-        }
-        
-        // Check for AI help flag
-        if matches.get_flag("ai") {
-            return self.show_ai_help();
-        }
-        
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
         plugin.handle_command(matches, config)

@@ -38,6 +38,19 @@ impl MetaPlugin for InitPlugin {
                 .long_about("Initialize the current directory as a meta repository by creating a .meta file with default configuration and updating .gitignore patterns.")
                 .visible_aliases(vec!["i"])
                 .version(env!("CARGO_PKG_VERSION"))
+                .arg(
+                    clap::Arg::new("output-format")
+                        .long("output-format")
+                        .value_name("FORMAT")
+                        .help("Output format (json, yaml, markdown)")
+                        .value_parser(["json", "yaml", "markdown"])
+                )
+                .arg(
+                    clap::Arg::new("ai")
+                        .long("ai")
+                        .action(clap::ArgAction::SetTrue)
+                        .help("Show AI-friendly structured output (same as --output-format=json)")
+                )
         )
     }
     

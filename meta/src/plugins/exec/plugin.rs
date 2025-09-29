@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat, MetaConfig,
+    BasePlugin, MetaPlugin, RuntimeConfig, MetaConfig,
     plugin, command, arg,
 };
 use super::{execute_in_specific_projects, execute_with_iterator, ProjectIterator};
@@ -25,6 +25,7 @@ impl ExecPlugin {
                     .about("Execute commands across multiple repositories")
                     .aliases(vec!["e".to_string(), "x".to_string()])
                     .allow_external_subcommands(true)
+                    .with_help_formatting()
                     .arg(
                         arg("project")
                             .short('p')
@@ -301,24 +302,25 @@ impl MetaPlugin for ExecPlugin {
                     .long("streaming")
                     .help("Show output as it happens instead of buffered (legacy behavior)")
                     .action(clap::ArgAction::SetTrue)
+            )
+            .arg(
+                clap::Arg::new("output-format")
+                    .long("output-format")
+                    .value_name("FORMAT")
+                    .help("Output format (json, yaml, markdown)")
+                    .value_parser(["json", "yaml", "markdown"])
+            )
+            .arg(
+                clap::Arg::new("ai")
+                    .long("ai")
+                    .action(clap::ArgAction::SetTrue)
+                    .help("Show AI-friendly structured output (same as --output-format=json)")
             );
         
         app.subcommand(exec_cmd)
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        // Check for output format flag
-        if let Some(format_str) = matches.get_one::<String>("output-format") {
-            if let Some(format) = HelpFormat::from_str(format_str) {
-                return self.show_help(format);
-            }
-        }
-        
-        // Check for AI help flag
-        if matches.get_flag("ai") {
-            return self.show_ai_help();
-        }
-        
         // Call the handler directly
         handle_exec(matches, config)
     }

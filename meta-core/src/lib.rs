@@ -345,8 +345,8 @@ mod tests {
         
         // Create a config with some data
         let mut config = MetaConfig::default();
-        config.projects.insert("project1".to_string(), "https://github.com/user/repo.git".to_string());
-        config.projects.insert("project2".to_string(), "https://github.com/user/repo2.git".to_string());
+        config.projects.insert("project1".to_string(), ProjectEntry::Url("https://github.com/user/repo.git".to_string()));
+        config.projects.insert("project2".to_string(), ProjectEntry::Url("https://github.com/user/repo2.git".to_string()));
         
         // Save the config
         config.save_to_file(&meta_file).unwrap();
@@ -356,8 +356,8 @@ mod tests {
         
         // Verify the loaded config matches
         assert_eq!(loaded_config.projects.len(), 2);
-        assert_eq!(loaded_config.projects.get("project1"), Some(&"https://github.com/user/repo.git".to_string()));
-        assert_eq!(loaded_config.projects.get("project2"), Some(&"https://github.com/user/repo2.git".to_string()));
+        assert_eq!(loaded_config.projects.get("project1"), Some(&ProjectEntry::Url("https://github.com/user/repo.git".to_string())));
+        assert_eq!(loaded_config.projects.get("project2"), Some(&ProjectEntry::Url("https://github.com/user/repo2.git".to_string())));
         assert_eq!(loaded_config.ignore, config.ignore);
     }
     

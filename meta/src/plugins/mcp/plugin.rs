@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
+    BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
 };
 use super::client::McpClient;
@@ -30,6 +30,7 @@ impl McpPlugin {
             .command(
                 command("add")
                     .about("Add a saved MCP server configuration")
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Server name")
@@ -65,10 +66,12 @@ impl McpPlugin {
             .command(
                 command("list")
                     .about("List saved MCP server configurations")
+                    .with_help_formatting()
             )
             .command(
                 command("remove")
                     .about("Remove a saved MCP server configuration")
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Server name")
@@ -79,6 +82,7 @@ impl McpPlugin {
             .command(
                 command("connect")
                     .about("Connect to an MCP server and show its info")
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Saved server name OR command to run")
@@ -93,6 +97,7 @@ impl McpPlugin {
             .command(
                 command("list-resources")
                     .about("List resources from an MCP server")
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Saved server name OR command to run")
@@ -107,6 +112,7 @@ impl McpPlugin {
             .command(
                 command("list-tools")
                     .about("List tools from an MCP server")
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Saved server name OR command to run")
@@ -121,6 +127,7 @@ impl McpPlugin {
             .command(
                 command("call-tool")
                     .about("Call a tool on an MCP server")
+                    .with_help_formatting()
                     .arg(
                         arg("name")
                             .help("Saved server name OR command to run")
@@ -147,10 +154,12 @@ impl McpPlugin {
             .command(
                 command("serve")
                     .about("Run Metarepo as an MCP server exposing CLI tools")
+                    .with_help_formatting()
             )
             .command(
                 command("config")
                     .about("Print MCP configuration for VS Code or Claude Desktop")
+                    .with_help_formatting()
             )
             .handler("add", handle_add)
             .handler("list", handle_list)
@@ -480,18 +489,6 @@ impl MetaPlugin for McpPlugin {
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        // Check for output format flag
-        if let Some(format_str) = matches.get_one::<String>("output-format") {
-            if let Some(format) = HelpFormat::from_str(format_str) {
-                return self.show_help(format);
-            }
-        }
-        
-        // Check for AI help flag
-        if matches.get_flag("ai") {
-            return self.show_ai_help();
-        }
-        
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
         plugin.handle_command(matches, config)

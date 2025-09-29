@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
+    BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
 };
 use super::{add_worktrees, remove_worktrees, list_all_worktrees, prune_worktrees};
@@ -33,6 +33,7 @@ impl WorktreePlugin {
                                    meta worktree add feature-123 --all                     # All projects\n\
                                    meta worktree add -b feature-123 origin/main           # Create new branch")
                     .aliases(vec!["create".to_string(), "new".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("branch")
                             .help("Branch name or commit to create worktree from")
@@ -81,6 +82,7 @@ impl WorktreePlugin {
                 command("remove")
                     .about("Remove worktrees from selected projects")
                     .aliases(vec!["rm".to_string(), "delete".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("branch")
                             .help("Branch name or worktree directory name to remove")
@@ -117,6 +119,7 @@ impl WorktreePlugin {
                 command("list")
                     .about("List all worktrees across the workspace")
                     .aliases(vec!["ls".to_string(), "l".to_string()])
+                    .with_help_formatting()
                     .arg(
                         arg("verbose")
                             .long("verbose")
@@ -126,6 +129,7 @@ impl WorktreePlugin {
             .command(
                 command("prune")
                     .about("Remove stale worktrees that no longer exist")
+                    .with_help_formatting()
                     .arg(
                         arg("dry-run")
                             .long("dry-run")
@@ -256,18 +260,6 @@ impl MetaPlugin for WorktreePlugin {
     }
     
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        // Check for output format flag
-        if let Some(format_str) = matches.get_one::<String>("output-format") {
-            if let Some(format) = HelpFormat::from_str(format_str) {
-                return self.show_help(format);
-            }
-        }
-        
-        // Check for AI help flag
-        if matches.get_flag("ai") {
-            return self.show_ai_help();
-        }
-        
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
         plugin.handle_command(matches, config)

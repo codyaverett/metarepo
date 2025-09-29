@@ -51,6 +51,7 @@ impl MetarepoCli {
         app = self.registry.borrow().build_cli_with_flags(app, experimental);
         
         // Then add global options after subcommands
+        // Only version and experimental are truly global
         app = app
             .arg(
                 Arg::new("version")
@@ -61,35 +62,11 @@ impl MetarepoCli {
                     .global(true)
             )
             .arg(
-                Arg::new("quiet")
-                    .long("quiet")
-                    .short('q')
-                    .action(clap::ArgAction::SetTrue)
-                    .help("Suppress output")
-                    .global(true)
-            )
-            .arg(
                 Arg::new("experimental")
                     .long("experimental")
                     .action(clap::ArgAction::SetTrue)
                     .help("Enable experimental features")
                     .global(true)
-            )
-            .arg(
-                Arg::new("output-format")
-                    .long("output-format")
-                    .value_name("FORMAT")
-                    .help("Output format for help and command information")
-                    .value_parser(["terminal", "json", "yaml", "markdown"])
-                    .global(true)
-            )
-            .arg(
-                Arg::new("ai")
-                    .long("ai")
-                    .action(clap::ArgAction::SetTrue)
-                    .help("Show AI-friendly structured output (equivalent to --output-format=json)")
-                    .global(true)
-                    .conflicts_with("output-format")
             );
             
         app
