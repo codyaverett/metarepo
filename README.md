@@ -24,9 +24,12 @@ metarepo/
 │   │       ├── git/        # Git operations across repositories
 │   │       ├── project/    # Project management (create/import)
 │   │       ├── exec/       # Execute commands across repositories
+│   │       ├── run/        # Run project-specific scripts from .meta
 │   │       ├── rules/      # Project structure enforcement
+│   │       ├── worktree/   # Git worktree management
 │   │       ├── mcp/        # Model Context Protocol integration
-│   │       └── plugin_manager/ # External plugin management
+│   │       ├── plugin_manager/ # External plugin management
+│   │       └── shared/     # Shared utilities for plugins
 │   └── Cargo.toml
 └── README.md
 ```
@@ -39,23 +42,23 @@ metarepo/
 - Plugin discovery and registration system
 - Compatible with Node.js meta `.meta` file format
 
-### Available Plugins
+### Built-in Plugins
 
-**Init Plugin**
+**Init Plugin** - Initialize a new meta repository
 - `meta init` - Initialize a new meta repository
 - Creates `.meta` file with proper JSON structure
 - Updates `.gitignore` with meta-specific patterns
 
-**Git Plugin**
+**Git Plugin** - Git operations across multiple repositories
 - `meta git clone <url>` - Clone meta repo and all child repositories
 - `meta git status` - Show git status across all repositories
 - `meta git update` - Clone missing repositories
 
-**Project Plugin**
+**Project Plugin** - Project management operations
 - `meta project create <path> <repo_url>` - Create and clone new project
 - `meta project import <path> <repo_url>` - Import existing project
 
-**Exec Plugin**
+**Exec Plugin** - Execute commands across multiple repositories
 - `meta exec <command>` - Execute a command in all project directories
 - `meta exec --projects <project1,project2> <command>` - Execute in specific projects
 - `meta exec --include-only <patterns> <command>` - Only include matching projects
@@ -64,6 +67,47 @@ metarepo/
 - `meta exec --git-only <command>` - Only iterate over git repositories
 - `meta exec --parallel <command>` - Execute commands in parallel
 - `meta exec --include-main <command>` - Include the main meta repository
+- `meta exec --no-progress` - Disable progress indicators (useful for CI)
+- `meta exec --streaming` - Show output as it happens instead of buffered
+
+**Run Plugin** - Run project-specific scripts defined in .meta
+- `meta run <script>` - Run a named script from .meta configuration
+- `meta run --list` - List all available scripts
+- `meta run --project <project> <script>` - Run script in a specific project
+- `meta run --projects <project1,project2> <script>` - Run in multiple projects
+- `meta run --all <script>` - Run script in all projects
+- `meta run --parallel <script>` - Execute scripts in parallel
+- `meta run --env KEY=VALUE <script>` - Set environment variables
+- `meta run --existing-only <script>` - Only run in existing directories
+- `meta run --git-only <script>` - Only run in git repositories
+- `meta run --no-progress` - Disable progress indicators
+- `meta run --streaming` - Show output as it happens
+
+**Rules Plugin** - Enforce project file structure rules
+- `meta rules check` - Check project structure against configured rules
+- `meta rules init` - Initialize rules configuration file (.metarules.json)
+- `meta rules list` - List all configured rules
+- `meta rules docs` - Show documentation for creating and using rules
+- `meta rules create` - Create a new rule interactively
+- `meta rules status` - Show rules status for all projects
+- `meta rules copy <project>` - Copy workspace rules to a specific project
+
+**Worktree Plugin** - Git worktree management across workspace projects
+- `meta worktree add <branch>` - Create worktrees for selected projects
+- `meta worktree remove <worktree>` - Remove worktrees from selected projects
+- `meta worktree list` - List all worktrees across the workspace
+- `meta worktree prune` - Remove stale worktrees that no longer exist
+
+**Plugin Manager** - Manage metarepo plugins
+- `meta plugin add <path>` - Add a plugin from a local path
+- `meta plugin install <name>` - Install a plugin from crates.io
+- `meta plugin remove <name>` - Remove an installed plugin
+- `meta plugin list` - List all installed plugins
+- `meta plugin update` - Update all plugins to their latest versions
+
+**MCP Plugin** - Model Context Protocol server management (Experimental)
+- Manage MCP (Model Context Protocol) servers for AI integration
+- Configuration and server lifecycle management
 
 ## Usage
 
@@ -130,6 +174,26 @@ cargo run --bin meta -- exec --parallel npm test
 
 # Include main repository
 cargo run --bin meta -- exec --include-main git status
+
+# Run scripts defined in .meta
+cargo run --bin meta -- run build
+cargo run --bin meta -- run --list
+cargo run --bin meta -- run --parallel test
+
+# Check project structure against rules
+cargo run --bin meta -- rules check
+cargo run --bin meta -- rules init
+cargo run --bin meta -- rules status
+
+# Manage git worktrees
+cargo run --bin meta -- worktree add feature/new-feature
+cargo run --bin meta -- worktree list
+cargo run --bin meta -- worktree remove feature/old-feature
+
+# Manage plugins
+cargo run --bin meta -- plugin list
+cargo run --bin meta -- plugin install meta-plugin-example
+cargo run --bin meta -- plugin update
 ```
 
 ### Example Workflow
