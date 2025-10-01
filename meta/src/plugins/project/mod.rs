@@ -1246,3 +1246,99 @@ pub fn update_project_gitignore(project_name: &str, base_path: &Path) -> Result<
     
     Ok(())
 }
+
+/// Rename a project in the workspace
+pub fn rename_project(old_name: &str, new_name: &str, base_path: &Path) -> Result<()> {
+    // Load the .meta file
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
+    }
+    
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
+    
+    // Check if old project exists
+    if !config.projects.contains_key(old_name) {
+        return Err(anyhow::anyhow!("Project '{}' not found in .meta file", old_name));
+    }
+    
+    // Check if new name is already taken
+    if config.projects.contains_key(new_name) {
+        return Err(anyhow::anyhow!("Project '{}' already exists in .meta file", new_name));
+    }
+    
+    let old_path = base_path.join(old_name);
+    let new_path = base_path.join(new_name);
+    
+    // Check if new path already exists on disk
+    if new_path.exists() {
+        return Err(anyhow::anyhow!("Directory '{}' already exists", new_name));
+    }
+    
+    // Check if old path exists
+    let is_symlink = old_path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false);
+    
+    // Get the project entry before removing it
+    let project_entry = config.projects.get(old_name).unwrap().clone();
+    let project_url = config.get_project_url(old_name).unwrap_or_else(|| "".to_string());
+    
+    // Check for uncommitted changes if it's a git repository (not for symlinks)
+    if !is_symlink && old_path.exists() && old_path.join(".git").exists() {
+        let repo = Repository::open(&old_path)?;
+        
+        let mut status_opts = StatusOptions::new();
+        status_opts.include_untracked(true);
+        status_opts.include_ignored(false);
+        
+        let statuses = repo.statuses(Some(&mut status_opts))?;
+        
+        let has_changes = statuses.iter().any(|entry| {
+            let status = entry.status();
+            status.intersects(
+                Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED |
+                Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE |
+                Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED |
+                Status::WT_TYPECHANGE | Status::WT_RENAMED
+            )
+        });
+        
+        if has_changes {
+            return Err(anyhow::anyhow!(
+                "Project '{}' has uncommitted changes. Please commit or stash them first.", 
+                old_name
+            ));
+        }
+    }
+    
+    println!("\n  {} {}", "🔄".cyan(), format!("Renaming project '{}' to '{}'", old_name, new_name).bold());
+    
+    // Update the .meta file first
+    config.projects.remove(old_name);
+    config.projects.insert(new_name.to_string(), project_entry);
+    config.save_to_file(&meta_file_path)?;
+    println!("     {} {}", "✅".green(), "Updated .meta file".green());
+    
+    // Rename the directory if it exists
+    if old_path.exists() {
+        std::fs::rename(&old_path, &new_path)?;
+        if is_symlink {
+            println!("     {} {}", "✅".green(), "Renamed symlink".green());
+        } else {
+            println!("     {} {}", "✅".green(), "Renamed directory".green());
+        }
+    }
+    
+    // Update .gitignore if the project has a remote URL (not local:)
+    if !project_url.starts_with("local:") {
+        // Remove old entry from .gitignore
+        remove_from_gitignore(base_path, old_name)?;
+        // Add new entry to .gitignore
+        update_gitignore(base_path, new_name)?;
+        println!("     {} {}", "✅".green(), "Updated .gitignore".green());
+    }
+    
+    println!("\n  {} {}", "✅".green(), format!("Successfully renamed '{}' to '{}'", old_name, new_name).bold().green());
+    println!();
+    
+    Ok(())
+}
