@@ -4,7 +4,7 @@ use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
 };
-use super::{import_project_with_options, import_project_recursive_with_options, list_projects, remove_project, show_project_tree, update_projects, update_project_gitignore};
+use super::{import_project_with_options, import_project_recursive_with_options, list_projects, remove_project, show_project_tree, update_projects, update_project_gitignore, rename_project};
 
 /// ProjectPlugin using the new simplified plugin architecture
 pub struct ProjectPlugin;
@@ -140,12 +140,31 @@ impl ProjectPlugin {
                             .takes_value(true)
                     )
             )
+            .command(
+                command("rename")
+                    .about("Rename a project in the workspace")
+                    .aliases(vec!["mv".to_string(), "move".to_string()])
+                    .with_help_formatting()
+                    .arg(
+                        arg("old_name")
+                            .help("Current name of the project")
+                            .required(true)
+                            .takes_value(true)
+                    )
+                    .arg(
+                        arg("new_name")
+                            .help("New name for the project")
+                            .required(true)
+                            .takes_value(true)
+                    )
+            )
             .handler("add", handle_add)
             .handler("list", handle_list)
             .handler("tree", handle_tree)
             .handler("update", handle_update)
             .handler("remove", handle_remove)
             .handler("update-gitignore", handle_update_gitignore)
+            .handler("rename", handle_rename)
             .build()
     }
 }
@@ -260,6 +279,21 @@ fn handle_update_gitignore(matches: &ArgMatches, config: &RuntimeConfig) -> Resu
     };
     
     update_project_gitignore(name, &base_path)?;
+    Ok(())
+}
+
+/// Handler for the rename command
+fn handle_rename(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let old_name = matches.get_one::<String>("old_name").unwrap();
+    let new_name = matches.get_one::<String>("new_name").unwrap();
+    
+    let base_path = if config.meta_root().is_some() {
+        config.meta_root().unwrap()
+    } else {
+        config.working_dir.clone()
+    };
+    
+    rename_project(old_name, new_name, &base_path)?;
     Ok(())
 }
 
