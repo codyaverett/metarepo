@@ -147,7 +147,8 @@ impl WorktreePlugin {
 
 /// Handler for the add command
 fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let branch = matches.get_one::<String>("branch").unwrap();
+    let branch = matches.get_one::<String>("branch")
+        .ok_or_else(|| anyhow::anyhow!("Branch name is required"))?;
     let _commit = matches.get_one::<String>("commit");
     let create_branch = matches.get_flag("create-branch");
     let path_suffix = matches.get_one::<String>("path").map(|s| s.as_str());
@@ -189,7 +190,8 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
 /// Handler for the remove command
 fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let branch = matches.get_one::<String>("branch").unwrap();
+    let branch = matches.get_one::<String>("branch")
+        .ok_or_else(|| anyhow::anyhow!("Branch name is required"))?;
     let force = matches.get_flag("force");
     
     let base_path = config.meta_root()

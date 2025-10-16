@@ -177,7 +177,7 @@ impl Default for NestedConfig {
 }
 
 /// Project metadata including scripts and configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ProjectEntry {
     /// Simple string format (backwards compatible)
@@ -187,7 +187,7 @@ pub enum ProjectEntry {
 }
 
 /// Detailed project metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectMetadata {
     pub url: String,
     #[serde(default)]
@@ -328,11 +328,12 @@ mod tests {
     #[test]
     fn test_meta_config_default() {
         let config = MetaConfig::default();
-        assert_eq!(config.ignore.len(), 4);
+        assert_eq!(config.ignore.len(), 5);
         assert!(config.ignore.contains(&".git".to_string()));
         assert!(config.ignore.contains(&".vscode".to_string()));
         assert!(config.ignore.contains(&"node_modules".to_string()));
         assert!(config.ignore.contains(&"target".to_string()));
+        assert!(config.ignore.contains(&".DS_Store".to_string()));
         assert!(config.projects.is_empty());
         assert!(config.plugins.is_none());
         assert!(config.nested.is_none());

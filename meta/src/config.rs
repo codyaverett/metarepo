@@ -34,8 +34,9 @@ mod tests {
     
     #[test]
     fn test_config_serialization() {
+        use metarepo_core::ProjectEntry;
         let mut config = MetaConfig::default();
-        config.projects.insert("app1".to_string(), "https://github.com/user/app1.git".to_string());
+        config.projects.insert("app1".to_string(), ProjectEntry::Url("https://github.com/user/app1.git".to_string()));
         
         let json = serde_json::to_string_pretty(&config).unwrap();
         let deserialized: MetaConfig = serde_json::from_str(&json).unwrap();
@@ -48,8 +49,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let config_path = dir.path().join(".meta");
         
+        use metarepo_core::ProjectEntry;
         let mut config = MetaConfig::default();
-        config.projects.insert("test".to_string(), "https://github.com/test/repo.git".to_string());
+        config.projects.insert("test".to_string(), ProjectEntry::Url("https://github.com/test/repo.git".to_string()));
         
         // Save config
         config.save_to_file(&config_path).unwrap();

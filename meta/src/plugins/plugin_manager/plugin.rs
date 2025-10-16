@@ -7,6 +7,7 @@ use metarepo_core::{
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
+use tracing::{info, error};
 
 /// PluginManagerPlugin using the new simplified plugin architecture
 pub struct PluginManagerPlugin;
@@ -118,7 +119,8 @@ fn add_to_meta_config(name: &str, spec: &str) -> Result<()> {
 
 /// Handler for the add command
 fn handle_add(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    let path = matches.get_one::<String>("path").unwrap();
+    let path = matches.get_one::<String>("path")
+        .ok_or_else(|| anyhow::anyhow!("Path is required"))?;
     add_plugin_from_path(path)
 }
 
@@ -149,20 +151,21 @@ fn add_plugin_from_path(path: &str) -> Result<()> {
         fs::set_permissions(&dest_path, perms)?;
     }
 
-    println!("Plugin added successfully: {:?}", dest_path);
-    println!("The plugin will be available on next run of meta");
+    info!("Plugin added successfully: {:?}", dest_path);
+    info!("The plugin will be available on next run of meta");
     
     Ok(())
 }
 
 /// Handler for the install command
 fn handle_install(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    let name = matches.get_one::<String>("name").unwrap();
+    let name = matches.get_one::<String>("name")
+        .ok_or_else(|| anyhow::anyhow!("Plugin name is required"))?;
     install_plugin(name)
 }
 
 fn install_plugin(name: &str) -> Result<()> {
-    println!("Installing plugin from crates.io: {}", name);
+    info!("Installing plugin from crates.io: {}", name);
     
     // Use cargo install to get the plugin
     let plugin_crate = format!("metarepo-plugin-{}", name);
@@ -177,7 +180,7 @@ fn install_plugin(name: &str) -> Result<()> {
         return Err(anyhow::anyhow!("Failed to install plugin: {}", stderr));
     }
 
-    println!("Plugin '{}' installed successfully", name);
+    info!("Plugin '{}' installed successfully", name);
     
     // Add to .meta config
     add_to_meta_config(name, &format!("^latest"))?;
@@ -187,7 +190,8 @@ fn install_plugin(name: &str) -> Result<()> {
 
 /// Handler for the remove command
 fn handle_remove(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    let name = matches.get_one::<String>("name").unwrap();
+    let name = matches.get_one::<String>("name")
+        .ok_or_else(|| anyhow::anyhow!("Plugin name is required"))?;
     remove_plugin(name)
 }
 
@@ -336,7 +340,7 @@ fn update_plugins() -> Result<()> {
                     if output.status.success() {
                         println!("  ✓ Updated {}", name);
                     } else {
-                        eprintln!("  ✗ Failed to update {}", name);
+                        error!("  ✗ Failed to update {}", name);
                     }
                 }
             }
