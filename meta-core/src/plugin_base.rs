@@ -82,7 +82,7 @@ impl HelpFormat {
         }
     }
     
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "terminal" | "term" => Some(HelpFormat::Terminal),
             "json" => Some(HelpFormat::Json),
@@ -249,18 +249,18 @@ mod tests {
     
     #[test]
     fn test_help_format_from_str() {
-        assert_eq!(HelpFormat::from_str("terminal"), Some(HelpFormat::Terminal));
-        assert_eq!(HelpFormat::from_str("term"), Some(HelpFormat::Terminal));
-        assert_eq!(HelpFormat::from_str("json"), Some(HelpFormat::Json));
-        assert_eq!(HelpFormat::from_str("yaml"), Some(HelpFormat::Yaml));
-        assert_eq!(HelpFormat::from_str("yml"), Some(HelpFormat::Yaml));
-        assert_eq!(HelpFormat::from_str("markdown"), Some(HelpFormat::Markdown));
-        assert_eq!(HelpFormat::from_str("md"), Some(HelpFormat::Markdown));
-        assert_eq!(HelpFormat::from_str("unknown"), None);
+        assert_eq!(HelpFormat::parse("terminal"), Some(HelpFormat::Terminal));
+        assert_eq!(HelpFormat::parse("term"), Some(HelpFormat::Terminal));
+        assert_eq!(HelpFormat::parse("json"), Some(HelpFormat::Json));
+        assert_eq!(HelpFormat::parse("yaml"), Some(HelpFormat::Yaml));
+        assert_eq!(HelpFormat::parse("yml"), Some(HelpFormat::Yaml));
+        assert_eq!(HelpFormat::parse("markdown"), Some(HelpFormat::Markdown));
+        assert_eq!(HelpFormat::parse("md"), Some(HelpFormat::Markdown));
+        assert_eq!(HelpFormat::parse("unknown"), None);
         
         // Test case insensitive
-        assert_eq!(HelpFormat::from_str("JSON"), Some(HelpFormat::Json));
-        assert_eq!(HelpFormat::from_str("Terminal"), Some(HelpFormat::Terminal));
+        assert_eq!(HelpFormat::parse("JSON"), Some(HelpFormat::Json));
+        assert_eq!(HelpFormat::parse("Terminal"), Some(HelpFormat::Terminal));
     }
     
     #[test]

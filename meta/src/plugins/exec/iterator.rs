@@ -176,11 +176,12 @@ mod tests {
     
     fn create_test_config() -> MetaConfig {
         let mut config = MetaConfig::default();
-        config.projects.insert("project-a".to_string(), "https://github.com/user/project-a.git".to_string());
-        config.projects.insert("project-b".to_string(), "https://github.com/user/project-b.git".to_string());
-        config.projects.insert("lib-core".to_string(), "https://github.com/user/lib-core.git".to_string());
-        config.projects.insert("lib-utils".to_string(), "https://github.com/user/lib-utils.git".to_string());
-        config.projects.insert("test-project".to_string(), "https://github.com/user/test-project.git".to_string());
+        use metarepo_core::ProjectEntry;
+        config.projects.insert("project-a".to_string(), ProjectEntry::Url("https://github.com/user/project-a.git".to_string()));
+        config.projects.insert("project-b".to_string(), ProjectEntry::Url("https://github.com/user/project-b.git".to_string()));
+        config.projects.insert("lib-core".to_string(), ProjectEntry::Url("https://github.com/user/lib-core.git".to_string()));
+        config.projects.insert("lib-utils".to_string(), ProjectEntry::Url("https://github.com/user/lib-utils.git".to_string()));
+        config.projects.insert("test-project".to_string(), ProjectEntry::Url("https://github.com/user/test-project.git".to_string()));
         config
     }
     

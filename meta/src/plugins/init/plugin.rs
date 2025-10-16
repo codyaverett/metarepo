@@ -57,7 +57,7 @@ impl MetaPlugin for InitPlugin {
     fn handle_command(&self, _matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         // Check for output format flag
         if let Some(format_str) = _matches.get_one::<String>("output-format") {
-            if let Some(format) = HelpFormat::from_str(format_str) {
+            if let Some(format) = HelpFormat::parse(format_str) {
                 return self.show_help(format);
             }
         }
