@@ -14,8 +14,10 @@ This guide covers advanced worktree configuration options in Metarepo, including
 
 Metarepo provides powerful worktree management capabilities that allow you to:
 1. **Automatically run setup commands** when creating new worktrees
-2. **Use bare repositories** for more efficient disk usage and cleaner project structure
+2. **Use bare repositories** for more efficient disk usage and cleaner project structure (enabled by default!)
 3. **Configure behavior per-project or globally** across your workspace
+
+**Default Behavior:** All new projects are cloned as bare repositories with worktrees unless explicitly configured otherwise.
 
 ## Post-Create Commands (worktree_init)
 
@@ -129,6 +131,76 @@ Post-create commands have access to project-specific environment variables defin
 - **Failure handling**: Hook failures are reported but don't prevent worktree creation
 
 ## Bare Repository Support
+
+### Quick Start: Adding Bare Repositories
+
+**Bare repositories are now the default!** Simply add projects normally:
+
+```bash
+# Add a new project (bare by default)
+meta project add my-app https://github.com/user/my-app.git
+```
+
+This will:
+1. Clone the repository as bare (git data only at `<project>/.git/`)
+2. Automatically create a worktree for the default branch at `<project>/<default-branch>/`
+3. Configure the project as bare in `.meta`
+
+**To use traditional (non-bare) clones**, explicitly disable bare mode:
+
+```bash
+# Add as traditional repository
+meta project add my-app https://github.com/user/my-app.git
+
+# With configuration:
+{
+  "default_bare": false,  # Disable bare by default
+  "projects": {
+    "my-app": {
+      "url": "https://github.com/user/my-app.git"
+    }
+  }
+}
+```
+
+### Configuration Options
+
+**Default behavior:** Bare repositories are enabled by default (no configuration needed).
+
+**Override per-project:**
+
+```json
+{
+  "projects": {
+    "bare-app": {
+      "url": "git@github.com:user/bare-app.git"
+      // Uses bare (default)
+    },
+    "normal-app": {
+      "url": "git@github.com:user/normal-app.git",
+      "bare": false  // Override: use traditional clone
+    }
+  }
+}
+```
+
+**Disable bare globally:**
+
+```json
+{
+  "default_bare": false,  // All projects use traditional clones
+  "projects": {
+    "app1": {
+      "url": "git@github.com:user/app1.git"
+      // Uses traditional clone
+    },
+    "app2": {
+      "url": "git@github.com:user/app2.git",
+      "bare": true  // Override: use bare
+    }
+  }
+}
+```
 
 ### What are Bare Repositories?
 
@@ -255,6 +327,81 @@ When creating the default worktree, Metarepo automatically detects your default 
 1. Checks `refs/remotes/origin/HEAD`
 2. Falls back to common names: `main`, `master`, `develop`
 3. Ultimate fallback: `main`
+
+### Converting Existing Repositories
+
+You can convert an existing normal repository to bare format:
+
+```bash
+# Convert an existing project to bare repository
+meta project convert-to-bare my-app
+```
+
+**What it does:**
+1. Checks for uncommitted changes (aborts if found)
+2. Backs up the current `.git` directory
+3. Creates a bare repository at `<project>/.git/`
+4. Creates a worktree for your current branch at `<project>/<current-branch>/`
+5. Updates `.meta` configuration to mark project as bare
+6. Cleans up the backup
+
+**Important Notes:**
+- ⚠️ Commit or stash all changes before converting
+- ⚠️ The command prompts for confirmation before proceeding
+- ✅ Your current branch working directory becomes `<project>/<branch>/`
+- ✅ All git history and branches are preserved
+- ✅ You can create new worktrees after conversion
+
+**Example conversion:**
+
+Before:
+```
+my-app/
+├── .git/
+├── src/
+├── package.json
+└── README.md
+```
+
+After:
+```
+my-app/
+├── .git/              # Bare repository
+└── main/              # Worktree for main branch
+    ├── src/
+    ├── package.json
+    └── README.md
+```
+
+Then you can create additional worktrees:
+```bash
+meta worktree add feature/new-ui --project my-app
+```
+
+Result:
+```
+my-app/
+├── .git/              # Bare repository
+├── main/              # Main branch
+└── feature/           # Feature worktree
+    └── new-ui/
+```
+
+**Cannot convert back:**
+There's currently no automated way to convert from bare back to normal. If needed:
+1. Clone the repository fresh as a normal repo
+2. Update `.meta` configuration manually
+3. Remove the bare repository
+
+Or manually:
+```bash
+cd my-app/main
+git worktree remove ../feature/new-ui  # Remove other worktrees first
+mv .git ../.git.backup
+cp -r ../.git/. .git/  # Copy bare git to working directory
+git config --unset core.bare
+git reset --hard HEAD
+```
 
 ## Configuration Examples
 
@@ -489,7 +636,7 @@ meta worktree add <branch> --no-hooks
 meta worktree add <branch> --path custom-name
 ```
 
-### Other Commands
+### Managing Worktrees
 
 ```bash
 # List all worktrees
@@ -502,6 +649,16 @@ meta worktree remove <branch> --force
 # Clean up stale worktrees
 meta worktree prune
 meta worktree prune --dry-run
+```
+
+### Project Management
+
+```bash
+# Add project as bare repository
+meta project add <name> <url> --bare
+
+# Convert existing project to bare
+meta project convert-to-bare <project>
 ```
 
 ## Troubleshooting

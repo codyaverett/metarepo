@@ -245,20 +245,13 @@ cargo run --bin meta -- worktree add feature/new-feature
 cargo run --bin meta -- worktree add feature/quick-test --no-hooks
 ```
 
-#### Bare Repository Mode
+#### Bare Repository Mode (Default)
 
-Use bare repositories for cleaner project structure:
+**New in v0.8.2:** All projects now use bare repositories by default for cleaner structure!
 
-```json
-{
-  "projects": {
-    "my-app": {
-      "url": "git@github.com:user/my-app.git",
-      "bare": true,
-      "worktree_init": "npm install"
-    }
-  }
-}
+```bash
+# Simple add - uses bare repository automatically
+cargo run --bin meta -- project add my-app git@github.com:user/my-app.git
 ```
 
 This creates:
@@ -269,6 +262,8 @@ workspace/
 │   ├── main/           # Default branch worktree
 │   └── feature-1/      # Additional worktrees
 ```
+
+**To use traditional clones**, set `"default_bare": false` in `.meta` or `"bare": false` per-project.
 
 See [Worktree Configuration](docs/WORKTREE.md) for detailed documentation.
 
@@ -290,3 +285,4 @@ cargo test
 - [Plugin Development](docs/PLUGIN_DEVELOPMENT.md) - Guide for creating plugins
 - [Rules System](docs/RULES.md) - Defining project rules and metadata
 - [Worktree Configuration](docs/WORKTREE.md) - Advanced worktree features and configuration
+- [TODO & Future Ideas](docs/TODO.md) - Planned features and improvement ideas

@@ -24,6 +24,7 @@ fn create_default_config() -> MetaConfig {
         aliases: None,
         scripts: None,
         worktree_init: None,
+        default_bare: None,
     }
 }
 
