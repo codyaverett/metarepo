@@ -4,7 +4,7 @@ use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
 };
-use super::{import_project_with_options, import_project_recursive_with_options, list_projects, remove_project, show_project_tree, update_projects, update_project_gitignore, rename_project};
+use super::{import_project_with_options, import_project_recursive_with_options, list_projects, remove_project, show_project_tree, update_projects, update_project_gitignore, rename_project, convert_to_bare};
 
 /// ProjectPlugin using the new simplified plugin architecture
 pub struct ProjectPlugin;
@@ -74,6 +74,11 @@ impl ProjectPlugin {
                         arg("init-git")
                             .long("init-git")
                             .help("Automatically initialize git repository if directory is not a git repo")
+                    )
+                    .arg(
+                        arg("bare")
+                            .long("bare")
+                            .help("Clone as bare repository with worktree structure")
                     )
             )
             .command(
@@ -158,6 +163,17 @@ impl ProjectPlugin {
                             .takes_value(true)
                     )
             )
+            .command(
+                command("convert-to-bare")
+                    .about("Convert a normal repository to bare repository with worktrees")
+                    .with_help_formatting()
+                    .arg(
+                        arg("project")
+                            .help("Name of the project to convert")
+                            .required(true)
+                            .takes_value(true)
+                    )
+            )
             .handler("add", handle_add)
             .handler("list", handle_list)
             .handler("tree", handle_tree)
@@ -165,6 +181,7 @@ impl ProjectPlugin {
             .handler("remove", handle_remove)
             .handler("update-gitignore", handle_update_gitignore)
             .handler("rename", handle_rename)
+            .handler("convert-to-bare", handle_convert_to_bare)
             .build()
     }
 }
@@ -174,36 +191,45 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let path = matches.get_one::<String>("path").unwrap();
     let source = matches.get_one::<String>("source").map(|s| s.as_str());
     let init_git = matches.get_flag("init-git");
-    
+    let bare = matches.get_flag("bare");
+
     let base_path = if config.meta_root().is_some() {
         config.meta_root().unwrap()
     } else {
         config.working_dir.clone()
     };
-    
+
     // Check for recursive import flags
     let recursive = matches.get_flag("recursive");
     let no_recursive = matches.get_flag("no-recursive");
     let flatten = matches.get_flag("flatten");
     let max_depth = matches.get_one::<String>("max-depth")
         .and_then(|s| s.parse::<usize>().ok());
-    
+
     // Determine if we should use recursive import
     let use_recursive = if no_recursive {
         false // Explicitly disabled
     } else if recursive || flatten || max_depth.is_some() {
         true // Explicitly enabled or has related flags
     } else {
-        // Check configuration
+        // Check configuration or global default
         config.meta_config.nested.as_ref()
             .map(|n| n.recursive_import)
             .unwrap_or(false)
     };
-    
-    if use_recursive || flatten || max_depth.is_some() {
-        import_project_recursive_with_options(path, source, &base_path, use_recursive, max_depth, flatten, init_git)?;
+
+    // Determine if we should use bare repository
+    let use_bare = if bare {
+        true // Explicitly enabled via flag
     } else {
-        import_project_with_options(path, source, &base_path, init_git)?;
+        // Check global default (defaults to true for bare repos)
+        config.meta_config.default_bare.unwrap_or(true)
+    };
+
+    if use_recursive || flatten || max_depth.is_some() {
+        import_project_recursive_with_options(path, source, &base_path, use_recursive, max_depth, flatten, init_git, use_bare)?;
+    } else {
+        import_project_with_options(path, source, &base_path, init_git, use_bare)?;
     }
     Ok(())
 }
@@ -286,14 +312,28 @@ fn handle_update_gitignore(matches: &ArgMatches, config: &RuntimeConfig) -> Resu
 fn handle_rename(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let old_name = matches.get_one::<String>("old_name").unwrap();
     let new_name = matches.get_one::<String>("new_name").unwrap();
-    
+
     let base_path = if config.meta_root().is_some() {
         config.meta_root().unwrap()
     } else {
         config.working_dir.clone()
     };
-    
+
     rename_project(old_name, new_name, &base_path)?;
+    Ok(())
+}
+
+/// Handler for the convert-to-bare command
+fn handle_convert_to_bare(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let project = matches.get_one::<String>("project").unwrap();
+
+    let base_path = if config.meta_root().is_some() {
+        config.meta_root().unwrap()
+    } else {
+        config.working_dir.clone()
+    };
+
+    convert_to_bare(project, &base_path)?;
     Ok(())
 }
 

@@ -219,6 +219,8 @@ pub struct MetaConfig {
     pub scripts: Option<HashMap<String, String>>, // Global scripts
     #[serde(default)]
     pub worktree_init: Option<String>, // Global worktree post-create command
+    #[serde(default)]
+    pub default_bare: Option<bool>, // Global default for bare repository clones
 }
 
 impl Default for MetaConfig {
@@ -237,6 +239,7 @@ impl Default for MetaConfig {
             aliases: None,
             scripts: None,
             worktree_init: None,
+            default_bare: None,
         }
     }
 }

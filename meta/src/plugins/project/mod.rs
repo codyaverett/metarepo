@@ -14,8 +14,10 @@ use std::os::windows::fs;
 
 // Export the main plugin
 pub use self::plugin::ProjectPlugin;
+pub use self::convert::convert_to_bare;
 
 mod plugin;
+mod convert;
 
 /// Context for tracking nested repository imports
 pub struct ImportContext {
@@ -125,10 +127,10 @@ impl ImportContext {
 
 
 pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path) -> Result<()> {
-    import_project_with_options(project_path, source, base_path, false)
+    import_project_with_options(project_path, source, base_path, false, false)
 }
 
-pub fn import_project_with_options(project_path: &str, source: Option<&str>, base_path: &Path, init_git: bool) -> Result<()> {
+pub fn import_project_with_options(project_path: &str, source: Option<&str>, base_path: &Path, init_git: bool, bare: bool) -> Result<()> {
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -285,14 +287,11 @@ pub fn import_project_with_options(project_path: &str, source: Option<&str>, bas
     // If not external and directory doesn't exist, clone it
     if !is_external && !local_project_path.exists() {
         if !final_repo_url.starts_with("local:") && !final_repo_url.starts_with("external:") {
-            // Check if this should be a bare repository
-            let is_bare = config.is_bare_repo(project_path);
-
             println!("\n  {} {}", "🌱".green(), "Adding new project...".bold());
             println!("     {} {}", "Name:".bright_black(), project_path.bright_white());
             println!("     {} {}", "Source:".bright_black(), final_repo_url.bright_cyan());
 
-            if is_bare {
+            if bare {
                 println!("     {} {}", "Type:".bright_black(), "Bare repository".bright_magenta());
                 println!("     {} {}", "Status:".bright_black(), "Cloning bare repository...".yellow());
 
@@ -318,7 +317,23 @@ pub fn import_project_with_options(project_path: &str, source: Option<&str>, bas
     }
     
     // Add to .meta file
-    config.projects.insert(project_path.to_string(), ProjectEntry::Url(final_repo_url.clone()));
+    if bare {
+        // Use ProjectMetadata format to store bare flag
+        use metarepo_core::ProjectMetadata;
+        config.projects.insert(
+            project_path.to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: final_repo_url.clone(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: Some(true),
+            }),
+        );
+    } else {
+        config.projects.insert(project_path.to_string(), ProjectEntry::Url(final_repo_url.clone()));
+    }
     config.save_to_file(&meta_file_path)?;
     
     // Update .gitignore only if project has a remote URL (not local:)
@@ -346,24 +361,25 @@ pub fn import_project_with_options(project_path: &str, source: Option<&str>, bas
 
 /// Import a project with recursive nested repository support
 pub fn import_project_recursive(
-    project_path: &str, 
-    source: Option<&str>, 
+    project_path: &str,
+    source: Option<&str>,
     base_path: &Path,
     recursive: bool,
     max_depth: Option<usize>,
     flatten: bool,
 ) -> Result<()> {
-    import_project_recursive_with_options(project_path, source, base_path, recursive, max_depth, flatten, false)
+    import_project_recursive_with_options(project_path, source, base_path, recursive, max_depth, flatten, false, false)
 }
 
 pub fn import_project_recursive_with_options(
-    project_path: &str, 
-    source: Option<&str>, 
+    project_path: &str,
+    source: Option<&str>,
     base_path: &Path,
     recursive: bool,
     max_depth: Option<usize>,
     flatten: bool,
     init_git: bool,
+    bare: bool,
 ) -> Result<()> {
     // Load the root meta config
     let meta_file_path = base_path.join(".meta");
@@ -386,7 +402,7 @@ pub fn import_project_recursive_with_options(
     let mut context = ImportContext::new(base_path, Some(&nested_config));
     
     // Import the root project
-    import_project_with_options(project_path, source, base_path, init_git)?;
+    import_project_with_options(project_path, source, base_path, init_git, bare)?;
     
     // If recursive import is enabled, process nested repositories
     if nested_config.recursive_import {
