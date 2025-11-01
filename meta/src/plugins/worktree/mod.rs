@@ -110,15 +110,10 @@ pub fn add_worktrees(
     base_path: &Path,
     path_suffix: Option<&str>,
     create_branch: bool,
+    no_hooks: bool,
     current_project: Option<&str>,
+    config: &MetaConfig,
 ) -> Result<()> {
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
-    }
-
-    let config = MetaConfig::load_from_file(&meta_file_path)?;
-    
     // Determine which projects to operate on
     let selected_projects = if projects.is_empty() {
         // If no projects specified, check for current project context
@@ -174,9 +169,16 @@ pub fn add_worktrees(
 
         println!("\n  {} {}", "📦".blue(), project_name.bold());
 
-        // Determine worktree path
+        // Determine worktree path based on whether this is a bare repo
+        let is_bare = config.is_bare_repo(project_name);
         let worktree_dir = path_suffix.unwrap_or(branch);
-        let worktree_path = project_path.join(".worktrees").join(worktree_dir);
+        let worktree_path = if is_bare {
+            // For bare repos: <project>/<branch>/
+            project_path.join(worktree_dir)
+        } else {
+            // For normal repos: <project>/.worktrees/<branch>/
+            project_path.join(".worktrees").join(worktree_dir)
+        };
 
         // Check if worktree already exists
         if worktree_path.exists() {
@@ -186,8 +188,16 @@ pub fn add_worktrees(
 
         // Create the worktree
         let mut cmd = Command::new("git");
+        let git_dir = if is_bare {
+            // For bare repos, the git directory is at <project>/.git/
+            project_path.join(".git")
+        } else {
+            // For normal repos, the git directory is at <project>/
+            project_path.clone()
+        };
+
         cmd.arg("-C")
-            .arg(&project_path)
+            .arg(&git_dir)
             .arg("worktree")
             .arg("add");
 
@@ -196,7 +206,7 @@ pub fn add_worktrees(
         }
 
         cmd.arg(&worktree_path);
-        
+
         if !create_branch {
             cmd.arg(branch);
         }
@@ -207,6 +217,39 @@ pub fn add_worktrees(
         if output.status.success() {
             println!("     {} {}", "✅".green(), format!("Created at {}", worktree_path.display()).green());
             success_count += 1;
+
+            // Execute post-create command if configured and not skipped
+            if !no_hooks {
+                if let Some(worktree_init) = config.get_worktree_init(project_name) {
+                    println!("     {} {}", "🔄".blue(), "Running worktree_init command...".blue());
+
+                    let mut cmd = Command::new("sh");
+                    cmd.arg("-c")
+                        .arg(&worktree_init)
+                        .current_dir(&worktree_path);
+
+                    // Add project environment variables if configured
+                    if let Some(metarepo_core::ProjectEntry::Metadata(metadata)) = config.projects.get(project_name) {
+                        for (key, value) in &metadata.env {
+                            cmd.env(key, value);
+                        }
+                    }
+
+                    match cmd.output() {
+                        Ok(hook_output) => {
+                            if hook_output.status.success() {
+                                println!("     {} {}", "✅".green(), "Hook completed successfully".green());
+                            } else {
+                                let stderr = String::from_utf8_lossy(&hook_output.stderr);
+                                eprintln!("     {} {}", "⚠️".yellow(), format!("Hook failed: {}", stderr.trim()).yellow());
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("     {} {}", "⚠️".yellow(), format!("Failed to run hook: {}", e).yellow());
+                        }
+                    }
+                }
+            }
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             eprintln!("     {} {}", "❌".red(), format!("Failed: {}", stderr.trim()).red());

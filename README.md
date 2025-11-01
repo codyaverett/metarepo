@@ -94,9 +94,12 @@ metarepo/
 
 **Worktree Plugin** - Git worktree management across workspace projects
 - `meta worktree add <branch>` - Create worktrees for selected projects
+- `meta worktree add <branch> --no-hooks` - Create worktrees without running post-create commands
 - `meta worktree remove <worktree>` - Remove worktrees from selected projects
 - `meta worktree list` - List all worktrees across the workspace
 - `meta worktree prune` - Remove stale worktrees that no longer exist
+- Supports post-create hooks via `worktree_init` configuration
+- Supports bare repository mode for cleaner project structure
 
 **Plugin Manager** - Manage metarepo plugins
 - `meta plugin add <path>` - Add a plugin from a local path
@@ -212,6 +215,63 @@ cargo run --bin meta -- git status
 cargo run --bin meta -- git update
 ```
 
+### Advanced Configuration
+
+#### Worktree Post-Create Hooks
+
+Automatically run commands when creating worktrees (e.g., install dependencies):
+
+```json
+{
+  "worktree_init": "npm ci",
+  "projects": {
+    "frontend": {
+      "url": "git@github.com:user/frontend.git",
+      "worktree_init": "pnpm install && pnpm run setup"
+    },
+    "backend": {
+      "url": "git@github.com:user/backend.git",
+      "worktree_init": "cargo build"
+    }
+  }
+}
+```
+
+```bash
+# Creates worktree and automatically runs worktree_init command
+cargo run --bin meta -- worktree add feature/new-feature
+
+# Skip post-create hooks
+cargo run --bin meta -- worktree add feature/quick-test --no-hooks
+```
+
+#### Bare Repository Mode
+
+Use bare repositories for cleaner project structure:
+
+```json
+{
+  "projects": {
+    "my-app": {
+      "url": "git@github.com:user/my-app.git",
+      "bare": true,
+      "worktree_init": "npm install"
+    }
+  }
+}
+```
+
+This creates:
+```
+workspace/
+├── my-app/
+│   ├── .git/           # Bare repository
+│   ├── main/           # Default branch worktree
+│   └── feature-1/      # Additional worktrees
+```
+
+See [Worktree Configuration](docs/WORKTREE.md) for detailed documentation.
+
 ### Testing
 ```bash
 cargo test
@@ -229,3 +289,4 @@ cargo test
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md) - Development roadmap
 - [Plugin Development](docs/PLUGIN_DEVELOPMENT.md) - Guide for creating plugins
 - [Rules System](docs/RULES.md) - Defining project rules and metadata
+- [Worktree Configuration](docs/WORKTREE.md) - Advanced worktree features and configuration

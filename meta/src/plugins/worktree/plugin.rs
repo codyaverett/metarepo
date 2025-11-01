@@ -77,6 +77,11 @@ impl WorktreePlugin {
                             .help("Custom path suffix for worktree directory (default: branch name)")
                             .takes_value(true)
                     )
+                    .arg(
+                        arg("no-hooks")
+                            .long("no-hooks")
+                            .help("Skip running post-create worktree_init command")
+                    )
             )
             .command(
                 command("remove")
@@ -152,16 +157,17 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let _commit = matches.get_one::<String>("commit");
     let create_branch = matches.get_flag("create-branch");
     let path_suffix = matches.get_one::<String>("path").map(|s| s.as_str());
-    
+    let no_hooks = matches.get_flag("no-hooks");
+
     let base_path = config.meta_root()
         .unwrap_or(config.working_dir.clone());
-    
+
     // Get current project context
     let current_project = config.current_project();
-    
+
     // Collect selected projects
     let mut projects = Vec::new();
-    
+
     if matches.get_flag("all") {
         projects.push("--all".to_string());
     } else if let Some(project) = matches.get_one::<String>("project") {
@@ -183,8 +189,8 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         }
     }
     // If no projects specified, will use current project or trigger interactive selection
-    
-    add_worktrees(branch, &projects, &base_path, path_suffix, create_branch, current_project.as_deref())?;
+
+    add_worktrees(branch, &projects, &base_path, path_suffix, create_branch, no_hooks, current_project.as_deref(), &config.meta_config)?;
     Ok(())
 }
 

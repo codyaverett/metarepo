@@ -23,6 +23,7 @@ fn create_default_config() -> MetaConfig {
         nested: None,
         aliases: None,
         scripts: None,
+        worktree_init: None,
     }
 }
 

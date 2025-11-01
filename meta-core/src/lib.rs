@@ -196,6 +196,10 @@ pub struct ProjectMetadata {
     pub scripts: HashMap<String, String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    #[serde(default)]
+    pub worktree_init: Option<String>,
+    #[serde(default)]
+    pub bare: Option<bool>,
 }
 
 /// The .meta file configuration format
@@ -213,6 +217,8 @@ pub struct MetaConfig {
     pub aliases: Option<HashMap<String, String>>, // Global aliases: alias -> project_path
     #[serde(default)]
     pub scripts: Option<HashMap<String, String>>, // Global scripts
+    #[serde(default)]
+    pub worktree_init: Option<String>, // Global worktree post-create command
 }
 
 impl Default for MetaConfig {
@@ -230,6 +236,7 @@ impl Default for MetaConfig {
             nested: None,
             aliases: None,
             scripts: None,
+            worktree_init: None,
         }
     }
 }
@@ -316,6 +323,31 @@ impl MetaConfig {
     /// Check if a project exists (for backwards compatibility)
     pub fn project_exists(&self, project_name: &str) -> bool {
         self.projects.contains_key(project_name)
+    }
+
+    /// Get the worktree_init command for a project (project-level overrides global)
+    pub fn get_worktree_init(&self, project_name: &str) -> Option<String> {
+        // Check project-level first
+        if let Some(entry) = self.projects.get(project_name) {
+            if let ProjectEntry::Metadata(metadata) = entry {
+                if let Some(worktree_init) = &metadata.worktree_init {
+                    return Some(worktree_init.clone());
+                }
+            }
+        }
+
+        // Fall back to global
+        self.worktree_init.clone()
+    }
+
+    /// Get whether a project should use bare repository
+    pub fn is_bare_repo(&self, project_name: &str) -> bool {
+        if let Some(entry) = self.projects.get(project_name) {
+            if let ProjectEntry::Metadata(metadata) = entry {
+                return metadata.bare.unwrap_or(false);
+            }
+        }
+        false
     }
 }
 
