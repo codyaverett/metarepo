@@ -1,6 +1,6 @@
 [package]
 name = "metarepo-core"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2021"
 description = "Core interfaces and types for the metarepo multi-project management tool"
 authors = ["Metarepo Contributors"]

@@ -1,6 +1,6 @@
 [package]
 name = "metarepo"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2021"
 description = "A powerful multi-project management tool inspired by the meta npm package - manage multiple git repositories with ease"
 authors = ["Metarepo Contributors"]
