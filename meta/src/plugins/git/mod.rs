@@ -67,7 +67,7 @@ pub fn clone_missing_repos() -> Result<()> {
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
     
-    for (project_path, _entry) in &config.projects {
+    for project_path in config.projects.keys() {
         let full_path = base_path.join(project_path);
         
         if !full_path.exists() {

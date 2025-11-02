@@ -122,7 +122,7 @@ impl OutputManager {
         outputs.values().all(|o| matches!(o.status, JobStatus::Completed | JobStatus::Failed))
     }
 
-    pub fn display_final_results(&self, _task_name: &str) {
+    pub fn display_final_results(&self) {
         let outputs = self.outputs.lock().unwrap();
         let total_duration = self.start_time.elapsed();
         
