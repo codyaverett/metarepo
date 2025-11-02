@@ -1,0 +1,316 @@
+name: Security Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security checks daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --features=fix
+
+      - name: Security Audit
+        run: |
+          cargo audit --deny warnings
+          cargo audit fix --dry-run
+
+  dependency-check:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny
+
+      - name: Check Dependencies
+        run: cargo deny check
+
+  security-lints:
+    name: Security Lints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+          override: true
+
+      - name: Run Clippy with Security Lints
+        run: |
+          cargo clippy --all-features -- \
+            -D warnings \
+            -W clippy::all \
+            -W clippy::pedantic \
+            -W clippy::cargo \
+            -W clippy::unseparated_literal_suffix \
+            -W clippy::mem_forget \
+            -W clippy::manual_memcpy \
+            -W clippy::redundant_allocation \
+            -W clippy::suspicious_operation_groupings \
+            -W clippy::unused_io_amount \
+            -W clippy::unwrap_used \
+            -W clippy::expect_used \
+            -W clippy::panic
+
+  unsafe-code-check:
+    name: Check Unsafe Code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-geiger
+        run: cargo install cargo-geiger
+
+      - name: Check Unsafe Code Usage
+        run: |
+          cargo geiger --all-features --output-format GitHubActions
+          echo "::notice::Review any unsafe code usage carefully"
+
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Run Security Tests
+        run: |
+          cargo test --test security_tests
+          cargo test --all-features -- --nocapture security
+
+  fuzzing:
+    name: Fuzz Testing
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust Nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Initialize Fuzzing
+        run: |
+          cargo fuzz init || true
+
+      - name: Create Fuzz Targets
+        run: |
+          mkdir -p fuzz/fuzz_targets
+          cat > fuzz/fuzz_targets/command_injection.rs << 'EOF'
+          #![no_main]
+          use libfuzzer_sys::fuzz_target;
+
+          fuzz_target!(|data: &[u8]| {
+              if let Ok(s) = std::str::from_utf8(data) {
+                  // Test command parsing with fuzzer input
+                  let _ = metarepo::test_utils::assert_command_safe(s);
+              }
+          });
+          EOF
+
+      - name: Run Fuzzing (Limited Time)
+        run: |
+          cargo fuzz run command_injection -- -max_total_time=300 || true
+
+  outdated-check:
+    name: Check Outdated Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-outdated
+        run: cargo install cargo-outdated
+
+      - name: Check Outdated Dependencies
+        run: |
+          cargo outdated --exit-code 1 || echo "::warning::Some dependencies are outdated"
+
+  sarif-upload:
+    name: Upload SARIF Results
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+          override: true
+
+      - name: Install clippy-sarif
+        run: cargo install clippy-sarif sarif-fmt
+
+      - name: Run Clippy and Generate SARIF
+        run: |
+          cargo clippy --all-features --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+
+      - name: Upload SARIF Results
+        uses: github/codeql-action/upload-sarif@v2
+        if: success() || failure()
+        with:
+          sarif_file: rust-clippy-results.sarif
+
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [security-audit, dependency-check, security-lints, security-tests]
+    if: always()
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Generate Security Report
+        run: |
+          echo "# Security Report" > security-report.md
+          echo "Generated on: $(date)" >> security-report.md
+          echo "" >> security-report.md
+
+          echo "## Summary" >> security-report.md
+          echo "- Security Audit: ${{ needs.security-audit.result }}" >> security-report.md
+          echo "- Dependency Check: ${{ needs.dependency-check.result }}" >> security-report.md
+          echo "- Security Lints: ${{ needs.security-lints.result }}" >> security-report.md
+          echo "- Security Tests: ${{ needs.security-tests.result }}" >> security-report.md
+
+          echo "" >> security-report.md
+          echo "## Recommendations" >> security-report.md
+
+          if [[ "${{ needs.security-audit.result }}" != "success" ]]; then
+            echo "- ⚠️  Fix security audit findings" >> security-report.md
+          fi
+
+          if [[ "${{ needs.dependency-check.result }}" != "success" ]]; then
+            echo "- ⚠️  Review and update dependencies" >> security-report.md
+          fi
+
+          if [[ "${{ needs.security-lints.result }}" != "success" ]]; then
+            echo "- ⚠️  Address security lint warnings" >> security-report.md
+          fi
+
+          if [[ "${{ needs.security-tests.result }}" != "success" ]]; then
+            echo "- ⚠️  Fix failing security tests" >> security-report.md
+          fi
+
+      - name: Upload Security Report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-report
+          path: security-report.md
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('security-report.md', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            })
+
+  notify-security-issues:
+    name: Notify Security Issues
+    runs-on: ubuntu-latest
+    needs: [security-audit, dependency-check]
+    if: failure()
+    steps:
+      - name: Create Issue for Security Findings
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const title = '🔒 Security Issues Detected';
+            const body = `
+            ## Security Issues Found
+
+            The automated security scan has detected potential issues:
+
+            - **Security Audit**: ${{ needs.security-audit.result }}
+            - **Dependency Check**: ${{ needs.dependency-check.result }}
+
+            Please review the [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+
+            ### Next Steps
+            1. Review the security findings
+            2. Update vulnerable dependencies
+            3. Apply recommended fixes
+            4. Re-run security tests
+
+            **Priority**: HIGH
+            `;
+
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'high-priority']
+            });
