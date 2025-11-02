@@ -72,20 +72,15 @@ pub struct ManifestArg {
     pub value_type: ArgValueType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ArgValueType {
+    #[default]
     String,
     Number,
     Bool,
     Path,
     Url,
-}
-
-impl Default for ArgValueType {
-    fn default() -> Self {
-        ArgValueType::String
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,26 +176,25 @@ impl PluginManifest {
         
         // Validate execution config if present
         if let Some(ref config) = self.config {
-            if let Some(ref exec) = Some(&config.execution) {
-                match exec.mode.as_str() {
-                    "process" => {
-                        if exec.binary.is_none() {
-                            return Err(anyhow::anyhow!("Binary path required for process mode"));
-                        }
+            let exec = &config.execution;
+            match exec.mode.as_str() {
+                "process" => {
+                    if exec.binary.is_none() {
+                        return Err(anyhow::anyhow!("Binary path required for process mode"));
                     }
-                    "docker" => {
-                        if exec.docker_image.is_none() {
-                            return Err(anyhow::anyhow!("Docker image required for docker mode"));
-                        }
+                }
+                "docker" => {
+                    if exec.docker_image.is_none() {
+                        return Err(anyhow::anyhow!("Docker image required for docker mode"));
                     }
-                    "wasm" => {
-                        if exec.wasm_module.is_none() {
-                            return Err(anyhow::anyhow!("WASM module required for wasm mode"));
-                        }
+                }
+                "wasm" => {
+                    if exec.wasm_module.is_none() {
+                        return Err(anyhow::anyhow!("WASM module required for wasm mode"));
                     }
-                    mode => {
-                        return Err(anyhow::anyhow!("Unknown execution mode: {}", mode));
-                    }
+                }
+                mode => {
+                    return Err(anyhow::anyhow!("Unknown execution mode: {}", mode));
                 }
             }
         }

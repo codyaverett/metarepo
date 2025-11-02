@@ -87,7 +87,7 @@ fn handle_status(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     }
     
     // Show status for each project
-    for (project_path, _repo_url) in &config.meta_config.projects {
+    for project_path in config.meta_config.projects.keys() {
         let full_path = if config.meta_root().is_some() {
             config.meta_root().unwrap().join(project_path)
         } else {

@@ -76,7 +76,7 @@ impl RuntimeConfig {
         let _relative = cwd.strip_prefix(&meta_root).ok()?;
         
         // Check each project to see if we're inside it
-        for (project_name, _) in &self.meta_config.projects {
+        for project_name in self.meta_config.projects.keys() {
             let project_path = meta_root.join(project_name);
             if cwd.starts_with(&project_path) {
                 return Some(project_name.clone());

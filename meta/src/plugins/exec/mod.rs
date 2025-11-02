@@ -150,7 +150,7 @@ pub fn execute_with_iterator(
             // Clear any partial output and show completion without progress
             print!("\r\x1b[K");
         }
-        output_manager.display_final_results(&format!("{} {}", command, args.join(" ")));
+        output_manager.display_final_results();
         
         return Ok(());
     } else {

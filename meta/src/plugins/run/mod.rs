@@ -152,7 +152,7 @@ pub fn run_script(
             // Clear any partial output and show completion without progress
             print!("\r\x1b[K");
         }
-        output_manager.display_final_results(script_name);
+        output_manager.display_final_results();
         
         return Ok(());
     } else {
