@@ -1,8 +1,8 @@
-# Gestalt Makefile
+# Metarepo Makefile
 # Build and install the production binary locally
 
 # Variables
-BINARY_NAME = gest
+BINARY_NAME = meta
 CARGO = cargo
 INSTALL_PATH = $(HOME)/.local/bin
 BUILD_MODE = release
@@ -20,7 +20,7 @@ NC = \033[0m # No Color
 # Default target
 .PHONY: help
 help:
-	@echo "$(CYAN)Gestalt Build System$(NC)"
+	@echo "$(CYAN)Metarepo Build System$(NC)"
 	@echo "$(WHITE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Production:$(NC)"
@@ -145,8 +145,8 @@ install-to: build
 # Version info
 .PHONY: version
 version:
-	@echo "$(CYAN)Gestalt Version Information:$(NC)"
-	@grep "^version" gestalt/Cargo.toml | head -1 | cut -d'"' -f2
+	@echo "$(CYAN)Metarepo Version Information:$(NC)"
+	@grep "^version" metarepo/Cargo.toml | head -1 | cut -d'"' -f2
 
 # Watch for changes and rebuild
 .PHONY: watch

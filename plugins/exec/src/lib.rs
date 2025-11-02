@@ -4,10 +4,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 
-pub mod plugin;
 pub mod formatted;
 
-pub use plugin::ExecPlugin;
 pub use formatted::FormattedExecPlugin;
 
 pub fn execute_command_in_directory<P: AsRef<Path>>(

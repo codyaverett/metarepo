@@ -244,7 +244,8 @@ mod tests {
     #[test]
     fn test_formatted_commands() {
         let plugin = FormattedExecPlugin::new();
-        assert_eq!(plugin.formatted_commands(), vec!["exec"]);
+        // Empty because exec uses external subcommands
+        assert_eq!(plugin.formatted_commands(), Vec::<&str>::new());
         assert!(<FormattedExecPlugin as FormattedPlugin>::supports_output_format(&plugin));
     }
     

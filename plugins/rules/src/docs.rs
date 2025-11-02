@@ -13,7 +13,7 @@ fn print_full_documentation_formatted(ai_mode: bool) {
         print_ai_optimized_docs();
     } else {
         println!("{}", "═══════════════════════════════════════════════════════════════".blue().bold());
-        println!("{}", "           GESTALT RULES - COMPLETE DOCUMENTATION".cyan().bold());
+        println!("{}", "           METAREPO RULES - COMPLETE DOCUMENTATION".cyan().bold());
         println!("{}", "═══════════════════════════════════════════════════════════════".blue().bold());
         println!();
         
@@ -411,7 +411,7 @@ pub fn print_create_help() {
 }
 
 fn print_ai_optimized_docs() {
-    println!("# Gestalt Rules Plugin");
+    println!("# Metarepo Rules Plugin");
     println!();
     println!("## Available Rule Types");
     println!();

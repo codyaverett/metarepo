@@ -1,10 +1,10 @@
-# Gestalt as an MCP Server
+# Metarepo as an MCP Server
 
-Gestalt can run as an MCP (Model Context Protocol) server, exposing all its plugin functionality as MCP tools that can be used by AI assistants like Claude Desktop, VS Code Copilot, and other MCP-compatible clients.
+Metarepo can run as an MCP (Model Context Protocol) server, exposing all its plugin functionality as MCP tools that can be used by AI assistants like Claude Desktop, VS Code Copilot, and other MCP-compatible clients.
 
 ## Features
 
-When running as an MCP server, Gestalt exposes the following tools:
+When running as an MCP server, Metarepo exposes the following tools:
 
 ### Git Tools
 - `git_status` - Show git status for all repositories
@@ -35,7 +35,7 @@ Run this command to get the configuration for your MCP client:
 ```bash
 cargo run -- mcp config
 # or if installed:
-gest mcp config
+meta mcp config
 ```
 
 ### 2. For VS Code / Claude Desktop
@@ -46,11 +46,11 @@ Add the output to your configuration file:
 ```json
 {
   "mcpServers": {
-    "gestalt": {
+    "metarepo": {
       "command": "gest",
       "args": ["mcp", "serve"],
-      "name": "Gestalt Multi-Project Manager",
-      "description": "MCP server exposing Gestalt CLI tools"
+      "name": "Metarepo Multi-Project Manager",
+      "description": "MCP server exposing Metarepo CLI tools"
     }
   }
 }
@@ -60,7 +60,7 @@ Add the output to your configuration file:
 ```json
 {
   "mcpServers": {
-    "gestalt": {
+    "metarepo": {
       "command": "/path/to/gest",
       "args": ["mcp", "serve"]
     }
@@ -70,14 +70,14 @@ Add the output to your configuration file:
 
 ### 3. Run as Standalone Server
 
-You can also run Gestalt as a standalone MCP server:
+You can also run Metarepo as a standalone MCP server:
 
 ```bash
 # Run the server (it will listen on stdin/stdout)
 cargo run -- mcp serve
 
 # Or if installed globally:
-gest mcp serve
+meta mcp serve
 ```
 
 ## Testing the Server
@@ -86,20 +86,20 @@ You can test the MCP server using JSON-RPC commands:
 
 ```bash
 # Initialize connection
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | gest mcp serve
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | meta mcp serve
 
 # List available tools
-echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | gest mcp serve
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | meta mcp serve
 
 # Call a tool (example: list projects)
-echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"project_list","arguments":{}}}' | gest mcp serve
+echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"project_list","arguments":{}}}' | meta mcp serve
 ```
 
 ## Use Cases
 
 ### 1. AI-Assisted Multi-Repository Management
 
-With Gestalt running as an MCP server, AI assistants can:
+With Metarepo running as an MCP server, AI assistants can:
 - Check the status of all your git repositories
 - Commit changes across multiple projects with consistent messages
 - Execute commands across your entire workspace
@@ -107,7 +107,7 @@ With Gestalt running as an MCP server, AI assistants can:
 
 ### 2. Automated Workflows
 
-MCP clients can use Gestalt tools to:
+MCP clients can use Metarepo tools to:
 - Run tests across all projects
 - Update dependencies systematically
 - Apply patches or fixes to multiple repositories
@@ -115,14 +115,14 @@ MCP clients can use Gestalt tools to:
 
 ### 3. Integration with Development Tools
 
-VS Code and other editors can use Gestalt's MCP interface to:
+VS Code and other editors can use Metarepo's MCP interface to:
 - Provide context about multiple projects to AI assistants
 - Enable AI to make changes across repository boundaries
 - Coordinate complex refactoring operations
 
 ## Example Workflow
 
-Here's how an AI assistant might use Gestalt's MCP tools:
+Here's how an AI assistant might use Metarepo's MCP tools:
 
 1. **Check Status**: Call `git_status` to see what's changed
 2. **Review Changes**: Call `git_diff` to understand modifications
@@ -141,7 +141,7 @@ Here's how an AI assistant might use Gestalt's MCP tools:
 
 If the server isn't working:
 
-1. Check that Gestalt is properly installed: `gest --version`
+1. Check that Metarepo is properly installed: `meta --version`
 2. Verify the path in your MCP client configuration
 3. Test with simple JSON-RPC commands first
 4. Check stderr output for error messages

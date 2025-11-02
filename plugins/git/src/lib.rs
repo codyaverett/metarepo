@@ -4,9 +4,6 @@ use meta_core::{MetaConfig, OutputFormat, format_success, format_info, format_er
 use serde_json;
 use std::path::Path;
 
-pub use crate::plugin::GitPlugin;
-
-mod plugin;
 mod operations;
 mod formatted;
 

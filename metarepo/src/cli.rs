@@ -2,11 +2,11 @@ use crate::{PluginRegistry, create_runtime_config};
 use anyhow::Result;
 use clap::{Arg, Command, ColorChoice};
 
-pub struct GestaltCli {
+pub struct MetarepoCli {
     registry: PluginRegistry,
 }
 
-impl GestaltCli {
+impl MetarepoCli {
     pub fn new() -> Self {
         Self::new_with_flags(false)
     }
@@ -33,10 +33,10 @@ impl GestaltCli {
             .valid(clap::builder::styling::AnsiColor::BrightGreen.on_default())
             .invalid(clap::builder::styling::AnsiColor::BrightRed.on_default());
             
-        let base_app = Command::new("gest")
+        let base_app = Command::new("meta")
             .version(env!("CARGO_PKG_VERSION"))
             .about("A tool for managing multi-project systems and libraries")
-            .author("Gestalt Contributors")
+            .author("Metarepo Contributors")
             .styles(styles)
             .color(ColorChoice::Always)
             .disable_help_subcommand(true)
@@ -142,7 +142,7 @@ impl GestaltCli {
         use tracing_subscriber::{fmt, EnvFilter};
         
         let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("gest=info"));
+            .unwrap_or_else(|_| EnvFilter::new("meta=info"));
             
         fmt()
             .with_env_filter(filter)
@@ -152,7 +152,7 @@ impl GestaltCli {
     }
 }
 
-impl Default for GestaltCli {
+impl Default for MetarepoCli {
     fn default() -> Self {
         Self::new()
     }
@@ -164,18 +164,18 @@ mod tests {
     
     #[test]
     fn test_cli_creation() {
-        let cli = GestaltCli::new();
+        let cli = MetarepoCli::new();
         let app = cli.build_app();
-        
+
         // Verify basic app structure
-        assert_eq!(app.get_name(), "gest");
+        assert_eq!(app.get_name(), "meta");
         assert!(app.get_version().is_some());
     }
     
     #[test]
     fn test_help_command() {
-        let cli = GestaltCli::new();
-        let result = cli.run(vec!["gest".to_string(), "--help".to_string()]);
+        let cli = MetarepoCli::new();
+        let result = cli.run(vec!["meta".to_string(), "--help".to_string()]);
         
         // Help should succeed but not return an error
         match result {

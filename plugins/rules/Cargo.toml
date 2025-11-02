@@ -1,5 +1,5 @@
 [package]
-name = "gestalt-rules"
+name = "metarepo-rules"
 version = "0.3.0"
 edition = "2021"
 

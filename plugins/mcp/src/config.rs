@@ -21,8 +21,8 @@ impl McpConfig {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .context("Could not determine home directory")?;
-        
-        let config_dir = Path::new(&home).join(".config").join("gestalt").join("mcp");
+
+        let config_dir = Path::new(&home).join(".config").join("metarepo").join("mcp");
         
         if !config_dir.exists() {
             fs::create_dir_all(&config_dir)

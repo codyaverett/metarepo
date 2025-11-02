@@ -1,14 +1,13 @@
 [workspace]
 members = [
     "meta-core",
-    "gestalt",
+    "metarepo",
     "plugins/init",
-    "plugins/git", 
+    "plugins/git",
     "plugins/project",
     "plugins/exec",
     "plugins/mcp",
     "plugins/rules",
-    # "plugins/loop",
 ]
 resolver = "2"
 

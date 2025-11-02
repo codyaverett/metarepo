@@ -62,21 +62,21 @@ struct Resource {
     mime_type: Option<String>,
 }
 
-pub struct GestaltMcpServer {
+pub struct MetarepoMcpServer {
     tools: Vec<Tool>,
     resources: Vec<Resource>,
-    gestalt_path: PathBuf,
+    metarepo_path: PathBuf,
 }
 
-impl GestaltMcpServer {
+impl MetarepoMcpServer {
     pub fn new() -> Self {
-        let gestalt_path = std::env::current_exe()
-            .unwrap_or_else(|_| PathBuf::from("gest"));
-        
+        let metarepo_path = std::env::current_exe()
+            .unwrap_or_else(|_| PathBuf::from("meta"));
+
         Self {
             tools: Self::build_tools(),
             resources: Vec::new(),
-            gestalt_path,
+            metarepo_path,
         }
     }
 
@@ -279,7 +279,7 @@ impl GestaltMcpServer {
         let stdout = io::stdout();
         let mut stdout = stdout.lock();
 
-        eprintln!("Gestalt MCP Server started. Listening for JSON-RPC requests...");
+        eprintln!("Metarepo MCP Server started. Listening for JSON-RPC requests...");
 
         for line in stdin.lock().lines() {
             let line = line?;
@@ -303,7 +303,7 @@ impl GestaltMcpServer {
             }
         }
 
-        eprintln!("Gestalt MCP Server shutting down (stdin closed)");
+        eprintln!("Metarepo MCP Server shutting down (stdin closed)");
         Ok(())
     }
 
@@ -342,7 +342,7 @@ impl GestaltMcpServer {
 
     fn handle_initialize(&self, id: Value, _params: Option<Value>) -> JsonRpcResponse {
         let server_info = ServerInfo {
-            name: "gestalt-mcp-server".to_string(),
+            name: "metarepo-mcp-server".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             protocol_version: "2025-06-18".to_string(),
             capabilities: ServerCapabilities {
@@ -444,7 +444,7 @@ impl GestaltMcpServer {
     }
 
     fn execute_tool(&self, name: &str, arguments: Value) -> Result<String> {
-        let mut cmd = Command::new(&self.gestalt_path);
+        let mut cmd = Command::new(&self.metarepo_path);
         
         match name {
             "help" => {
@@ -562,13 +562,13 @@ impl GestaltMcpServer {
 
 pub fn print_vscode_config() {
     let gest_path = std::env::current_exe()
-        .unwrap_or_else(|_| PathBuf::from("gest"))
+        .unwrap_or_else(|_| PathBuf::from("meta"))
         .to_string_lossy()
         .to_string();
-    
+
     let claude_config = json!({
         "mcpServers": {
-            "gestalt": {
+            "metarepo": {
                 "command": gest_path,
                 "args": ["mcp", "serve"],
                 "env": {}
@@ -586,7 +586,7 @@ pub fn print_vscode_config() {
     println!();
     println!("=== Available Tools ===");
     println!();
-    println!("The Gestalt MCP server exposes 13 tools:");
+    println!("The Metarepo MCP server exposes 13 tools:");
     println!("  • help - Get help and list available commands");
     println!("  • git_status, git_diff, git_commit, git_pull, git_push");
     println!("  • project_list, project_add, project_remove");

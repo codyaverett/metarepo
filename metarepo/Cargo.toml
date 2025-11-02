@@ -1,10 +1,10 @@
 [package]
-name = "gestalt"
+name = "metarepo"
 version = "0.2.1"
 edition = "2021"
 
 [[bin]]
-name = "gest"
+name = "meta"
 path = "src/main.rs"
 
 [dependencies]
@@ -22,10 +22,9 @@ meta-core = { path = "../meta-core" }
 meta-init = { path = "../plugins/init" }
 meta-git = { path = "../plugins/git" }
 meta-project = { path = "../plugins/project" }
-gestalt_exec = { path = "../plugins/exec" }
-gestalt-plugin-mcp = { path = "../plugins/mcp" }
-gestalt-rules = { path = "../plugins/rules" }
-# meta-loop = { path = "../plugins/loop" }
+metarepo_exec = { path = "../plugins/exec" }
+metarepo-plugin-mcp = { path = "../plugins/mcp" }
+metarepo-rules = { path = "../plugins/rules" }
 
 [dev-dependencies]
 tempfile = "3.0"
