@@ -11,23 +11,9 @@
       "url": "git@github.com:codyaverett/metarepo-container.git",
       "aliases": [],
       "scripts": {
-        "slow": "sleep 1",
+        "build": "docker build -t container .",
         "test": "echo 'Testing container plugin'",
-        "build": "docker build -t container ."
-      },
-      "env": {},
-      "worktree_init": null,
-      "bare": null
-    },
-    "plugins/doop": {
-      "url": "local:plugins/doop",
-      "aliases": [
-        "doop"
-      ],
-      "scripts": {
-        "slow": "sleep 2",
-        "hello": "echo 'Hello from doop!'",
-        "test": "echo 'Testing doop plugin'"
+        "slow": "sleep 1"
       },
       "env": {},
       "worktree_init": null,
@@ -38,9 +24,9 @@
   "nested": null,
   "aliases": null,
   "scripts": {
-    "test": "echo 'Global test script'",
+    "slow": "sleep 3",
     "build": "cargo build --release",
-    "slow": "sleep 3"
+    "test": "echo 'Global test script'"
   },
   "worktree_init": null,
   "default_bare": true

@@ -1,21 +1,29 @@
 use anyhow::Result;
-use metarepo_core::{MetaConfig, RuntimeConfig};
+use metarepo_core::{MetaConfig, RuntimeConfig, NonInteractiveMode};
 
 pub fn create_runtime_config(experimental: bool) -> Result<RuntimeConfig> {
+    create_runtime_config_with_flags(experimental, None)
+}
+
+pub fn create_runtime_config_with_flags(
+    experimental: bool,
+    non_interactive: Option<NonInteractiveMode>,
+) -> Result<RuntimeConfig> {
     let working_dir = std::env::current_dir()?;
     let meta_file_path = MetaConfig::find_meta_file();
-    
+
     let meta_config = if meta_file_path.is_some() {
         MetaConfig::load()?
     } else {
         MetaConfig::default()
     };
-    
+
     Ok(RuntimeConfig {
         meta_config,
         working_dir,
         meta_file_path,
         experimental,
+        non_interactive,
     })
 }
 

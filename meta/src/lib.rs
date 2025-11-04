@@ -4,9 +4,9 @@ pub mod cli;
 pub mod plugins;
 
 pub use plugin::PluginRegistry;
-pub use config::create_runtime_config;
+pub use config::{create_runtime_config, create_runtime_config_with_flags};
 pub use cli::MetarepoCli;
-pub use metarepo_core::{MetaPlugin, MetaConfig, RuntimeConfig};
+pub use metarepo_core::{MetaPlugin, MetaConfig, RuntimeConfig, NonInteractiveMode};
 
 #[derive(Debug, thiserror::Error)]
 pub enum MetarepoError {

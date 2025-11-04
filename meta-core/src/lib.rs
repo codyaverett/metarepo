@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 mod plugin_base;
 mod plugin_builder;
 mod plugin_manifest;
+pub mod interactive;
 
 pub use plugin_base::{
     BasePlugin, PluginMetadata, HelpFormat, HelpFormatter,
@@ -21,6 +22,10 @@ pub use plugin_builder::{
 pub use plugin_manifest::{
     PluginManifest, PluginInfo, ManifestCommand, ManifestArg,
     ArgValueType, Example, PluginConfig, ExecutionConfig, Dependency,
+};
+pub use interactive::{
+    NonInteractiveMode, is_interactive, prompt_text, prompt_url,
+    prompt_confirm, prompt_select, prompt_multiselect,
 };
 
 /// Trait that all meta plugins must implement
@@ -47,6 +52,7 @@ pub struct RuntimeConfig {
     pub working_dir: PathBuf,
     pub meta_file_path: Option<PathBuf>,
     pub experimental: bool,
+    pub non_interactive: Option<NonInteractiveMode>,
 }
 
 impl RuntimeConfig {

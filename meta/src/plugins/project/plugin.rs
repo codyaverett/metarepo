@@ -1,8 +1,10 @@
 use anyhow::Result;
 use clap::ArgMatches;
+use colored::Colorize;
 use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
+    is_interactive, prompt_text, prompt_url, prompt_select, NonInteractiveMode,
 };
 use super::{import_project_with_options, import_project_recursive_with_options, list_projects, remove_project, show_project_tree, update_projects, update_project_gitignore, rename_project, convert_to_bare};
 
@@ -39,7 +41,7 @@ impl ProjectPlugin {
                     .arg(
                         arg("path")
                             .help("Local directory name for the project")
-                            .required(true)
+                            .required(false)
                             .takes_value(true)
                     )
                     .arg(
@@ -124,7 +126,7 @@ impl ProjectPlugin {
                     .arg(
                         arg("name")
                             .help("Name of the project to remove")
-                            .required(true)
+                            .required(false)
                             .takes_value(true)
                     )
                     .arg(
@@ -188,8 +190,46 @@ impl ProjectPlugin {
 
 /// Handler for the add command
 fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let path = matches.get_one::<String>("path").unwrap();
-    let source = matches.get_one::<String>("source").map(|s| s.as_str());
+    let non_interactive = config.non_interactive.unwrap_or(NonInteractiveMode::Defaults);
+
+    // Get or prompt for the project path
+    let path = match matches.get_one::<String>("path") {
+        Some(p) => p.clone(),
+        None => {
+            if is_interactive() {
+                println!("\n  📋 {}", "Add a new project to your workspace".cyan().bold());
+                prompt_text(
+                    "Project name/path",
+                    None,
+                    false,
+                    non_interactive,
+                )?
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Project path is required. Use 'meta project add <path>' or run interactively in a terminal"
+                ));
+            }
+        }
+    };
+
+    // Get or prompt for the source URL
+    let source_opt = match matches.get_one::<String>("source") {
+        Some(s) => Some(s.clone()),
+        None => {
+            if is_interactive() {
+                prompt_url(
+                    "Repository URL or path",
+                    None,
+                    false,
+                    non_interactive,
+                )?
+            } else {
+                None
+            }
+        }
+    };
+    let source = source_opt.as_deref();
+
     let init_git = matches.get_flag("init-git");
     let bare = matches.get_flag("bare");
 
@@ -227,9 +267,9 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     };
 
     if use_recursive || flatten || max_depth.is_some() {
-        import_project_recursive_with_options(path, source, &base_path, use_recursive, max_depth, flatten, init_git, use_bare)?;
+        import_project_recursive_with_options(&path, source, &base_path, use_recursive, max_depth, flatten, init_git, use_bare)?;
     } else {
-        import_project_with_options(path, source, &base_path, init_git, use_bare)?;
+        import_project_with_options(&path, source, &base_path, init_git, use_bare)?;
     }
     Ok(())
 }
@@ -281,16 +321,43 @@ fn handle_update(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
 /// Handler for the remove command
 fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let name = matches.get_one::<String>("name").unwrap();
+    let non_interactive = config.non_interactive.unwrap_or(NonInteractiveMode::Defaults);
+
+    // Get or prompt for project name
+    let name = match matches.get_one::<String>("name") {
+        Some(n) => n.clone(),
+        None => {
+            if is_interactive() {
+                let project_names: Vec<String> = config.meta_config.projects.keys().cloned().collect();
+
+                if project_names.is_empty() {
+                    return Err(anyhow::anyhow!("No projects found in workspace"));
+                }
+
+                println!("\n  🗑️  {}", "Remove a project from workspace".cyan().bold());
+                prompt_select(
+                    "Project to remove",
+                    project_names,
+                    None,
+                    non_interactive,
+                )?
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Project name is required. Use 'meta project remove <name>' or run interactively in a terminal"
+                ));
+            }
+        }
+    };
+
     let force = matches.get_flag("force");
-    
+
     let base_path = if config.meta_root().is_some() {
         config.meta_root().unwrap()
     } else {
         config.working_dir.clone()
     };
-    
-    remove_project(name, &base_path, force)?;
+
+    remove_project(&name, &base_path, force)?;
     Ok(())
 }
 

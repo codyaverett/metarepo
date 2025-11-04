@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 use clap::ArgMatches;
+use colored::Colorize;
 use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig, MetaConfig,
     plugin, command, arg,
+    is_interactive, prompt_text, NonInteractiveMode,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -30,7 +32,7 @@ impl PluginManagerPlugin {
                     .arg(
                         arg("path")
                             .help("Path to the plugin executable")
-                            .required(true)
+                            .required(false)
                             .takes_value(true)
                     )
             )
@@ -118,10 +120,30 @@ fn add_to_meta_config(name: &str, spec: &str) -> Result<()> {
 }
 
 /// Handler for the add command
-fn handle_add(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    let path = matches.get_one::<String>("path")
-        .ok_or_else(|| anyhow::anyhow!("Path is required"))?;
-    add_plugin_from_path(path)
+fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let non_interactive = config.non_interactive.unwrap_or(NonInteractiveMode::Defaults);
+
+    // Get or prompt for plugin path
+    let path = match matches.get_one::<String>("path") {
+        Some(p) => p.clone(),
+        None => {
+            if is_interactive() {
+                println!("\n  🔌 {}", "Add a new plugin".cyan().bold());
+                prompt_text(
+                    "Plugin path",
+                    None,
+                    false,
+                    non_interactive,
+                )?
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Plugin path is required. Use 'meta plugin add <path>' or run interactively in a terminal"
+                ));
+            }
+        }
+    };
+
+    add_plugin_from_path(&path)
 }
 
 fn add_plugin_from_path(path: &str) -> Result<()> {

@@ -1,8 +1,10 @@
 use anyhow::Result;
 use clap::ArgMatches;
+use colored::Colorize;
 use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
+    is_interactive, prompt_select, NonInteractiveMode,
 };
 use std::collections::HashMap;
 use super::{run_script, list_scripts};
@@ -35,7 +37,7 @@ impl RunPlugin {
                     .arg(
                         arg("script")
                             .help("Name of the script to run")
-                            .required(true)
+                            .required(false)
                             .takes_value(true)
                     )
                     .arg(
@@ -112,21 +114,49 @@ impl RunPlugin {
 
 /// Handler for the script command
 fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let script_name = matches.get_one::<String>("script")
-        .ok_or_else(|| anyhow::anyhow!("Script name is required"))?;
-    
+    let non_interactive = config.non_interactive.unwrap_or(NonInteractiveMode::Defaults);
+
+    // Get or prompt for script name
+    let script_name = match matches.get_one::<String>("script") {
+        Some(s) => s.clone(),
+        None => {
+            if is_interactive() {
+                // Get all available scripts
+                let all_scripts = config.meta_config.get_all_scripts(None);
+
+                if all_scripts.is_empty() {
+                    return Err(anyhow::anyhow!("No scripts found in workspace"));
+                }
+
+                let script_names: Vec<String> = all_scripts.keys().cloned().collect();
+
+                println!("\n  🚀 {}", "Run a script".cyan().bold());
+                prompt_select(
+                    "Script",
+                    script_names,
+                    None,
+                    non_interactive,
+                )?
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Script name is required. Use 'meta run <script>' or run interactively in a terminal"
+                ));
+            }
+        }
+    };
+
     let parallel = matches.get_flag("parallel");
     let existing_only = matches.get_flag("existing-only");
     let git_only = matches.get_flag("git-only");
     let no_progress = matches.get_flag("no-progress");
     let streaming = matches.get_flag("streaming");
-    
+
     let base_path = config.meta_root()
         .unwrap_or(config.working_dir.clone());
-    
+
     // Get current project context
     let current_project = config.current_project();
-    
+
     // Parse environment variables
     let mut env_vars = HashMap::new();
     if let Some(env_args) = matches.get_many::<String>("env") {
@@ -136,10 +166,10 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
             }
         }
     }
-    
+
     // Collect selected projects
     let mut projects = Vec::new();
-    
+
     if matches.get_flag("all") {
         projects.push("--all".to_string());
     } else if let Some(project) = matches.get_one::<String>("project") {
@@ -161,8 +191,8 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
         }
     }
     // If no projects specified, will use current project or find projects with script
-    
-    run_script(script_name, &projects, &base_path, current_project.as_deref(), parallel, existing_only, git_only, no_progress, streaming, &env_vars)?;
+
+    run_script(&script_name, &projects, &base_path, current_project.as_deref(), parallel, existing_only, git_only, no_progress, streaming, &env_vars)?;
     Ok(())
 }
 
