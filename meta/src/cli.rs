@@ -1,7 +1,9 @@
-use crate::{PluginRegistry, create_runtime_config};
+use crate::{PluginRegistry, create_runtime_config_with_flags};
 use anyhow::Result;
 use clap::{Arg, Command, ColorChoice};
+use metarepo_core::NonInteractiveMode;
 use std::cell::RefCell;
+use std::str::FromStr;
 
 pub struct MetarepoCli {
     registry: RefCell<PluginRegistry>,
@@ -67,31 +69,44 @@ impl MetarepoCli {
                     .action(clap::ArgAction::SetTrue)
                     .help("Enable experimental features")
                     .global(true)
+            )
+            .arg(
+                Arg::new("non-interactive")
+                    .long("non-interactive")
+                    .value_name("MODE")
+                    .value_parser(["fail", "defaults"])
+                    .help("Non-interactive mode: 'fail' exits on missing input, 'defaults' uses sensible defaults")
+                    .global(true)
             );
-            
+
         app
     }
     
     pub fn run(&self, args: Vec<String>) -> Result<()> {
         // Initialize tracing
         self.init_logging();
-        
+
         // Check if --experimental is present in args
         let experimental = args.iter().any(|arg| arg == "--experimental");
-        
+
         // If experimental, create a new CLI with experimental plugins
         if experimental {
             let cli = Self::new_with_flags(true);
             return cli.run_with_experimental(args);
         }
-        
+
         // Normal execution without experimental features
         let app = self.build_app();
         let matches = app.try_get_matches_from(args)?;
-        
+
+        // Parse non-interactive mode if provided
+        let non_interactive = matches
+            .get_one::<String>("non-interactive")
+            .and_then(|s| NonInteractiveMode::from_str(s).ok());
+
         // Load runtime configuration
-        let config = create_runtime_config(false)?;
-        
+        let config = create_runtime_config_with_flags(false, non_interactive)?;
+
         // Route to appropriate plugin
         match matches.subcommand() {
             Some((command_name, sub_matches)) => {
@@ -100,7 +115,7 @@ impl MetarepoCli {
                 if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
                     self.registry.borrow_mut().load_external_plugins(&meta_config);
                 }
-                
+
                 self.registry.borrow().handle_command(command_name, sub_matches, &config)
             }
             None => {
@@ -117,12 +132,17 @@ impl MetarepoCli {
         // Parse with experimental plugins available
         let app = self.build_app_with_flags(true);
         let matches = app.try_get_matches_from(args)?;
-        
+
+        // Parse non-interactive mode if provided
+        let non_interactive = matches
+            .get_one::<String>("non-interactive")
+            .and_then(|s| NonInteractiveMode::from_str(s).ok());
+
         // Load runtime configuration with experimental flag
-        let config = create_runtime_config(true)?;
-        
+        let config = create_runtime_config_with_flags(true, non_interactive)?;
+
         tracing::debug!("Experimental features enabled");
-        
+
         // Route to appropriate plugin
         match matches.subcommand() {
             Some((command_name, sub_matches)) => {
@@ -130,7 +150,7 @@ impl MetarepoCli {
                 if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
                     self.registry.borrow_mut().load_external_plugins(&meta_config);
                 }
-                
+
                 self.registry.borrow().handle_command(command_name, sub_matches, &config)
             }
             None => {

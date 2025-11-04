@@ -5,7 +5,7 @@ This document tracks ideas, enhancements, and features for future development.
 ## Interactive Configuration
 
 ### Priority: Medium
-### Status: Planned
+### Status: ✅ Completed (v0.9.0)
 
 **Goal:** Make all plugins support interactive parameter collection when required arguments are missing.
 
@@ -28,19 +28,23 @@ meta project add
 ```
 
 **Applies To:**
-- `meta project add` - Prompt for name, URL, bare flag, worktree_init
-- `meta worktree add` - Prompt for branch name, project selection
-- `meta project remove` - Interactive project selection from list
-- `meta plugin add` - Prompt for plugin path or name
-- `meta run` - Interactive script selection when not specified
+- ✅ `meta project add` - Prompts for name, URL when not provided
+- ✅ `meta worktree add` - Prompts for branch name and project selection
+- ✅ `meta worktree remove` - Prompts for branch name and project selection
+- ✅ `meta project remove` - Interactive project selection from list
+- ✅ `meta plugin add` - Prompts for plugin path
+- ✅ `meta run` - Interactive script selection when not specified
 
 **Implementation Notes:**
-- Use consistent prompting style across all plugins
-- Support both interactive and non-interactive modes (detect TTY)
-- Provide sensible defaults
-- Allow --non-interactive flag to fail instead of prompt
-- Use colored output for prompts
-- Support Ctrl+C to cancel at any point
+- ✅ Use consistent prompting style across all plugins (dialoguer + colored)
+- ✅ Support both interactive and non-interactive modes (detect TTY)
+- ✅ Provide sensible defaults
+- ✅ `--non-interactive=fail` flag to fail on missing input (CI/CD friendly)
+- ✅ `--non-interactive=defaults` flag to use sensible defaults
+- ✅ Use colored cyan prompts with error messages in red
+- ✅ Support Ctrl+C to cancel at any point
+- ✅ TTY detection via `io::stdin().is_terminal()`
+- ✅ Shared utility module in `meta-core::interactive` for reusable prompts
 
 **Benefits:**
 - Better user experience for beginners

@@ -1,8 +1,10 @@
 use anyhow::Result;
 use clap::ArgMatches;
+use colored::Colorize;
 use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
+    is_interactive, prompt_text, prompt_select, prompt_multiselect, NonInteractiveMode,
 };
 use super::{add_worktrees, remove_worktrees, list_all_worktrees, prune_worktrees};
 
@@ -37,7 +39,7 @@ impl WorktreePlugin {
                     .arg(
                         arg("branch")
                             .help("Branch name or commit to create worktree from")
-                            .required(true)
+                            .required(false)
                             .takes_value(true)
                     )
                     .arg(
@@ -91,7 +93,7 @@ impl WorktreePlugin {
                     .arg(
                         arg("branch")
                             .help("Branch name or worktree directory name to remove")
-                            .required(true)
+                            .required(false)
                             .takes_value(true)
                     )
                     .arg(
@@ -152,8 +154,28 @@ impl WorktreePlugin {
 
 /// Handler for the add command
 fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let branch = matches.get_one::<String>("branch")
-        .ok_or_else(|| anyhow::anyhow!("Branch name is required"))?;
+    let non_interactive = config.non_interactive.unwrap_or(NonInteractiveMode::Defaults);
+
+    // Get or prompt for branch name
+    let branch = match matches.get_one::<String>("branch") {
+        Some(b) => b.clone(),
+        None => {
+            if is_interactive() {
+                println!("\n  🌳 {}", "Create a new worktree".cyan().bold());
+                prompt_text(
+                    "Branch name or commit",
+                    None,
+                    false,
+                    non_interactive,
+                )?
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Branch name is required. Use 'meta worktree add <branch>' or run interactively in a terminal"
+                ));
+            }
+        }
+    };
+
     let _commit = matches.get_one::<String>("commit");
     let create_branch = matches.get_flag("create-branch");
     let path_suffix = matches.get_one::<String>("path").map(|s| s.as_str());
@@ -187,28 +209,62 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
                 projects.push(trimmed.to_string());
             }
         }
+    } else if is_interactive() && current_project.is_none() {
+        // Prompt for project selection if none specified and no current project
+        let project_names: Vec<String> = config.meta_config.projects.keys().cloned().collect();
+
+        if !project_names.is_empty() {
+            println!("\n  📋 {}", "Select projects for worktree".cyan().bold());
+            let selected = prompt_multiselect(
+                "Projects",
+                project_names,
+                vec![],
+                non_interactive,
+            )?;
+            projects.extend(selected);
+        }
     }
     // If no projects specified, will use current project or trigger interactive selection
 
-    add_worktrees(branch, &projects, &base_path, path_suffix, create_branch, no_hooks, current_project.as_deref(), &config.meta_config)?;
+    add_worktrees(&branch, &projects, &base_path, path_suffix, create_branch, no_hooks, current_project.as_deref(), &config.meta_config)?;
     Ok(())
 }
 
 /// Handler for the remove command
 fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let branch = matches.get_one::<String>("branch")
-        .ok_or_else(|| anyhow::anyhow!("Branch name is required"))?;
+    let non_interactive = config.non_interactive.unwrap_or(NonInteractiveMode::Defaults);
+
+    // Get or prompt for branch name
+    let branch = match matches.get_one::<String>("branch") {
+        Some(b) => b.clone(),
+        None => {
+            if is_interactive() {
+                println!("\n  🌳 {}", "Remove a worktree".cyan().bold());
+                prompt_text(
+                    "Branch name or worktree directory",
+                    None,
+                    false,
+                    non_interactive,
+                )?
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Branch name is required. Use 'meta worktree remove <branch>' or run interactively in a terminal"
+                ));
+            }
+        }
+    };
+
     let force = matches.get_flag("force");
-    
+
     let base_path = config.meta_root()
         .unwrap_or(config.working_dir.clone());
-    
+
     // Get current project context
     let current_project = config.current_project();
-    
+
     // Collect selected projects
     let mut projects = Vec::new();
-    
+
     if matches.get_flag("all") {
         projects.push("--all".to_string());
     } else if let Some(project) = matches.get_one::<String>("project") {
@@ -228,10 +284,24 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
                 projects.push(trimmed.to_string());
             }
         }
+    } else if is_interactive() && current_project.is_none() {
+        // Prompt for project selection if none specified and no current project
+        let project_names: Vec<String> = config.meta_config.projects.keys().cloned().collect();
+
+        if !project_names.is_empty() {
+            println!("\n  📋 {}", "Select projects for removal".cyan().bold());
+            let selected = prompt_multiselect(
+                "Projects",
+                project_names,
+                vec![],
+                non_interactive,
+            )?;
+            projects.extend(selected);
+        }
     }
     // If no projects specified, will use current project or trigger interactive selection
-    
-    remove_worktrees(branch, &projects, &base_path, force, current_project.as_deref())?;
+
+    remove_worktrees(&branch, &projects, &base_path, force, current_project.as_deref())?;
     Ok(())
 }
 
