@@ -4,7 +4,7 @@ use colored::Colorize;
 use metarepo_core::{
     BasePlugin, MetaPlugin, RuntimeConfig,
     plugin, command, arg,
-    is_interactive, prompt_text, prompt_select, prompt_multiselect, NonInteractiveMode,
+    is_interactive, prompt_text, prompt_multiselect, NonInteractiveMode,
 };
 use super::{add_worktrees, remove_worktrees, list_all_worktrees, prune_worktrees};
 

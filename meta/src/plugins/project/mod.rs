@@ -5,6 +5,7 @@ use metarepo_core::{MetaConfig, NestedConfig, ProjectEntry};
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::io::{self, Write};
+use std::process::Command;
 
 #[cfg(unix)]
 use std::os::unix::fs;
@@ -1232,43 +1233,117 @@ pub fn remove_project(project_name: &str, base_path: &Path, force: bool) -> Resu
     if !meta_file_path.exists() {
         return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
     }
-    
+
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
-    
+
     // Check if project exists in config
     if !config.projects.contains_key(project_name) {
         return Err(anyhow::anyhow!("Project '{}' not found in .meta file", project_name));
     }
-    
+
     let project_path = base_path.join(project_name);
-    
+    let is_bare = config.is_bare_repo(project_name);
+
     // Check for uncommitted changes if directory exists
-    if project_path.exists() && project_path.join(".git").exists() && !force {
-        let repo = Repository::open(&project_path)?;
-        
-        // Check for uncommitted changes
-        let mut status_opts = StatusOptions::new();
-        status_opts.include_untracked(true);
-        status_opts.include_ignored(false);
-        
-        let statuses = repo.statuses(Some(&mut status_opts))?;
-        
-        let has_changes = statuses.iter().any(|entry| {
-            let status = entry.status();
-            status.intersects(
-                Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED |
-                Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE |
-                Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED |
-                Status::WT_TYPECHANGE | Status::WT_RENAMED
-            )
-        });
-        
-        if has_changes {
-            eprintln!("\n  {} {}", "⚠️".yellow(), format!("Project '{}' has uncommitted changes!", project_name).bold().yellow());
-            eprintln!("     {} {}", "│".bright_black(), "Use --force to remove anyway (changes will be lost)".bright_red());
-            eprintln!("     {} {}", "└".bright_black(), "Or commit/stash your changes first".bright_white());
-            eprintln!();
-            return Err(anyhow::anyhow!("Uncommitted changes detected"));
+    if project_path.exists() && !force {
+        if is_bare {
+            // For bare repos, check all worktrees for uncommitted changes
+            let bare_repo_path = project_path.join(".git");
+            if bare_repo_path.exists() {
+                // List all worktrees
+                let output = Command::new("git")
+                    .arg("-C")
+                    .arg(&bare_repo_path)
+                    .arg("worktree")
+                    .arg("list")
+                    .arg("--porcelain")
+                    .output()
+                    .context("Failed to list worktrees")?;
+
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let mut worktree_paths = Vec::new();
+
+                    for line in stdout.lines() {
+                        if line.starts_with("worktree ") {
+                            if let Some(path_str) = line.strip_prefix("worktree ") {
+                                worktree_paths.push(PathBuf::from(path_str));
+                            }
+                        }
+                    }
+
+                    // Check each worktree for uncommitted changes
+                    for worktree_path in worktree_paths {
+                        if worktree_path.exists() {
+                            if let Ok(repo) = Repository::open(&worktree_path) {
+                                let mut status_opts = StatusOptions::new();
+                                status_opts.include_untracked(true);
+                                status_opts.include_ignored(false);
+
+                                let statuses = repo.statuses(Some(&mut status_opts))?;
+
+                                let has_changes = statuses.iter().any(|entry| {
+                                    let status = entry.status();
+                                    status.intersects(
+                                        Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED |
+                                        Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE |
+                                        Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED |
+                                        Status::WT_TYPECHANGE | Status::WT_RENAMED
+                                    )
+                                });
+
+                                if has_changes {
+                                    let worktree_name = worktree_path.file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("unknown");
+                                    eprintln!("\n{} Project '{}' has uncommitted changes in worktree '{}'!",
+                                        "✗".yellow(),
+                                        project_name.bold(),
+                                        worktree_name.bold()
+                                    );
+                                    eprintln!("  Use --force to remove anyway (changes will be lost)");
+                                    eprintln!("  Or commit/stash your changes first");
+                                    eprintln!();
+                                    return Err(anyhow::anyhow!("Uncommitted changes detected"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // For regular repos, use existing logic
+            if project_path.join(".git").exists() {
+                let repo = Repository::open(&project_path)?;
+
+                // Check for uncommitted changes
+                let mut status_opts = StatusOptions::new();
+                status_opts.include_untracked(true);
+                status_opts.include_ignored(false);
+
+                let statuses = repo.statuses(Some(&mut status_opts))?;
+
+                let has_changes = statuses.iter().any(|entry| {
+                    let status = entry.status();
+                    status.intersects(
+                        Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED |
+                        Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE |
+                        Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED |
+                        Status::WT_TYPECHANGE | Status::WT_RENAMED
+                    )
+                });
+
+                if has_changes {
+                    eprintln!("\n{} Project '{}' has uncommitted changes!",
+                        "✗".yellow(),
+                        project_name.bold()
+                    );
+                    eprintln!("  Use --force to remove anyway (changes will be lost)");
+                    eprintln!("  Or commit/stash your changes first");
+                    eprintln!();
+                    return Err(anyhow::anyhow!("Uncommitted changes detected"));
+                }
+            }
         }
     }
     
