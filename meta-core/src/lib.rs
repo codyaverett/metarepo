@@ -9,6 +9,7 @@ mod plugin_base;
 mod plugin_builder;
 mod plugin_manifest;
 pub mod interactive;
+pub mod tui;
 
 pub use plugin_base::{
     BasePlugin, PluginMetadata, HelpFormat, HelpFormatter,

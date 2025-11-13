@@ -1,6 +1,6 @@
 [package]
 name = "metarepo-core"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2021"
 description = "Core interfaces and types for the metarepo multi-project management tool"
 authors = ["Metarepo Contributors"]
@@ -20,6 +20,9 @@ serde_yaml = "0.9"
 toml = "0.8"
 dialoguer = { workspace = true }
 console = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tui-textarea = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.8"
