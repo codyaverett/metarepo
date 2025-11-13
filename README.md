@@ -272,6 +272,57 @@ See [Worktree Configuration](docs/WORKTREE.md) for detailed documentation.
 cargo test
 ```
 
+## Contributing
+
+We welcome contributions! There are several ways to get involved:
+
+### Quick Issue Creation
+
+Create issues from the command line for fast capture:
+
+```bash
+# Interactive mode
+make issue-bug                              # Bug report with prompts
+make issue-feature                          # Feature request with prompts
+make issue-idea                             # Quick idea capture
+
+# Programmatic mode (automation/AI agents)
+.github/scripts/new-bug.sh "Title" "Description" "Steps" "Expected" "Actual"
+echo '{"title":"..."}' | .github/scripts/new-idea.sh --json --silent
+
+# List recent issues
+make list-issues
+```
+
+**For automation and AI agents:** All scripts support JSON input, environment variables, and silent mode. See [.github/scripts/README.md](.github/scripts/README.md) for details.
+
+### Web Interface
+
+Use structured templates at [github.com/caavere/metarepo/issues/new/choose](https://github.com/caavere/metarepo/issues/new/choose):
+- **Bug Report** - Comprehensive form with environment details
+- **Feature Request** - Detailed proposal with use cases
+- **Quick Idea** - Fast capture for todos and future improvements
+- **Security** - Private security vulnerability reporting
+
+### Pull Requests
+
+1. Fork and clone the repository
+2. Create a feature branch
+3. Make your changes with clear commit messages (use commitizen format)
+4. Run quality checks: `cargo fmt`, `cargo clippy`, `cargo test`
+5. Submit a pull request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines including:
+- Development workflow
+- Coding standards
+- Testing requirements
+- Commit message format
+- Documentation guidelines
+
+### Security
+
+For security vulnerabilities, please follow our [Security Policy](SECURITY.md). **Do not** create public issues for security concerns.
+
 ## Compatibility
 
 - Compatible `.meta` file format with Node.js version

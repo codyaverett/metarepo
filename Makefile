@@ -49,6 +49,12 @@ help:
 	@echo "  $(GREEN)make check-versions$(NC) - Check version consistency"
 	@echo "  $(GREEN)make bump-version V=X.Y.Z$(NC) - Update all versions"
 	@echo ""
+	@echo "$(YELLOW)Issue Management:$(NC)"
+	@echo "  $(GREEN)make issue-bug$(NC)     - Create bug report (interactive)"
+	@echo "  $(GREEN)make issue-feature$(NC) - Create feature request (interactive)"
+	@echo "  $(GREEN)make issue-idea$(NC)    - Quick idea capture"
+	@echo "  $(GREEN)make list-issues$(NC)   - List recent issues"
+	@echo ""
 	@echo "$(YELLOW)Install Paths:$(NC)"
 	@echo "  Binary: $(CYAN)$(INSTALL_PATH)/$(BINARY_NAME)$(NC)"
 	@echo ""
@@ -165,6 +171,54 @@ watch:
 
 .PHONY: all
 all: fmt check test build
+
+# ============================================================================
+# Issue Management Commands
+# ============================================================================
+
+# Create a bug report using gh CLI
+.PHONY: issue-bug
+issue-bug:
+	@if ! command -v gh &> /dev/null; then \
+		echo "$(RED)❌ GitHub CLI (gh) is not installed.$(NC)"; \
+		echo "$(CYAN)Install from: https://cli.github.com/$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)🐛 Creating bug report...$(NC)"
+	@.github/scripts/new-bug.sh
+
+# Create a feature request using gh CLI
+.PHONY: issue-feature
+issue-feature:
+	@if ! command -v gh &> /dev/null; then \
+		echo "$(RED)❌ GitHub CLI (gh) is not installed.$(NC)"; \
+		echo "$(CYAN)Install from: https://cli.github.com/$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)✨ Creating feature request...$(NC)"
+	@.github/scripts/new-feature.sh
+
+# Quick idea capture
+.PHONY: issue-idea
+issue-idea:
+	@if ! command -v gh &> /dev/null; then \
+		echo "$(RED)❌ GitHub CLI (gh) is not installed.$(NC)"; \
+		echo "$(CYAN)Install from: https://cli.github.com/$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)💡 Quick idea capture$(NC)"
+	@read -p "Idea: " idea && .github/scripts/new-idea.sh "$$idea"
+
+# List recent issues
+.PHONY: list-issues
+list-issues:
+	@if ! command -v gh &> /dev/null; then \
+		echo "$(RED)❌ GitHub CLI (gh) is not installed.$(NC)"; \
+		echo "$(CYAN)Install from: https://cli.github.com/$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)📋 Recent issues:$(NC)"
+	@gh issue list --limit 10
 
 # ============================================================================
 # Publishing Commands

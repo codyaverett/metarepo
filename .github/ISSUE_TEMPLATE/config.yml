@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/caavere/metarepo/tree/main/docs
+    about: View comprehensive documentation including architecture, plugin development, and usage guides
+  - name: Discussions
+    url: https://github.com/caavere/metarepo/discussions
+    about: Ask questions, share ideas, or discuss features with the community
+  - name: Security Policy
+    url: https://github.com/caavere/metarepo/blob/main/SECURITY.md
+    about: Review our security policy and learn how to report vulnerabilities privately
