@@ -62,7 +62,7 @@ fn handle_clone(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         .trim_end_matches(".git");
     
     let target_path = config.working_dir.join(repo_name);
-    clone_repository(url, &target_path)?;
+    clone_repository(url, &target_path, false)?;
     
     // After cloning, look for .meta file and clone child repos
     let meta_file = target_path.join(".meta");

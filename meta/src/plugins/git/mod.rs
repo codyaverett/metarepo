@@ -1,8 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::*;
 use metarepo_core::MetaConfig;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 // Export the main plugin
 pub use self::plugin::GitPlugin;
@@ -12,7 +11,10 @@ mod operations;
 
 pub use operations::get_git_status;
 
-pub fn clone_repository(repo_url: &str, target_path: &Path) -> Result<()> {
+// Import shared git operations
+use crate::plugins::shared::{clone_with_auth, create_default_worktree};
+
+pub fn clone_repository(repo_url: &str, target_path: &Path, bare: bool) -> Result<()> {
     if target_path.exists() {
         return Err(anyhow::anyhow!("Target directory already exists: {:?}", target_path));
     }
@@ -24,27 +26,29 @@ pub fn clone_repository(repo_url: &str, target_path: &Path) -> Result<()> {
         .next()
         .unwrap_or(repo_url);
 
-    println!("Cloning {}...", repo_name.bright_white());
+    if bare {
+        println!("Cloning {} as bare repository...", repo_name.bright_white());
 
-    // Use git clone with --progress for real-time progress display
-    let status = Command::new("git")
-        .arg("clone")
-        .arg("--progress")
-        .arg(repo_url)
-        .arg(target_path)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .context("Failed to execute git clone command")?;
+        // Clone as bare repo to <project>/.git/
+        let bare_path = target_path.join(".git");
+        clone_with_auth(repo_url, &bare_path, true)?;
 
-    if !status.success() {
-        return Err(anyhow::anyhow!(
-            "Failed to clone repository: git clone exited with status {}",
-            status
-        ));
+        // Create the project directory
+        std::fs::create_dir_all(target_path)?;
+
+        // Create default worktree at <project>/<default-branch>/
+        println!("Creating default worktree...");
+        create_default_worktree(&bare_path, target_path)?;
+
+        println!("{} Complete\n", "✓".green());
+    } else {
+        println!("Cloning {}...", repo_name.bright_white());
+
+        // Use shared clone_with_auth for consistent cloning behavior
+        clone_with_auth(repo_url, target_path, false)?;
+
+        println!("{} Complete\n", "✓".green());
     }
-
-    println!("{} Complete\n", "✓".green());
 
     Ok(())
 }
@@ -57,12 +61,13 @@ pub fn clone_missing_repos() -> Result<()> {
     let base_path = meta_file.parent().unwrap();
 
     // Collect missing projects first to show count
-    let missing_projects: Vec<(String, String, std::path::PathBuf)> = config.projects.keys()
+    let missing_projects: Vec<(String, String, std::path::PathBuf, bool)> = config.projects.keys()
         .filter_map(|project_path| {
             let full_path = base_path.join(project_path);
             if !full_path.exists() {
                 config.get_project_url(project_path).map(|url| {
-                    (project_path.clone(), url, full_path)
+                    let is_bare = config.is_bare_repo(project_path);
+                    (project_path.clone(), url, full_path, is_bare)
                 })
             } else {
                 None
@@ -81,7 +86,7 @@ pub fn clone_missing_repos() -> Result<()> {
     let mut success_count = 0;
     let mut failed_count = 0;
 
-    for (i, (project_path, repo_url, full_path)) in missing_projects.iter().enumerate() {
+    for (i, (project_path, repo_url, full_path, is_bare)) in missing_projects.iter().enumerate() {
         let project_name = project_path.rsplit('/').next().unwrap_or(project_path);
         println!("[{}/{}] Cloning {}",
             (i + 1).to_string().cyan(),
@@ -89,7 +94,7 @@ pub fn clone_missing_repos() -> Result<()> {
             project_name.bright_white()
         );
 
-        match clone_repository(repo_url, full_path) {
+        match clone_repository(repo_url, full_path, *is_bare) {
             Ok(_) => success_count += 1,
             Err(e) => {
                 eprintln!("{} Failed: {}\n", "✗".red(), e);
