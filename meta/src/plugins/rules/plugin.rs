@@ -537,13 +537,17 @@ impl MetaPlugin for RulesPlugin {
     fn name(&self) -> &str {
         "rules"
     }
-    
+
+    fn is_experimental(&self) -> bool {
+        true
+    }
+
     fn register_commands(&self, app: clap::Command) -> clap::Command {
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
         plugin.register_commands(app)
     }
-    
+
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
