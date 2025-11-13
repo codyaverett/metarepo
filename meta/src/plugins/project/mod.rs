@@ -644,22 +644,22 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
         // Check if it's a symlink
         let is_symlink = project_path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false);
         
-        let (status_icon, status_text, status_color) = if project_path.exists() {
+        let (status_text, status_color) = if project_path.exists() {
             if is_symlink {
-                ("🔗", "External", "cyan")
+                ("External", "cyan")
             } else if project_path.join(".git").exists() {
-                ("✅", "Active", "green")
+                ("Active", "green")
             } else {
-                ("⚠️ ", "No Git", "yellow")
+                ("No Git", "yellow")
             }
         } else {
-            ("❌", "Missing", "red")
+            ("Missing", "red")
         };
         
         // Project name and status
         println!();
-        print!("  {} {}", status_icon, name.bold());
-        
+        print!("  {}", name.bold());
+
         match status_color {
             "green" => println!(" {}", format!("[{}]", status_text).green()),
             "cyan" => println!(" {}", format!("[{}]", status_text).cyan()),
@@ -692,6 +692,31 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
     println!("\n  {}", "─".repeat(60).bright_black());
     println!("  {} {} projects total\n", config.projects.len().to_string().cyan().bold(), "workspace".dimmed());
     
+    Ok(())
+}
+
+/// List projects in minimal format (just names)
+pub fn list_projects_minimal(base_path: &Path) -> Result<()> {
+    // Find and load the .meta file
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
+    }
+
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    if config.projects.is_empty() {
+        return Ok(());
+    }
+
+    // Sort and print project names only
+    let mut sorted_projects: Vec<_> = config.projects.keys().collect();
+    sorted_projects.sort();
+
+    for name in sorted_projects {
+        println!("{}", name);
+    }
+
     Ok(())
 }
 
@@ -883,7 +908,7 @@ pub fn show_project_tree(base_path: &Path) -> Result<()> {
             
             // Determine display based on node type
             let name_display = if is_symlink {
-                format!("🔗 {}", node.name.bright_magenta())  // Symlinks keep icon inline
+                format!("{}", node.name.bright_magenta())      // Symlinks in magenta
             } else if node.is_meta {
                 format!("{}/", node.name.bold().white())       // Meta repos in bold white with trailing slash
             } else if node.is_directory {
@@ -916,11 +941,11 @@ pub fn show_project_tree(base_path: &Path) -> Result<()> {
     
     println!();
     println!("  {}", "─".repeat(60).bright_black());
-    println!("  {} {}  {} {}  {} {}  {} {}", 
-        "📦", format!("{}/", "Meta repository").bold().white(),
-        "📁", format!("{}/", "Directory").bright_blue(),
-        "📄", "Project".white(),
-        "🔗", "Symlink".bright_magenta()
+    println!("  {}  {}  {}  {}",
+        format!("{}/", "Meta repository").bold().white(),
+        format!("{}/", "Directory").bright_blue(),
+        "Project".white(),
+        "Symlink".bright_magenta()
     );
     println!();
     
