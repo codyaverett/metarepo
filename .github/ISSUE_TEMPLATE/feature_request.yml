@@ -1,0 +1,139 @@
+name: Feature Request
+description: Propose a new feature or enhancement for metarepo
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! Please provide as much detail as possible to help us understand your proposal.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature Summary
+      description: A brief, clear description of the feature you'd like to see.
+      placeholder: What feature would you like to add?
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? What use case does it address?
+      placeholder: |
+        I'm always frustrated when...
+        Currently, it's difficult to...
+        Users need a way to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How do you envision this feature working?
+      placeholder: |
+        The feature could work by...
+        Users would be able to...
+        The command would be...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which part of metarepo would this feature belong to?
+      options:
+        - CLI interface
+        - Git operations
+        - Project management
+        - Worktree handling
+        - Plugin system
+        - Configuration
+        - TUI (Terminal UI)
+        - Build system
+        - Documentation
+        - New component
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to you?
+      options:
+        - Critical (blocker for adoption)
+        - High (would significantly improve workflow)
+        - Medium (nice to have)
+        - Low (minor enhancement)
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or workarounds?
+      placeholder: |
+        Alternative approach 1: ...
+        Alternative approach 2: ...
+        Current workaround: ...
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Usage Examples
+      description: Provide examples of how this feature would be used.
+      placeholder: |
+        Example 1:
+        $ meta new-command --option value
+
+        Example 2:
+        $ meta feature --interactive
+      render: shell
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: What would make this feature complete? How would you test it?
+      placeholder: |
+        - [ ] Feature does X when Y
+        - [ ] Users can configure Z
+        - [ ] Documentation updated
+        - [ ] Tests added
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Related Issues / References
+      description: Link to any related issues, discussions, or external references.
+      placeholder: |
+        Related to #123
+        Similar to feature in [other tool](url)
+        Requested in discussion [link]
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other information, mockups, diagrams, or context that would be helpful.
+      placeholder: Add any other context, screenshots, or mockups here.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting.
+      options:
+        - label: I have searched existing issues and discussions to ensure this hasn't been proposed already
+          required: true
+        - label: I have provided clear use cases and examples
+          required: true
+        - label: I am willing to help test or contribute to this feature
+          required: false
