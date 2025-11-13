@@ -302,19 +302,6 @@ impl MetaPlugin for ExecPlugin {
                     .long("streaming")
                     .help("Show output as it happens instead of buffered (legacy behavior)")
                     .action(clap::ArgAction::SetTrue)
-            )
-            .arg(
-                clap::Arg::new("output-format")
-                    .long("output-format")
-                    .value_name("FORMAT")
-                    .help("Output format (json, yaml, markdown)")
-                    .value_parser(["json", "yaml", "markdown"])
-            )
-            .arg(
-                clap::Arg::new("ai")
-                    .long("ai")
-                    .action(clap::ArgAction::SetTrue)
-                    .help("Show AI-friendly structured output (same as --output-format=json)")
             );
         
         app.subcommand(exec_cmd)
