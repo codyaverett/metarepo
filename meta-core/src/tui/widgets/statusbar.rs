@@ -90,7 +90,7 @@ impl<'a> Widget for StatusBar<'a> {
         // Fill the rest with the mode background
         let bg_style = Style::default().bg(Color::DarkGray);
         for x in area.x + mode_width..area.right() {
-            buf.get_mut(x, area.y).set_style(bg_style);
+            buf[(x, area.y)].set_style(bg_style);
         }
     }
 }
