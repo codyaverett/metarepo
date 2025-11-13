@@ -6,7 +6,7 @@ use metarepo_core::{
     plugin, command, arg,
     is_interactive, prompt_text, prompt_url, prompt_select, NonInteractiveMode,
 };
-use super::{import_project_with_options, import_project_recursive_with_options, list_projects, remove_project, show_project_tree, update_projects, update_project_gitignore, rename_project, convert_to_bare};
+use super::{import_project_with_options, import_project_recursive_with_options, list_projects, list_projects_minimal, remove_project, show_project_tree, update_projects, update_project_gitignore, rename_project, convert_to_bare};
 
 /// ProjectPlugin using the new simplified plugin architecture
 pub struct ProjectPlugin;
@@ -85,20 +85,38 @@ impl ProjectPlugin {
             )
             .command(
                 command("list")
-                    .about("List all projects in the workspace")
+                    .about("List all projects in the workspace (tree view by default)")
                     .with_help_formatting()
                     .aliases(vec!["ls".to_string(), "l".to_string()])
                     .arg(
-                        arg("tree")
-                            .long("tree")
-                            .short('t')
-                            .help("Display projects in tree format showing nested structure")
+                        arg("flat")
+                            .long("flat")
+                            .short('f')
+                            .help("Display projects as a flat list with details")
+                    )
+                    .arg(
+                        arg("minimal")
+                            .long("minimal")
+                            .short('m')
+                            .help("Display only project names (minimal output)")
                     )
             )
             .command(
                 command("tree")
                     .about("Display project hierarchy as a tree")
                     .with_help_formatting()
+                    .arg(
+                        arg("flat")
+                            .long("flat")
+                            .short('f')
+                            .help("Display projects as a flat list with details")
+                    )
+                    .arg(
+                        arg("minimal")
+                            .long("minimal")
+                            .short('m')
+                            .help("Display only project names (minimal output)")
+                    )
             )
             .command(
                 command("update")
@@ -281,25 +299,40 @@ fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     } else {
         config.working_dir.clone()
     };
-    
-    // Check if --tree flag is set
-    if matches.get_flag("tree") {
-        show_project_tree(&base_path)?;
-    } else {
+
+    // Check flags for output format
+    if matches.get_flag("minimal") {
+        // Minimal: just project names
+        list_projects_minimal(&base_path)?;
+    } else if matches.get_flag("flat") {
+        // Flat: list with details
         list_projects(&base_path)?;
+    } else {
+        // Default: tree view
+        show_project_tree(&base_path)?;
     }
     Ok(())
 }
 
 /// Handler for the tree command
-fn handle_tree(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+fn handle_tree(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let base_path = if config.meta_root().is_some() {
         config.meta_root().unwrap()
     } else {
         config.working_dir.clone()
     };
-    
-    show_project_tree(&base_path)?;
+
+    // Check flags for output format (same as list command)
+    if matches.get_flag("minimal") {
+        // Minimal: just project names
+        list_projects_minimal(&base_path)?;
+    } else if matches.get_flag("flat") {
+        // Flat: list with details
+        list_projects(&base_path)?;
+    } else {
+        // Default: tree view
+        show_project_tree(&base_path)?;
+    }
     Ok(())
 }
 
