@@ -21,7 +21,7 @@ impl HelpPanel {
     }
 
     /// Get help text for the current mode
-    fn get_help_lines(&self) -> Vec<Line> {
+    fn get_help_lines(&self) -> Vec<Line<'_>> {
         let title = Line::from(vec![
             Span::styled("Keybindings", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" - Press "),

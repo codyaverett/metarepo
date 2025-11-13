@@ -120,17 +120,15 @@ impl TreeNode {
     /// Get mutable flattened list of visible nodes
     /// Note: This method is complex due to borrow checker limitations with recursive structures
     pub fn flatten_mut(&mut self) -> Vec<*mut TreeNode> {
-        unsafe {
-            let mut result = Vec::new();
-            result.push(self as *mut TreeNode);
+        let mut result = Vec::new();
+        result.push(self as *mut TreeNode);
 
-            if self.expanded {
-                for child in &mut self.children {
-                    result.extend(child.flatten_mut());
-                }
+        if self.expanded {
+            for child in &mut self.children {
+                result.extend(child.flatten_mut());
             }
-            result
         }
+        result
     }
 }
 
@@ -237,7 +235,7 @@ impl<'a> TreeWidget<'a> {
     }
 
     /// Render a single tree node as a ListItem
-    fn render_node(node: &TreeNode, is_selected: bool, highlight_style: Style) -> ListItem {
+    fn render_node(node: &TreeNode, is_selected: bool, _highlight_style: Style) -> ListItem<'_> {
         let indent = "  ".repeat(node.depth);
 
         // Expansion icon for containers
