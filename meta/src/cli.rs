@@ -66,6 +66,7 @@ impl MetarepoCli {
             .arg(
                 Arg::new("experimental")
                     .long("experimental")
+                    .short('x')
                     .action(clap::ArgAction::SetTrue)
                     .help("Enable experimental features")
                     .global(true)
@@ -86,8 +87,8 @@ impl MetarepoCli {
         // Initialize tracing
         self.init_logging();
 
-        // Check if --experimental is present in args
-        let experimental = args.iter().any(|arg| arg == "--experimental");
+        // Check if --experimental or -x is present in args
+        let experimental = args.iter().any(|arg| arg == "--experimental" || arg == "-x");
 
         // If experimental, create a new CLI with experimental plugins
         if experimental {

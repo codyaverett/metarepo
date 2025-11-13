@@ -380,7 +380,7 @@ impl MetaPlugin for PluginManagerPlugin {
     }
     
     fn is_experimental(&self) -> bool {
-        false // Plugin management is a core feature
+        true
     }
     
     fn register_commands(&self, app: clap::Command) -> clap::Command {
