@@ -242,26 +242,9 @@ impl CommandBuilder {
     
     /// Add standard help formatting options (--output-format, --ai)
     /// Use this for commands that support structured help output
-    pub fn with_help_formatting(mut self) -> Self {
-        // Add output-format option
-        self.args.push(
-            ArgBuilder::new("output-format")
-                .long("output-format")
-                .help("Output format (json, yaml, markdown)")
-                .takes_value(true)
-                .possible_value("json")
-                .possible_value("yaml")
-                .possible_value("markdown")
-        );
-        
-        // Add AI option
-        self.args.push(
-            ArgBuilder::new("ai")
-                .long("ai")
-                .help("Show AI-friendly structured output (same as --output-format=json)")
-                .takes_value(false)  // This will set the action to SetTrue
-        );
-        
+    /// NOTE: This method is now deprecated and does nothing. It's kept for backward compatibility.
+    pub fn with_help_formatting(self) -> Self {
+        // No longer adds any arguments
         self
     }
     

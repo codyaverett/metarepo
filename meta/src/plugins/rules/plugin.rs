@@ -87,11 +87,6 @@ impl RulesPlugin {
                             .help("Show docs for specific rule type (directory, component, file, naming, dependency, import, documentation, size, security)")
                             .takes_value(true)
                     )
-                    .arg(
-                        arg("ai")
-                            .long("ai")
-                            .help("Output in AI-optimized format (structured markdown)")
-                    )
             )
             .command(
                 command("create")
@@ -404,35 +399,24 @@ fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
 /// Handler for the docs command
 fn handle_docs(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    let ai_mode = matches.get_flag("ai");
-    
     if let Some(rule_type) = matches.get_one::<String>("type") {
-        if ai_mode {
-            // In AI mode, just print the optimized full docs
-            super::docs::print_full_documentation_ai();
-        } else {
-            match rule_type.as_str() {
-                "directory" | "dir" => super::docs::print_directory_rule_docs(),
-                "component" | "comp" => super::docs::print_component_rule_docs(),
-                "file" | "files" => super::docs::print_file_rule_docs(),
-                "naming" | "name" => super::docs::print_naming_rule_docs(),
-                "dependency" | "dep" | "deps" => super::docs::print_dependency_rule_docs(),
-                "import" | "imports" => super::docs::print_import_rule_docs(),
-                "documentation" | "doc" | "docs" => super::docs::print_documentation_rule_docs(),
-                "size" => super::docs::print_size_rule_docs(),
-                "security" | "sec" => super::docs::print_security_rule_docs(),
-                _ => {
-                    println!("{} Unknown rule type: {}", "Error:".red(), rule_type);
-                    println!("Valid types: directory, component, file, naming, dependency, import, documentation, size, security");
-                }
+        match rule_type.as_str() {
+            "directory" | "dir" => super::docs::print_directory_rule_docs(),
+            "component" | "comp" => super::docs::print_component_rule_docs(),
+            "file" | "files" => super::docs::print_file_rule_docs(),
+            "naming" | "name" => super::docs::print_naming_rule_docs(),
+            "dependency" | "dep" | "deps" => super::docs::print_dependency_rule_docs(),
+            "import" | "imports" => super::docs::print_import_rule_docs(),
+            "documentation" | "doc" | "docs" => super::docs::print_documentation_rule_docs(),
+            "size" => super::docs::print_size_rule_docs(),
+            "security" | "sec" => super::docs::print_security_rule_docs(),
+            _ => {
+                println!("{} Unknown rule type: {}", "Error:".red(), rule_type);
+                println!("Valid types: directory, component, file, naming, dependency, import, documentation, size, security");
             }
         }
     } else {
-        if ai_mode {
-            super::docs::print_full_documentation_ai();
-        } else {
-            super::docs::print_full_documentation();
-        }
+        super::docs::print_full_documentation();
     }
     Ok(())
 }

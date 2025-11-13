@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, HelpFormat,
+    BasePlugin, MetaPlugin, RuntimeConfig,
     plugin,
 };
 use super::initialize_meta_repo;
@@ -38,35 +38,10 @@ impl MetaPlugin for InitPlugin {
                 .long_about("Initialize the current directory as a meta repository by creating a .meta file with default configuration and updating .gitignore patterns.")
                 .visible_aliases(vec!["i"])
                 .version(env!("CARGO_PKG_VERSION"))
-                .arg(
-                    clap::Arg::new("output-format")
-                        .long("output-format")
-                        .value_name("FORMAT")
-                        .help("Output format (json, yaml, markdown)")
-                        .value_parser(["json", "yaml", "markdown"])
-                )
-                .arg(
-                    clap::Arg::new("ai")
-                        .long("ai")
-                        .action(clap::ArgAction::SetTrue)
-                        .help("Show AI-friendly structured output (same as --output-format=json)")
-                )
         )
     }
     
     fn handle_command(&self, _matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        // Check for output format flag
-        if let Some(format_str) = _matches.get_one::<String>("output-format") {
-            if let Some(format) = HelpFormat::parse(format_str) {
-                return self.show_help(format);
-            }
-        }
-        
-        // Check for AI help flag
-        if _matches.get_flag("ai") {
-            return self.show_ai_help();
-        }
-        
         // Directly initialize the meta repository
         initialize_meta_repo(&config.working_dir)?;
         Ok(())
