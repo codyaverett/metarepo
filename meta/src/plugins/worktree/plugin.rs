@@ -28,12 +28,16 @@ impl WorktreePlugin {
                     .long_about("Create git worktrees for selected projects in the workspace.\n\n\
                                  Worktrees allow you to have multiple working trees attached to the same repository,\n\
                                  enabling parallel development on different branches without stashing or switching.\n\n\
+                                 The command intelligently handles branches:\n\
+                                   • If the branch exists locally, it checks it out\n\
+                                   • If it exists remotely, it creates a local tracking branch\n\
+                                   • If it doesn't exist, it prompts for a starting point or uses --from\n\n\
                                  Examples:\n\
-                                   meta worktree add feature-123                           # Interactive project selection\n\
+                                   meta worktree add feature-123                           # Smart detection\n\
+                                   meta worktree add feature-123 --from origin/main        # Create from specific branch\n\
                                    meta worktree add feature-123 --project containers      # Single project\n\
-                                   meta worktree add feature-123 --projects foo,bar        # Multiple projects\n\
                                    meta worktree add feature-123 --all                     # All projects\n\
-                                   meta worktree add -b feature-123 origin/main           # Create new branch")
+                                   meta worktree add -b feature-123                        # Force create new branch")
                     .aliases(vec!["create".to_string(), "new".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -46,6 +50,13 @@ impl WorktreePlugin {
                         arg("commit")
                             .help("Starting point (branch/tag/commit) for the worktree")
                             .required(false)
+                            .takes_value(true)
+                    )
+                    .arg(
+                        arg("from")
+                            .long("from")
+                            .short('f')
+                            .help("Starting point to create the branch from (e.g., origin/main, HEAD)")
                             .takes_value(true)
                     )
                     .arg(
@@ -176,10 +187,14 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         }
     };
 
-    let _commit = matches.get_one::<String>("commit");
+    let commit = matches.get_one::<String>("commit");
+    let from_ref = matches.get_one::<String>("from");
     let create_branch = matches.get_flag("create-branch");
     let path_suffix = matches.get_one::<String>("path").map(|s| s.as_str());
     let no_hooks = matches.get_flag("no-hooks");
+
+    // Prefer --from over positional commit arg
+    let starting_point = from_ref.or(commit).map(|s| s.as_str());
 
     let base_path = config.meta_root()
         .unwrap_or(config.working_dir.clone());
@@ -226,7 +241,7 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     }
     // If no projects specified, will use current project or trigger interactive selection
 
-    add_worktrees(&branch, &projects, &base_path, path_suffix, create_branch, no_hooks, current_project.as_deref(), &config.meta_config)?;
+    add_worktrees(&branch, &projects, &base_path, path_suffix, create_branch, starting_point, no_hooks, current_project.as_deref(), &config.meta_config)?;
     Ok(())
 }
 
