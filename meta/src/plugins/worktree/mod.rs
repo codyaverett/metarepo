@@ -19,6 +19,57 @@ pub struct WorktreeInfo {
 }
 
 #[derive(Debug)]
+pub enum BranchStatus {
+    Local,
+    Remote(String),  // Contains the remote ref (e.g., "origin/feature-123")
+    NotFound,
+}
+
+/// Check if a branch exists locally or remotely
+fn check_branch_exists(repo_path: &Path, branch: &str) -> Result<BranchStatus> {
+    // Check local branches first
+    let local_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("branch")
+        .arg("--list")
+        .arg(branch)
+        .output()
+        .context("Failed to check local branches")?;
+
+    if local_output.status.success() {
+        let stdout = String::from_utf8_lossy(&local_output.stdout);
+        if stdout.trim().contains(branch) {
+            return Ok(BranchStatus::Local);
+        }
+    }
+
+    // Check remote branches
+    let remote_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("branch")
+        .arg("-r")
+        .arg("--list")
+        .arg(format!("*/{}", branch))
+        .output()
+        .context("Failed to check remote branches")?;
+
+    if remote_output.status.success() {
+        let stdout = String::from_utf8_lossy(&remote_output.stdout);
+        // Look for pattern like "  origin/feature-123"
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.ends_with(branch) {
+                return Ok(BranchStatus::Remote(trimmed.to_string()));
+            }
+        }
+    }
+
+    Ok(BranchStatus::NotFound)
+}
+
+#[derive(Debug)]
 pub struct ProjectWorktrees {
     pub project_name: String,
     pub project_path: PathBuf,
@@ -110,6 +161,7 @@ pub fn add_worktrees(
     base_path: &Path,
     path_suffix: Option<&str>,
     create_branch: bool,
+    starting_point: Option<&str>,
     no_hooks: bool,
     current_project: Option<&str>,
     config: &MetaConfig,
@@ -189,8 +241,7 @@ pub fn add_worktrees(
             continue;
         }
 
-        // Create the worktree
-        let mut cmd = Command::new("git");
+        // Determine git directory
         let git_dir = if is_bare {
             // For bare repos, the git directory is at <project>/.git/
             project_path.join(".git")
@@ -199,20 +250,58 @@ pub fn add_worktrees(
             project_path.clone()
         };
 
+        // Smart branch detection and worktree creation
+        let mut cmd = Command::new("git");
         cmd.arg("-C")
             .arg(&git_dir)
             .arg("worktree")
             .arg("add")
             .arg("-q");  // Quiet mode - suppress text output
 
+        // Determine the strategy based on flags and branch existence
         if create_branch {
+            // Explicit branch creation requested with -b flag
             cmd.arg("-b").arg(branch);
-        }
+            cmd.arg(&worktree_path);
+            if let Some(start) = starting_point {
+                cmd.arg(start);
+            }
+        } else {
+            // Smart detection: check if branch exists
+            match check_branch_exists(&git_dir, branch) {
+                Ok(BranchStatus::Local) => {
+                    // Branch exists locally, checkout that branch
+                    cmd.arg(&worktree_path);
+                    cmd.arg(branch);
+                }
+                Ok(BranchStatus::Remote(remote_ref)) => {
+                    // Branch exists remotely, create local tracking branch
+                    println!("  {} Found remote branch: {}", "ℹ".cyan(), remote_ref.bright_white());
+                    cmd.arg("-b").arg(branch);
+                    cmd.arg(&worktree_path);
+                    cmd.arg(&remote_ref);
+                }
+                Ok(BranchStatus::NotFound) => {
+                    // Branch doesn't exist - need to create it
+                    let start_point = if let Some(start) = starting_point {
+                        start.to_string()
+                    } else {
+                        // Prompt user for starting point
+                        println!("  {} Branch '{}' not found", "⚠".yellow(), branch.bright_white());
+                        prompt_for_starting_point()?
+                    };
 
-        cmd.arg(&worktree_path);
-
-        if !create_branch {
-            cmd.arg(branch);
+                    println!("  {} Creating new branch from {}", "✓".green(), start_point.bright_white());
+                    cmd.arg("-b").arg(branch);
+                    cmd.arg(&worktree_path);
+                    cmd.arg(&start_point);
+                }
+                Err(e) => {
+                    eprintln!("  {} Failed to check branch status: {}", "✗".red(), e);
+                    failed.push(project_name.clone());
+                    continue;
+                }
+            }
         }
 
         // Stream git output in real-time
@@ -616,4 +705,40 @@ fn select_projects_for_removal(available: &[String], branch: &str) -> Result<Vec
     };
 
     Ok(selected_projects)
+}
+
+/// Prompt user for starting point when creating a new branch
+fn prompt_for_starting_point() -> Result<String> {
+    use std::io::{self, Write};
+
+    println!("\n  {} {}", "🌿".cyan(), "Branch doesn't exist. Create it from:".bold());
+    println!("  {}", "─".repeat(60).bright_black());
+    println!("  {} HEAD (current commit)", "[1]".bright_black());
+    println!("  {} origin/main", "[2]".bright_black());
+    println!("  {} origin/develop", "[3]".bright_black());
+    println!("  {} Custom ref", "[4]".bright_black());
+
+    print!("\n  {} Select option [1-4]: ", "→".bright_black());
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let choice = input.trim();
+
+    match choice {
+        "1" | "" => Ok("HEAD".to_string()),
+        "2" => Ok("origin/main".to_string()),
+        "3" => Ok("origin/develop".to_string()),
+        "4" => {
+            print!("  {} Enter custom ref (branch/tag/commit): ", "→".bright_black());
+            io::stdout().flush()?;
+            let mut custom = String::new();
+            io::stdin().read_line(&mut custom)?;
+            Ok(custom.trim().to_string())
+        }
+        _ => {
+            println!("  {} Invalid choice, using HEAD", "⚠".yellow());
+            Ok("HEAD".to_string())
+        }
+    }
 }
