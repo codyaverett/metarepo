@@ -1,6 +1,6 @@
 [package]
 name = "metarepo"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2021"
 description = "A powerful multi-project management tool inspired by the meta npm package - manage multiple git repositories with ease"
 authors = ["Metarepo Contributors"]
@@ -27,7 +27,10 @@ tracing-subscriber = { workspace = true }
 colored = "2.1"
 dialoguer = { workspace = true }
 console = { workspace = true }
-metarepo-core = { version = "0.9.1", path = "../meta-core" }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tui-textarea = { workspace = true }
+metarepo-core = { version = "0.10.0", path = "../meta-core" }
 
 # Plugin dependencies (now built-in)
 # Git plugin dependencies

@@ -31,6 +31,7 @@ impl PluginRegistry {
         self.register(Box::new(plugins::init::InitPlugin::new()));
         self.register(Box::new(plugins::git::GitPlugin::new()));
         self.register(Box::new(plugins::project::ProjectPlugin::new()));
+        self.register(Box::new(plugins::config::ConfigPlugin::new()));
         self.register(Box::new(plugins::exec::ExecPlugin::new()));
         self.register(Box::new(plugins::rules::RulesPlugin::new()));
         self.register(Box::new(plugins::worktree::WorktreePlugin::new()));

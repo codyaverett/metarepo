@@ -4,6 +4,7 @@
 pub mod init;
 pub mod git;
 pub mod project;
+pub mod config;
 pub mod exec;
 pub mod mcp;
 pub mod rules;
@@ -17,6 +18,7 @@ pub mod shared;
 pub use init::InitPlugin;
 pub use git::GitPlugin;
 pub use project::ProjectPlugin;
+pub use config::ConfigPlugin;
 pub use exec::ExecPlugin;
 pub use mcp::McpPlugin;
 pub use rules::RulesPlugin;

@@ -12,8 +12,8 @@
       "aliases": [],
       "scripts": {
         "build": "docker build -t container .",
-        "slow": "sleep 1",
-        "test": "echo 'Testing container plugin'"
+        "test": "echo 'Testing container plugin'",
+        "slow": "sleep 1"
       },
       "env": {},
       "worktree_init": null,
@@ -25,8 +25,8 @@
   "aliases": null,
   "scripts": {
     "build": "cargo build --release",
-    "test": "echo 'Global test script'",
-    "slow": "sleep 3"
+    "slow": "sleep 3",
+    "test": "echo 'Global test script'"
   },
   "worktree_init": null,
   "default_bare": true
