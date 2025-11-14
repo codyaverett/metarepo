@@ -162,6 +162,12 @@ pub struct Rule {
     pub config: serde_json::Value,
 }
 
+impl Default for RulesConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RulesConfig {
     pub fn new() -> Self {
         Self {

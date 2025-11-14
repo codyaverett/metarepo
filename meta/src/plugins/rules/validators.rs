@@ -283,16 +283,16 @@ impl DependencyValidator {
             let dev_deps = json["devDependencies"].as_object();
 
             for forbidden_pkg in &self.forbidden {
-                if deps.map_or(false, |d| d.contains_key(forbidden_pkg))
-                    || dev_deps.map_or(false, |d| d.contains_key(forbidden_pkg))
+                if deps.is_some_and(|d| d.contains_key(forbidden_pkg))
+                    || dev_deps.is_some_and(|d| d.contains_key(forbidden_pkg))
                 {
                     violations.push(format!("Forbidden dependency: {}", forbidden_pkg));
                 }
             }
 
             for (pkg, _version) in &self.required {
-                if !deps.map_or(false, |d| d.contains_key(pkg))
-                    && !dev_deps.map_or(false, |d| d.contains_key(pkg))
+                if !deps.is_some_and(|d| d.contains_key(pkg))
+                    && !dev_deps.is_some_and(|d| d.contains_key(pkg))
                 {
                     violations.push(format!("Missing required dependency: {}", pkg));
                 }

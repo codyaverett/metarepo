@@ -316,8 +316,8 @@ impl RuleEngine {
 
                     // Check forbidden dependencies
                     for forbidden in &rule.forbidden {
-                        if deps.map_or(false, |d| d.contains_key(forbidden))
-                            || dev_deps.map_or(false, |d| d.contains_key(forbidden))
+                        if deps.is_some_and(|d| d.contains_key(forbidden))
+                            || dev_deps.is_some_and(|d| d.contains_key(forbidden))
                         {
                             violations.push(Violation {
                                 rule: "dependency:forbidden".to_string(),
@@ -334,8 +334,8 @@ impl RuleEngine {
 
                     // Check required dependencies
                     for (pkg, version) in &rule.required {
-                        if !deps.map_or(false, |d| d.contains_key(pkg))
-                            && !dev_deps.map_or(false, |d| d.contains_key(pkg))
+                        if !deps.is_some_and(|d| d.contains_key(pkg))
+                            && !dev_deps.is_some_and(|d| d.contains_key(pkg))
                         {
                             violations.push(Violation {
                                 rule: "dependency:required".to_string(),
@@ -386,6 +386,9 @@ impl RuleEngine {
     fn check_import_rules(&self, project_path: &Path) -> Result<Vec<Violation>> {
         let mut violations = Vec::new();
 
+        // Compile regex once outside the loop
+        let relative_import_regex = regex::Regex::new(r#"(import|from)\s+['"]\.\./?"#)?;
+
         for rule in &self.config.imports {
             let files = self.find_matching_files(project_path, &rule.source_pattern)?;
 
@@ -412,21 +415,17 @@ impl RuleEngine {
                     }
 
                     // Check for relative imports if absolute required
-                    if rule.require_absolute {
-                        let relative_import_regex =
-                            regex::Regex::new(r#"(import|from)\s+['"]\.\./?"#)?;
-                        if relative_import_regex.is_match(&content) {
-                            violations.push(Violation {
-                                rule: format!("import:{}", rule.source_pattern),
-                                message: format!(
-                                    "File '{}' uses relative imports but absolute imports are required",
-                                    file_path.strip_prefix(project_path).unwrap_or(&file_path).display()
-                                ),
-                                severity: Severity::Warning,
-                                path: Some(file_path.clone()),
-                                fixable: false,
-                            });
-                        }
+                    if rule.require_absolute && relative_import_regex.is_match(&content) {
+                        violations.push(Violation {
+                            rule: format!("import:{}", rule.source_pattern),
+                            message: format!(
+                                "File '{}' uses relative imports but absolute imports are required",
+                                file_path.strip_prefix(project_path).unwrap_or(&file_path).display()
+                            ),
+                            severity: Severity::Warning,
+                            path: Some(file_path.clone()),
+                            fixable: false,
+                        });
                     }
                 }
             }
@@ -633,12 +632,11 @@ pub fn fix_violations<P: AsRef<Path>>(project_path: P, violations: &[Violation])
 
         if let Some(path) = &violation.path {
             // Only fix directory creation for now
-            if violation.rule.starts_with("directory:") || violation.rule.starts_with("component:")
+            if (violation.rule.starts_with("directory:") || violation.rule.starts_with("component:"))
+                && !path.exists()
             {
-                if !path.exists() {
-                    std::fs::create_dir_all(path)?;
-                    println!("  Created directory: {}", path.display());
-                }
+                std::fs::create_dir_all(path)?;
+                println!("  Created directory: {}", path.display());
             }
         }
     }

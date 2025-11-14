@@ -95,7 +95,7 @@ impl McpServerInstance {
             }
         });
 
-        let init_str = format!("{}\n", init_request.to_string());
+        let init_str = format!("{}\n", init_request);
         stdin
             .write_all(init_str.as_bytes())
             .await
@@ -165,10 +165,7 @@ impl McpServerInstance {
 
     pub fn is_running(&self) -> bool {
         if let Some(ref child) = self.process {
-            match child.id() {
-                Some(_) => true,
-                None => false,
-            }
+            child.id().is_some()
         } else {
             false
         }
@@ -201,6 +198,12 @@ impl McpServerInstance {
 
 pub struct McpServerManager {
     servers: HashMap<String, McpServerInstance>,
+}
+
+impl Default for McpServerManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl McpServerManager {

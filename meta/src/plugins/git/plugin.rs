@@ -56,7 +56,7 @@ fn handle_clone(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     // Extract repo name from URL for directory name
     let repo_name = url
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or("meta-repo")
         .trim_end_matches(".git");
 

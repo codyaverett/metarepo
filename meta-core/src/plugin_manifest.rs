@@ -148,11 +148,11 @@ impl PluginManifest {
     /// Load manifest from a TOML file
     pub fn from_file(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        Self::from_str(&content)
+        Self::from_toml_str(&content)
     }
 
     /// Parse manifest from TOML string
-    pub fn from_str(content: &str) -> Result<Self> {
+    pub fn from_toml_str(content: &str) -> Result<Self> {
         let manifest: PluginManifest = toml::from_str(content)?;
         manifest.validate()?;
         Ok(manifest)

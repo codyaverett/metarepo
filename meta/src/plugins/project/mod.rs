@@ -175,7 +175,7 @@ pub fn import_project_with_options(
                 PathBuf::from(src)
             } else {
                 // Resolve relative path from current working directory or base path
-                let resolved = base_path
+                base_path
                     .join(src)
                     .canonicalize()
                     .or_else(|_| {
@@ -183,8 +183,7 @@ pub fn import_project_with_options(
                             .map(|cwd| cwd.join(src).canonicalize())
                             .unwrap_or(Ok(PathBuf::from(src)))
                     })
-                    .unwrap_or_else(|_| PathBuf::from(src));
-                resolved
+                    .unwrap_or_else(|_| PathBuf::from(src))
             };
 
             // Check if this path is outside the workspace (external)
@@ -546,6 +545,7 @@ pub fn import_project_recursive(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn import_project_recursive_with_options(
     project_path: &str,
     source: Option<&str>,
@@ -642,7 +642,7 @@ fn process_nested_repositories(
 
     // Process each project in the nested meta file
     let mut import_queue = VecDeque::new();
-    for (name, _entry) in &nested_meta.projects {
+    for name in nested_meta.projects.keys() {
         if context.should_ignore(name) {
             println!(
                 "     {} {}",
@@ -895,7 +895,7 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
     println!("\n  {} {}", "📦".bright_blue(), "Workspace Projects".bold());
     println!("  {}", "═".repeat(60).bright_black());
 
-    for (name, _entry) in &config.projects {
+    for name in config.projects.keys() {
         let project_path = base_path.join(name);
         let url = config
             .get_project_url(name)
@@ -1323,7 +1323,7 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
     let mut updated = 0;
     let mut failed = 0;
 
-    for (name, _entry) in &config.projects {
+    for name in config.projects.keys() {
         let project_path = base_path.join(name);
 
         if !project_path.exists() {

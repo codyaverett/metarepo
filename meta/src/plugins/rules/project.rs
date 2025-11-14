@@ -99,7 +99,7 @@ impl<'a> ProjectRulesManager<'a> {
         println!("{}", "════════════════════".blue());
         println!();
 
-        for (project_name, _) in &self.runtime_config.meta_config.projects {
+        for project_name in self.runtime_config.meta_config.projects.keys() {
             let project_path = self.get_project_path(project_name)?;
             let has_specific_rules = project_path.join(".rules.yaml").exists();
 

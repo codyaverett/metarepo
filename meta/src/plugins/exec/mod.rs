@@ -242,8 +242,8 @@ pub fn execute_in_specific_projects(command: &str, args: &[&str], projects: &[&s
     let base_path = meta_file.parent().unwrap();
 
     println!(
-        "Executing '{}' in specified projects",
-        format!("{} {}", command, args.join(" "))
+        "Executing '{} {}' in specified projects",
+        command, args.join(" ")
     );
 
     for project_name in projects {

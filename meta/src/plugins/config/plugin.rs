@@ -9,6 +9,12 @@ use super::tui_editor::ConfigEditor;
 
 pub struct ConfigPlugin;
 
+impl Default for ConfigPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConfigPlugin {
     pub fn new() -> Self {
         Self

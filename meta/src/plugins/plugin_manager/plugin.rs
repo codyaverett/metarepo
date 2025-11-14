@@ -188,7 +188,7 @@ fn install_plugin(name: &str) -> Result<()> {
     let plugin_crate = format!("metarepo-plugin-{}", name);
 
     let output = ProcessCommand::new("cargo")
-        .args(&["install", &plugin_crate])
+        .args(["install", &plugin_crate])
         .output()
         .context("Failed to run cargo install")?;
 
@@ -200,7 +200,7 @@ fn install_plugin(name: &str) -> Result<()> {
     info!("Plugin '{}' installed successfully", name);
 
     // Add to .meta config
-    add_to_meta_config(name, &format!("^latest"))?;
+    add_to_meta_config(name, "^latest")?;
 
     Ok(())
 }
@@ -236,7 +236,7 @@ fn remove_plugin(name: &str) -> Result<()> {
     // Also try to uninstall from cargo
     let plugin_crate = format!("metarepo-plugin-{}", name);
     let _ = ProcessCommand::new("cargo")
-        .args(&["uninstall", &plugin_crate])
+        .args(["uninstall", &plugin_crate])
         .output();
 
     // Remove from .meta config
@@ -351,7 +351,7 @@ fn update_plugins() -> Result<()> {
                     let plugin_crate = format!("metarepo-plugin-{}", name);
 
                     let output = ProcessCommand::new("cargo")
-                        .args(&["install", "--force", &plugin_crate])
+                        .args(["install", "--force", &plugin_crate])
                         .output()
                         .context("Failed to run cargo install")?;
 

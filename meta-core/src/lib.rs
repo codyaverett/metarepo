@@ -346,11 +346,9 @@ impl MetaConfig {
     /// Get the worktree_init command for a project (project-level overrides global)
     pub fn get_worktree_init(&self, project_name: &str) -> Option<String> {
         // Check project-level first
-        if let Some(entry) = self.projects.get(project_name) {
-            if let ProjectEntry::Metadata(metadata) = entry {
-                if let Some(worktree_init) = &metadata.worktree_init {
-                    return Some(worktree_init.clone());
-                }
+        if let Some(ProjectEntry::Metadata(metadata)) = self.projects.get(project_name) {
+            if let Some(worktree_init) = &metadata.worktree_init {
+                return Some(worktree_init.clone());
             }
         }
 
@@ -360,10 +358,8 @@ impl MetaConfig {
 
     /// Get whether a project should use bare repository
     pub fn is_bare_repo(&self, project_name: &str) -> bool {
-        if let Some(entry) = self.projects.get(project_name) {
-            if let ProjectEntry::Metadata(metadata) = entry {
-                return metadata.bare.unwrap_or(false);
-            }
+        if let Some(ProjectEntry::Metadata(metadata)) = self.projects.get(project_name) {
+            return metadata.bare.unwrap_or(false);
         }
         false
     }
@@ -434,16 +430,18 @@ mod tests {
         let meta_file = temp_dir.path().join(".meta");
 
         // Create a config with nested configuration
-        let mut config = MetaConfig::default();
-        config.nested = Some(NestedConfig {
-            recursive_import: true,
-            max_depth: 5,
-            flatten: true,
-            cycle_detection: false,
-            ignore_nested: vec!["ignored-project".to_string()],
-            namespace_separator: Some("::".to_string()),
-            preserve_structure: true,
-        });
+        let config = MetaConfig {
+            nested: Some(NestedConfig {
+                recursive_import: true,
+                max_depth: 5,
+                flatten: true,
+                cycle_detection: false,
+                ignore_nested: vec!["ignored-project".to_string()],
+                namespace_separator: Some("::".to_string()),
+                preserve_structure: true,
+            }),
+            ..Default::default()
+        };
 
         // Save and load
         config.save_to_file(&meta_file).unwrap();
@@ -452,13 +450,13 @@ mod tests {
         // Verify nested configuration
         assert!(loaded_config.nested.is_some());
         let nested = loaded_config.nested.unwrap();
-        assert_eq!(nested.recursive_import, true);
+        assert!(nested.recursive_import);
         assert_eq!(nested.max_depth, 5);
-        assert_eq!(nested.flatten, true);
-        assert_eq!(nested.cycle_detection, false);
+        assert!(nested.flatten);
+        assert!(!nested.cycle_detection);
         assert_eq!(nested.ignore_nested, vec!["ignored-project".to_string()]);
         assert_eq!(nested.namespace_separator, Some("::".to_string()));
-        assert_eq!(nested.preserve_structure, true);
+        assert!(nested.preserve_structure);
     }
 
     #[test]
@@ -492,13 +490,13 @@ mod tests {
     #[test]
     fn test_nested_config_default() {
         let nested = NestedConfig::default();
-        assert_eq!(nested.recursive_import, false);
+        assert!(!nested.recursive_import);
         assert_eq!(nested.max_depth, 3);
-        assert_eq!(nested.flatten, false);
-        assert_eq!(nested.cycle_detection, true);
+        assert!(!nested.flatten);
+        assert!(nested.cycle_detection);
         assert!(nested.ignore_nested.is_empty());
         assert!(nested.namespace_separator.is_none());
-        assert_eq!(nested.preserve_structure, false);
+        assert!(!nested.preserve_structure);
     }
 
     #[test]
