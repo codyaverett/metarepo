@@ -34,31 +34,35 @@ impl HelpPanel {
         match self.mode {
             Mode::Normal => {
                 lines.extend(vec![
-                    Line::from(vec![
-                        Span::styled("Navigation:", Style::default().fg(Color::Yellow)),
-                    ]),
+                    Line::from(vec![Span::styled(
+                        "Navigation:",
+                        Style::default().fg(Color::Yellow),
+                    )]),
                     Line::from("  h/j/k/l or ←/↓/↑/→  Move cursor"),
                     Line::from("  g / G               Jump to top / bottom"),
                     Line::from("  Ctrl+u / Ctrl+d     Page up / down"),
                     Line::from(""),
-                    Line::from(vec![
-                        Span::styled("Tree:", Style::default().fg(Color::Yellow)),
-                    ]),
+                    Line::from(vec![Span::styled(
+                        "Tree:",
+                        Style::default().fg(Color::Yellow),
+                    )]),
                     Line::from("  Enter or o          Toggle expand/collapse"),
                     Line::from("  O                   Expand node"),
                     Line::from("  C                   Collapse node"),
                     Line::from(""),
-                    Line::from(vec![
-                        Span::styled("Editing:", Style::default().fg(Color::Yellow)),
-                    ]),
+                    Line::from(vec![Span::styled(
+                        "Editing:",
+                        Style::default().fg(Color::Yellow),
+                    )]),
                     Line::from("  i                   Enter insert mode"),
                     Line::from("  v                   Enter visual mode"),
                     Line::from("  d                   Delete node"),
                     Line::from("  x                   Delete character"),
                     Line::from(""),
-                    Line::from(vec![
-                        Span::styled("Commands:", Style::default().fg(Color::Yellow)),
-                    ]),
+                    Line::from(vec![Span::styled(
+                        "Commands:",
+                        Style::default().fg(Color::Yellow),
+                    )]),
                     Line::from("  :                   Enter command mode"),
                     Line::from("  Ctrl+w              Save"),
                     Line::from("  Ctrl+q              Quit"),
@@ -67,9 +71,10 @@ impl HelpPanel {
             }
             Mode::Insert => {
                 lines.extend(vec![
-                    Line::from(vec![
-                        Span::styled("Insert Mode:", Style::default().fg(Color::Green)),
-                    ]),
+                    Line::from(vec![Span::styled(
+                        "Insert Mode:",
+                        Style::default().fg(Color::Green),
+                    )]),
                     Line::from("  Esc                 Return to normal mode"),
                     Line::from("  Typing              Insert text"),
                     Line::from("  Backspace           Delete previous char"),
@@ -79,9 +84,10 @@ impl HelpPanel {
             }
             Mode::Visual => {
                 lines.extend(vec![
-                    Line::from(vec![
-                        Span::styled("Visual Mode:", Style::default().fg(Color::Yellow)),
-                    ]),
+                    Line::from(vec![Span::styled(
+                        "Visual Mode:",
+                        Style::default().fg(Color::Yellow),
+                    )]),
                     Line::from("  Esc or v            Return to normal mode"),
                     Line::from("  j/k or ↓/↑          Extend selection"),
                     Line::from("  Ctrl+a              Select all"),
@@ -90,15 +96,17 @@ impl HelpPanel {
             }
             Mode::Command => {
                 lines.extend(vec![
-                    Line::from(vec![
-                        Span::styled("Command Mode:", Style::default().fg(Color::Magenta)),
-                    ]),
+                    Line::from(vec![Span::styled(
+                        "Command Mode:",
+                        Style::default().fg(Color::Magenta),
+                    )]),
                     Line::from("  Esc                 Cancel command"),
                     Line::from("  Enter               Execute command"),
                     Line::from(""),
-                    Line::from(vec![
-                        Span::styled("Commands:", Style::default().fg(Color::Yellow)),
-                    ]),
+                    Line::from(vec![Span::styled(
+                        "Commands:",
+                        Style::default().fg(Color::Yellow),
+                    )]),
                     Line::from("  :w or :write        Save changes"),
                     Line::from("  :q or :quit         Quit (fails if modified)"),
                     Line::from("  :q! or :quit!       Force quit (discard changes)"),

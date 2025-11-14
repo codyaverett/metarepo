@@ -1,10 +1,7 @@
+use super::{execute_in_specific_projects, execute_with_iterator, ProjectIterator};
 use anyhow::Result;
 use clap::ArgMatches;
-use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig, MetaConfig,
-    plugin, command, arg,
-};
-use super::{execute_in_specific_projects, execute_with_iterator, ProjectIterator};
+use metarepo_core::{arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
 
 /// ExecPlugin using the new simplified plugin architecture
 pub struct ExecPlugin;
@@ -13,7 +10,7 @@ impl ExecPlugin {
     pub fn new() -> Self {
         Self
     }
-    
+
     /// Create the plugin using the builder pattern
     pub fn create_plugin() -> impl MetaPlugin {
         plugin("exec")
@@ -31,52 +28,52 @@ impl ExecPlugin {
                             .short('p')
                             .long("project")
                             .help("Single project to run command in")
-                            .takes_value(true)
+                            .takes_value(true),
                     )
                     .arg(
                         arg("projects")
                             .long("projects")
                             .help("Comma-separated list of specific projects")
-                            .takes_value(true)
+                            .takes_value(true),
                     )
                     .arg(
                         arg("all")
                             .short('a')
                             .long("all")
-                            .help("Run command in all projects")
+                            .help("Run command in all projects"),
                     )
                     .arg(
                         arg("include-only")
                             .long("include-only")
                             .help("Only include projects matching these patterns (comma-separated)")
-                            .takes_value(true)
+                            .takes_value(true),
                     )
                     .arg(
                         arg("exclude")
                             .long("exclude")
                             .help("Exclude projects matching these patterns (comma-separated)")
-                            .takes_value(true)
+                            .takes_value(true),
                     )
                     .arg(
                         arg("existing-only")
                             .long("existing-only")
-                            .help("Only iterate over existing projects")
+                            .help("Only iterate over existing projects"),
                     )
                     .arg(
                         arg("git-only")
                             .long("git-only")
-                            .help("Only iterate over git repositories")
+                            .help("Only iterate over git repositories"),
                     )
                     .arg(
                         arg("parallel")
                             .long("parallel")
-                            .help("Execute commands in parallel")
+                            .help("Execute commands in parallel"),
                     )
                     .arg(
                         arg("include-main")
                             .long("include-main")
-                            .help("Include the main meta repository")
-                    )
+                            .help("Include the main meta repository"),
+                    ),
             )
             .handler("exec", handle_exec)
             .build()
@@ -90,52 +87,62 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
         .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
-    
+
     // Get the external subcommand (the actual command to run)
     match matches.subcommand() {
         Some((command, sub_matches)) => {
             // Parse remaining arguments from the external subcommand
             let args: Vec<&str> = match sub_matches.get_many::<std::ffi::OsString>("") {
                 Some(os_args) => os_args.map(|s| s.to_str().unwrap_or("")).collect(),
-                None => Vec::new()
+                None => Vec::new(),
             };
-            
+
             // Collect selected projects
             let mut selected_projects = Vec::new();
-            
+
             // Check for --all flag
             if matches.get_flag("all") {
                 // Run in all projects
                 let mut iterator = ProjectIterator::new(&config, base_path);
-                
+
                 // Apply additional filters if provided
                 if let Some(patterns_str) = matches.get_one::<String>("include-only") {
-                    let pattern_vec: Vec<String> = patterns_str.split(',').map(|s| s.to_string()).collect();
+                    let pattern_vec: Vec<String> =
+                        patterns_str.split(',').map(|s| s.to_string()).collect();
                     iterator = iterator.with_include_patterns(pattern_vec);
                 }
-                
+
                 if let Some(patterns_str) = matches.get_one::<String>("exclude") {
-                    let pattern_vec: Vec<String> = patterns_str.split(',').map(|s| s.to_string()).collect();
+                    let pattern_vec: Vec<String> =
+                        patterns_str.split(',').map(|s| s.to_string()).collect();
                     iterator = iterator.with_exclude_patterns(pattern_vec);
                 }
-                
+
                 if matches.get_flag("existing-only") {
                     iterator = iterator.filter_existing();
                 }
-                
+
                 if matches.get_flag("git-only") {
                     iterator = iterator.filter_git_repos();
                 }
-                
+
                 let parallel = matches.get_flag("parallel");
                 let include_main = matches.get_flag("include-main");
                 let no_progress = matches.get_flag("no-progress");
                 let streaming = matches.get_flag("streaming");
-                
-                execute_with_iterator(command, &args, iterator, include_main, parallel, no_progress, streaming)?;
+
+                execute_with_iterator(
+                    command,
+                    &args,
+                    iterator,
+                    include_main,
+                    parallel,
+                    no_progress,
+                    streaming,
+                )?;
                 return Ok(());
             }
-            
+
             // Check for single project
             if let Some(project_id) = matches.get_one::<String>("project") {
                 // Use resolve_project to handle aliases
@@ -145,7 +152,7 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                     selected_projects.push(project_id.clone());
                 }
             }
-            
+
             // Check for multiple projects
             if let Some(projects_str) = matches.get_one::<String>("projects") {
                 for p in projects_str.split(',') {
@@ -158,7 +165,7 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                     }
                 }
             }
-            
+
             // If no projects specified, check for current project context
             if selected_projects.is_empty() {
                 if let Some(current) = runtime_config.current_project() {
@@ -169,45 +176,56 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                     return Ok(());
                 }
             }
-            
+
             // Execute in selected projects
             if !selected_projects.is_empty() {
-                let project_refs: Vec<&str> = selected_projects.iter().map(|s| s.as_str()).collect();
+                let project_refs: Vec<&str> =
+                    selected_projects.iter().map(|s| s.as_str()).collect();
                 execute_in_specific_projects(command, &args, &project_refs)?;
                 return Ok(());
             }
-            
+
             // Build iterator with filters (for backward compatibility)
             let mut iterator = ProjectIterator::new(&config, base_path);
-            
+
             // Apply include patterns
             if let Some(patterns_str) = matches.get_one::<String>("include-only") {
-                let pattern_vec: Vec<String> = patterns_str.split(',').map(|s| s.to_string()).collect();
+                let pattern_vec: Vec<String> =
+                    patterns_str.split(',').map(|s| s.to_string()).collect();
                 iterator = iterator.with_include_patterns(pattern_vec);
             }
-            
+
             // Apply exclude patterns
             if let Some(patterns_str) = matches.get_one::<String>("exclude") {
-                let pattern_vec: Vec<String> = patterns_str.split(',').map(|s| s.to_string()).collect();
+                let pattern_vec: Vec<String> =
+                    patterns_str.split(',').map(|s| s.to_string()).collect();
                 iterator = iterator.with_exclude_patterns(pattern_vec);
             }
-            
+
             // Apply filters
             if matches.get_flag("existing-only") {
                 iterator = iterator.filter_existing();
             }
-            
+
             if matches.get_flag("git-only") {
                 iterator = iterator.filter_git_repos();
             }
-            
+
             let parallel = matches.get_flag("parallel");
             let include_main = matches.get_flag("include-main");
             let no_progress = matches.get_flag("no-progress");
             let streaming = matches.get_flag("streaming");
-            
-            execute_with_iterator(command, &args, iterator, include_main, parallel, no_progress, streaming)?;
-            
+
+            execute_with_iterator(
+                command,
+                &args,
+                iterator,
+                include_main,
+                parallel,
+                no_progress,
+                streaming,
+            )?;
+
             Ok(())
         }
         None => {
@@ -228,7 +246,7 @@ impl MetaPlugin for ExecPlugin {
     fn name(&self) -> &str {
         "exec"
     }
-    
+
     fn register_commands(&self, app: clap::Command) -> clap::Command {
         // Register exec as a direct command with allow_external_subcommands
         let exec_cmd = clap::Command::new("exec")
@@ -240,73 +258,73 @@ impl MetaPlugin for ExecPlugin {
                     .short('p')
                     .long("project")
                     .help("Single project to run command in")
-                    .value_name("PROJECT")
+                    .value_name("PROJECT"),
             )
             .arg(
                 clap::Arg::new("projects")
                     .long("projects")
                     .help("Comma-separated list of specific projects")
-                    .value_name("PROJECTS")
+                    .value_name("PROJECTS"),
             )
             .arg(
                 clap::Arg::new("all")
                     .short('a')
                     .long("all")
                     .help("Run command in all projects")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("include-only")
                     .long("include-only")
                     .help("Only include projects matching these patterns (comma-separated)")
-                    .value_name("PATTERNS")
+                    .value_name("PATTERNS"),
             )
             .arg(
                 clap::Arg::new("exclude")
                     .long("exclude")
                     .help("Exclude projects matching these patterns (comma-separated)")
-                    .value_name("PATTERNS")
+                    .value_name("PATTERNS"),
             )
             .arg(
                 clap::Arg::new("existing-only")
                     .long("existing-only")
                     .help("Only iterate over existing projects")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("git-only")
                     .long("git-only")
                     .help("Only iterate over git repositories")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("parallel")
                     .long("parallel")
                     .help("Execute commands in parallel")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("include-main")
                     .long("include-main")
                     .help("Include the main meta repository")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("no-progress")
                     .long("no-progress")
                     .help("Disable progress indicators (useful for CI environments)")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("streaming")
                     .long("streaming")
                     .help("Show output as it happens instead of buffered (legacy behavior)")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             );
-        
+
         app.subcommand(exec_cmd)
     }
-    
+
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         // Call the handler directly
         handle_exec(matches, config)
@@ -317,11 +335,11 @@ impl BasePlugin for ExecPlugin {
     fn version(&self) -> Option<&str> {
         Some(env!("CARGO_PKG_VERSION"))
     }
-    
+
     fn description(&self) -> Option<&str> {
         Some("Execute commands across multiple repositories")
     }
-    
+
     fn author(&self) -> Option<&str> {
         Some("Metarepo Contributors")
     }

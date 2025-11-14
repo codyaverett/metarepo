@@ -1,9 +1,9 @@
 use colored::*;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use std::thread;
 use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JobStatus {
@@ -51,7 +51,11 @@ impl ProjectOutput {
         self.exit_code = Some(exit_code);
         self.stdout = stdout;
         self.stderr = stderr;
-        self.status = if exit_code == 0 { JobStatus::Completed } else { JobStatus::Failed };
+        self.status = if exit_code == 0 {
+            JobStatus::Completed
+        } else {
+            JobStatus::Failed
+        };
     }
 }
 
@@ -119,16 +123,21 @@ impl OutputManager {
 
     pub fn all_completed(&self) -> bool {
         let outputs = self.outputs.lock().unwrap();
-        outputs.values().all(|o| matches!(o.status, JobStatus::Completed | JobStatus::Failed))
+        outputs
+            .values()
+            .all(|o| matches!(o.status, JobStatus::Completed | JobStatus::Failed))
     }
 
     pub fn display_final_results(&self) {
         let outputs = self.outputs.lock().unwrap();
         let total_duration = self.start_time.elapsed();
-        
+
         // Clear progress line and print completion message
         print!("\r\x1b[K");
-        println!("✓ All projects completed in {:.1}s\n", total_duration.as_secs_f32());
+        println!(
+            "✓ All projects completed in {:.1}s\n",
+            total_duration.as_secs_f32()
+        );
 
         let mut success_count = 0;
         let mut failed_projects = Vec::new();
@@ -137,7 +146,7 @@ impl OutputManager {
         for project_name in &self.project_order {
             if let Some(output) = outputs.get(project_name) {
                 self.display_project_result(output);
-                
+
                 match output.status {
                     JobStatus::Completed => success_count += 1,
                     JobStatus::Failed => failed_projects.push(project_name.clone()),
@@ -148,13 +157,14 @@ impl OutputManager {
 
         // Summary
         println!("\n  {}", "─".repeat(60).bright_black());
-        println!("  {} {} completed, {} failed", 
+        println!(
+            "  {} {} completed, {} failed",
             "Summary:".bright_black(),
             success_count.to_string().green(),
-            if !failed_projects.is_empty() { 
-                failed_projects.len().to_string().red() 
-            } else { 
-                "0".bright_black() 
+            if !failed_projects.is_empty() {
+                failed_projects.len().to_string().red()
+            } else {
+                "0".bright_black()
             }
         );
 
@@ -170,7 +180,12 @@ impl OutputManager {
             "(unknown)".to_string()
         };
 
-        println!("  {} {} {}", "📦".blue(), output.name.bold(), duration_str.bright_black());
+        println!(
+            "  {} {} {}",
+            "📦".blue(),
+            output.name.bold(),
+            duration_str.bright_black()
+        );
 
         // Display command if available
         if let Some(command) = &output.command {
@@ -194,7 +209,7 @@ impl OutputManager {
             }
             JobStatus::Failed => {
                 println!("     {} {}", "❌".red(), "Failed".red());
-                
+
                 // Display stderr if present
                 if !output.stderr.is_empty() {
                     let stderr_str = String::from_utf8_lossy(&output.stderr);
@@ -232,7 +247,7 @@ impl ProgressIndicator {
     pub fn start(&mut self) {
         let manager = Arc::clone(&self.manager);
         let task_name = self.task_name.clone();
-        
+
         let handle = thread::spawn(move || {
             let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
             let mut spinner_index = 0;
@@ -246,19 +261,18 @@ impl ProgressIndicator {
                 // Show progress line
                 let spinner = spinner_chars[spinner_index % spinner_chars.len()];
                 let progress_text = if running > 0 {
-                    format!("🚀 Running '{}' {} {}/{} projects • {}s elapsed", 
-                        task_name, 
+                    format!(
+                        "🚀 Running '{}' {} {}/{} projects • {}s elapsed",
+                        task_name,
                         spinner.to_string().cyan(),
-                        completed, 
-                        total, 
+                        completed,
+                        total,
                         elapsed
                     )
                 } else {
-                    format!("🚀 Completed '{}' • {}/{} projects • {}s elapsed", 
-                        task_name,
-                        completed, 
-                        total, 
-                        elapsed
+                    format!(
+                        "🚀 Completed '{}' • {}/{} projects • {}s elapsed",
+                        task_name, completed, total, elapsed
                     )
                 };
 

@@ -5,41 +5,39 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 // New plugin system modules
+pub mod interactive;
 mod plugin_base;
 mod plugin_builder;
 mod plugin_manifest;
-pub mod interactive;
 pub mod tui;
 
+pub use interactive::{
+    is_interactive, prompt_confirm, prompt_multiselect, prompt_select, prompt_text, prompt_url,
+    NonInteractiveMode,
+};
 pub use plugin_base::{
-    BasePlugin, PluginMetadata, HelpFormat, HelpFormatter,
-    TerminalHelpFormatter, JsonHelpFormatter, YamlHelpFormatter, MarkdownHelpFormatter,
-    CommandInfo, ArgumentInfo,
+    ArgumentInfo, BasePlugin, CommandInfo, HelpFormat, HelpFormatter, JsonHelpFormatter,
+    MarkdownHelpFormatter, PluginMetadata, TerminalHelpFormatter, YamlHelpFormatter,
 };
 pub use plugin_builder::{
-    PluginBuilder, BuiltPlugin, CommandBuilder, ArgBuilder,
-    plugin, command, arg,
+    arg, command, plugin, ArgBuilder, BuiltPlugin, CommandBuilder, PluginBuilder,
 };
 pub use plugin_manifest::{
-    PluginManifest, PluginInfo, ManifestCommand, ManifestArg,
-    ArgValueType, Example, PluginConfig, ExecutionConfig, Dependency,
-};
-pub use interactive::{
-    NonInteractiveMode, is_interactive, prompt_text, prompt_url,
-    prompt_confirm, prompt_select, prompt_multiselect,
+    ArgValueType, Dependency, Example, ExecutionConfig, ManifestArg, ManifestCommand, PluginConfig,
+    PluginInfo, PluginManifest,
 };
 
 /// Trait that all meta plugins must implement
 pub trait MetaPlugin: Send + Sync {
     /// Returns the plugin name (used for command routing)
     fn name(&self) -> &str;
-    
+
     /// Register CLI commands for this plugin
     fn register_commands(&self, app: Command) -> Command;
-    
+
     /// Handle a command for this plugin
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>;
-    
+
     /// Returns true if this plugin is experimental (default: false)
     fn is_experimental(&self) -> bool {
         false
@@ -60,28 +58,30 @@ impl RuntimeConfig {
     pub fn has_meta_file(&self) -> bool {
         self.meta_file_path.is_some()
     }
-    
+
     pub fn meta_root(&self) -> Option<PathBuf> {
-        self.meta_file_path.as_ref().and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        self.meta_file_path
+            .as_ref()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
     }
-    
+
     pub fn is_experimental(&self) -> bool {
         self.experimental
     }
-    
+
     /// Detect if we're currently inside a project directory and return its name
     pub fn current_project(&self) -> Option<String> {
         let meta_root = self.meta_root()?;
         let cwd = &self.working_dir;
-        
+
         // Check if we're inside the meta root
         if !cwd.starts_with(&meta_root) {
             return None;
         }
-        
+
         // Get relative path from meta root
         let _relative = cwd.strip_prefix(&meta_root).ok()?;
-        
+
         // Check each project to see if we're inside it
         for project_name in self.meta_config.projects.keys() {
             let project_path = meta_root.join(project_name);
@@ -89,24 +89,24 @@ impl RuntimeConfig {
                 return Some(project_name.clone());
             }
         }
-        
+
         None
     }
-    
+
     /// Resolve a project identifier (could be full name, basename, or alias)
     pub fn resolve_project(&self, identifier: &str) -> Option<String> {
         // First, check if it's a full project name
         if self.meta_config.projects.contains_key(identifier) {
             return Some(identifier.to_string());
         }
-        
+
         // Check global aliases
         if let Some(aliases) = &self.meta_config.aliases {
             if let Some(project_path) = aliases.get(identifier) {
                 return Some(project_path.clone());
             }
         }
-        
+
         // Check project-specific aliases
         for (project_name, entry) in &self.meta_config.projects {
             if let ProjectEntry::Metadata(metadata) = entry {
@@ -115,7 +115,7 @@ impl RuntimeConfig {
                 }
             }
         }
-        
+
         // Check if it's a basename match
         for project_name in self.meta_config.projects.keys() {
             if let Some(basename) = std::path::Path::new(project_name).file_name() {
@@ -124,14 +124,14 @@ impl RuntimeConfig {
                 }
             }
         }
-        
+
         None
     }
-    
+
     /// Get all valid identifiers for a project (full name, basename, aliases)
     pub fn project_identifiers(&self, project_name: &str) -> Vec<String> {
         let mut identifiers = vec![project_name.to_string()];
-        
+
         // Add basename if different from full name
         if let Some(basename) = std::path::Path::new(project_name).file_name() {
             let basename_str = basename.to_string_lossy().to_string();
@@ -139,9 +139,9 @@ impl RuntimeConfig {
                 identifiers.push(basename_str);
             }
         }
-        
+
         // TODO: Add custom aliases when implemented
-        
+
         identifiers
     }
 }
@@ -165,9 +165,15 @@ pub struct NestedConfig {
     pub preserve_structure: bool,
 }
 
-fn default_recursive_import() -> bool { false }
-fn default_max_depth() -> usize { 3 }
-fn default_cycle_detection() -> bool { true }
+fn default_recursive_import() -> bool {
+    false
+}
+fn default_max_depth() -> usize {
+    3
+}
+fn default_cycle_detection() -> bool {
+    true
+}
 
 impl Default for NestedConfig {
     fn default() -> Self {
@@ -257,30 +263,30 @@ impl MetaConfig {
         let config: MetaConfig = serde_json::from_str(&content)?;
         Ok(config)
     }
-    
+
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let content = serde_json::to_string_pretty(self)?;
         std::fs::write(path, content)?;
         Ok(())
     }
-    
+
     pub fn find_meta_file() -> Option<PathBuf> {
         let mut current = std::env::current_dir().ok()?;
-        
+
         loop {
             let meta_file = current.join(".meta");
             if meta_file.exists() {
                 return Some(meta_file);
             }
-            
+
             if !current.pop() {
                 break;
             }
         }
-        
+
         None
     }
-    
+
     pub fn load() -> Result<Self> {
         if let Some(meta_file) = Self::find_meta_file() {
             Self::load_from_file(meta_file)
@@ -288,7 +294,7 @@ impl MetaConfig {
             Err(anyhow::anyhow!("No .meta file found"))
         }
     }
-    
+
     /// Get the URL for a project (handles both string and metadata formats)
     pub fn get_project_url(&self, project_name: &str) -> Option<String> {
         self.projects.get(project_name).map(|entry| match entry {
@@ -296,40 +302,42 @@ impl MetaConfig {
             ProjectEntry::Metadata(metadata) => metadata.url.clone(),
         })
     }
-    
+
     /// Get scripts for a specific project
     pub fn get_project_scripts(&self, project_name: &str) -> Option<HashMap<String, String>> {
-        self.projects.get(project_name).and_then(|entry| match entry {
-            ProjectEntry::Url(_) => None,
-            ProjectEntry::Metadata(metadata) => {
-                if metadata.scripts.is_empty() {
-                    None
-                } else {
-                    Some(metadata.scripts.clone())
+        self.projects
+            .get(project_name)
+            .and_then(|entry| match entry {
+                ProjectEntry::Url(_) => None,
+                ProjectEntry::Metadata(metadata) => {
+                    if metadata.scripts.is_empty() {
+                        None
+                    } else {
+                        Some(metadata.scripts.clone())
+                    }
                 }
-            }
-        })
+            })
     }
-    
+
     /// Get all available scripts (project-specific and global)
     pub fn get_all_scripts(&self, project_name: Option<&str>) -> HashMap<String, String> {
         let mut scripts = HashMap::new();
-        
+
         // Add global scripts first
         if let Some(global_scripts) = &self.scripts {
             scripts.extend(global_scripts.clone());
         }
-        
+
         // Add project-specific scripts (overrides global)
         if let Some(project) = project_name {
             if let Some(project_scripts) = self.get_project_scripts(project) {
                 scripts.extend(project_scripts);
             }
         }
-        
+
         scripts
     }
-    
+
     /// Check if a project exists (for backwards compatibility)
     pub fn project_exists(&self, project_name: &str) -> bool {
         self.projects.contains_key(project_name)
@@ -366,7 +374,7 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
-    
+
     #[test]
     fn test_meta_config_default() {
         let config = MetaConfig::default();
@@ -380,35 +388,51 @@ mod tests {
         assert!(config.plugins.is_none());
         assert!(config.nested.is_none());
     }
-    
+
     #[test]
     fn test_meta_config_save_and_load() {
         let temp_dir = tempdir().unwrap();
         let meta_file = temp_dir.path().join(".meta");
-        
+
         // Create a config with some data
         let mut config = MetaConfig::default();
-        config.projects.insert("project1".to_string(), ProjectEntry::Url("https://github.com/user/repo.git".to_string()));
-        config.projects.insert("project2".to_string(), ProjectEntry::Url("https://github.com/user/repo2.git".to_string()));
-        
+        config.projects.insert(
+            "project1".to_string(),
+            ProjectEntry::Url("https://github.com/user/repo.git".to_string()),
+        );
+        config.projects.insert(
+            "project2".to_string(),
+            ProjectEntry::Url("https://github.com/user/repo2.git".to_string()),
+        );
+
         // Save the config
         config.save_to_file(&meta_file).unwrap();
-        
+
         // Load the config back
         let loaded_config = MetaConfig::load_from_file(&meta_file).unwrap();
-        
+
         // Verify the loaded config matches
         assert_eq!(loaded_config.projects.len(), 2);
-        assert_eq!(loaded_config.projects.get("project1"), Some(&ProjectEntry::Url("https://github.com/user/repo.git".to_string())));
-        assert_eq!(loaded_config.projects.get("project2"), Some(&ProjectEntry::Url("https://github.com/user/repo2.git".to_string())));
+        assert_eq!(
+            loaded_config.projects.get("project1"),
+            Some(&ProjectEntry::Url(
+                "https://github.com/user/repo.git".to_string()
+            ))
+        );
+        assert_eq!(
+            loaded_config.projects.get("project2"),
+            Some(&ProjectEntry::Url(
+                "https://github.com/user/repo2.git".to_string()
+            ))
+        );
         assert_eq!(loaded_config.ignore, config.ignore);
     }
-    
+
     #[test]
     fn test_meta_config_with_nested() {
         let temp_dir = tempdir().unwrap();
         let meta_file = temp_dir.path().join(".meta");
-        
+
         // Create a config with nested configuration
         let mut config = MetaConfig::default();
         config.nested = Some(NestedConfig {
@@ -420,11 +444,11 @@ mod tests {
             namespace_separator: Some("::".to_string()),
             preserve_structure: true,
         });
-        
+
         // Save and load
         config.save_to_file(&meta_file).unwrap();
         let loaded_config = MetaConfig::load_from_file(&meta_file).unwrap();
-        
+
         // Verify nested configuration
         assert!(loaded_config.nested.is_some());
         let nested = loaded_config.nested.unwrap();
@@ -436,32 +460,35 @@ mod tests {
         assert_eq!(nested.namespace_separator, Some("::".to_string()));
         assert_eq!(nested.preserve_structure, true);
     }
-    
+
     #[test]
     fn test_find_meta_file() {
         let temp_dir = tempdir().unwrap();
         let nested_dir = temp_dir.path().join("nested").join("deep");
         fs::create_dir_all(&nested_dir).unwrap();
-        
+
         // Create .meta file in temp_dir
         let meta_file = temp_dir.path().join(".meta");
         let config = MetaConfig::default();
         config.save_to_file(&meta_file).unwrap();
-        
+
         // Change to nested directory
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&nested_dir).unwrap();
-        
+
         // Find meta file should traverse up
         let found_file = MetaConfig::find_meta_file();
         assert!(found_file.is_some());
         // Compare canonical paths to handle symlinks like /private/var vs /var on macOS
-        assert_eq!(found_file.unwrap().canonicalize().unwrap(), meta_file.canonicalize().unwrap());
-        
+        assert_eq!(
+            found_file.unwrap().canonicalize().unwrap(),
+            meta_file.canonicalize().unwrap()
+        );
+
         // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
     }
-    
+
     #[test]
     fn test_nested_config_default() {
         let nested = NestedConfig::default();
@@ -473,54 +500,57 @@ mod tests {
         assert!(nested.namespace_separator.is_none());
         assert_eq!(nested.preserve_structure, false);
     }
-    
+
     #[test]
     fn test_runtime_config_has_meta_file() {
         let temp_dir = tempdir().unwrap();
         let meta_file = temp_dir.path().join(".meta");
-        
+
         let config_with_meta = RuntimeConfig {
             meta_config: MetaConfig::default(),
             working_dir: temp_dir.path().to_path_buf(),
             meta_file_path: Some(meta_file.clone()),
             experimental: false,
+            non_interactive: None,
         };
-        
+
         let config_without_meta = RuntimeConfig {
             meta_config: MetaConfig::default(),
             working_dir: temp_dir.path().to_path_buf(),
             meta_file_path: None,
             experimental: false,
+            non_interactive: None,
         };
-        
+
         assert!(config_with_meta.has_meta_file());
         assert!(!config_without_meta.has_meta_file());
     }
-    
+
     #[test]
     fn test_runtime_config_meta_root() {
         let temp_dir = tempdir().unwrap();
         let meta_file = temp_dir.path().join("subdir").join(".meta");
         fs::create_dir_all(meta_file.parent().unwrap()).unwrap();
-        
+
         let config = RuntimeConfig {
             meta_config: MetaConfig::default(),
             working_dir: temp_dir.path().to_path_buf(),
             meta_file_path: Some(meta_file.clone()),
             experimental: false,
+            non_interactive: None,
         };
-        
+
         assert_eq!(config.meta_root(), Some(temp_dir.path().join("subdir")));
     }
-    
+
     #[test]
     fn test_load_invalid_json() {
         let temp_dir = tempdir().unwrap();
         let meta_file = temp_dir.path().join(".meta");
-        
+
         // Write invalid JSON
         fs::write(&meta_file, "{ invalid json }").unwrap();
-        
+
         // Should return an error
         let result = MetaConfig::load_from_file(&meta_file);
         assert!(result.is_err());

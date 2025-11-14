@@ -53,9 +53,7 @@ fn handle_editing_keys(key: KeyEvent) -> Action {
         (KeyCode::Esc, _) => Action::CancelEdit,
 
         // Text input
-        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
-            Action::InsertChar(c)
-        }
+        (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => Action::InsertChar(c),
 
         // Backspace
         (KeyCode::Backspace, _) => Action::Backspace,
@@ -89,17 +87,11 @@ fn handle_browsing_keys(key: KeyEvent) -> Action {
         (KeyCode::PageDown, _) | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
             Action::NavigatePageDown
         }
-        (KeyCode::Home, _) | (KeyCode::Char('g'), KeyModifiers::NONE) => {
-            Action::NavigateTop
-        }
-        (KeyCode::End, _) | (KeyCode::Char('G'), KeyModifiers::SHIFT) => {
-            Action::NavigateBottom
-        }
+        (KeyCode::Home, _) | (KeyCode::Char('g'), KeyModifiers::NONE) => Action::NavigateTop,
+        (KeyCode::End, _) | (KeyCode::Char('G'), KeyModifiers::SHIFT) => Action::NavigateBottom,
 
         // Toggle expand/collapse or start editing
-        (KeyCode::Enter, _) | (KeyCode::Char(' '), KeyModifiers::NONE) => {
-            Action::ToggleExpand
-        }
+        (KeyCode::Enter, _) | (KeyCode::Char(' '), KeyModifiers::NONE) => Action::ToggleExpand,
 
         // Start editing (only for editable items)
         (KeyCode::Char('e'), KeyModifiers::NONE) => Action::StartEdit,
@@ -108,9 +100,7 @@ fn handle_browsing_keys(key: KeyEvent) -> Action {
         (KeyCode::Char('s'), KeyModifiers::NONE) | (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
             Action::Save
         }
-        (KeyCode::Char('q'), KeyModifiers::NONE) | (KeyCode::Esc, _) => {
-            Action::Quit
-        }
+        (KeyCode::Char('q'), KeyModifiers::NONE) | (KeyCode::Esc, _) => Action::Quit,
 
         // Force quit (Ctrl+C)
         (KeyCode::Char('c'), KeyModifiers::CONTROL) => Action::Quit,

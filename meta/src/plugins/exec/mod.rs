@@ -1,35 +1,35 @@
 use anyhow::Result;
 use metarepo_core::MetaConfig;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 
 pub mod iterator;
 pub mod plugin;
 
 // Export the plugin
-pub use plugin::ExecPlugin;
-pub use iterator::{ProjectIterator, ProjectInfo};
 use crate::plugins::shared::{OutputManager, ProgressIndicator};
+pub use iterator::{ProjectInfo, ProjectIterator};
+pub use plugin::ExecPlugin;
 
 pub fn execute_command_in_directory<P: AsRef<Path>>(
-    command: &str, 
-    args: &[&str], 
-    directory: P
+    command: &str,
+    args: &[&str],
+    directory: P,
 ) -> Result<()> {
     let dir = directory.as_ref();
     println!("\n=== Executing in {} ===", dir.display());
     println!("Command: {} {}", command, args.join(" "));
-    
+
     let mut cmd = Command::new(command);
     cmd.args(args)
-       .current_dir(dir)
-       .stdout(Stdio::piped())
-       .stderr(Stdio::piped());
-    
+        .current_dir(dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
     let mut child = cmd.spawn()?;
-    
+
     // Read stdout in real-time
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
@@ -37,10 +37,10 @@ pub fn execute_command_in_directory<P: AsRef<Path>>(
             println!("{}", line?);
         }
     }
-    
+
     // Wait for the process to complete
     let status = child.wait()?;
-    
+
     if !status.success() {
         // Read stderr if command failed
         if let Some(stderr) = child.stderr.take() {
@@ -49,16 +49,18 @@ pub fn execute_command_in_directory<P: AsRef<Path>>(
                 eprintln!("ERROR: {}", line?);
             }
         }
-        return Err(anyhow::anyhow!("Command failed with exit code: {}", 
-            status.code().unwrap_or(-1)));
+        return Err(anyhow::anyhow!(
+            "Command failed with exit code: {}",
+            status.code().unwrap_or(-1)
+        ));
     }
-    
+
     Ok(())
 }
 
 pub fn execute_with_iterator(
-    command: &str, 
-    args: &[&str], 
+    command: &str,
+    args: &[&str],
     iterator: ProjectIterator,
     include_main: bool,
     parallel: bool,
@@ -66,12 +68,12 @@ pub fn execute_with_iterator(
     streaming: bool,
 ) -> Result<()> {
     let projects: Vec<_> = iterator.collect();
-    
+
     if projects.is_empty() && !include_main {
         println!("No projects matched the criteria");
         return Ok(());
     }
-    
+
     let total = projects.len() + if include_main { 1 } else { 0 };
     println!("Executing command in {} project(s)", total);
     println!("Command: {} {}", command, args.join(" "));
@@ -79,70 +81,91 @@ pub fn execute_with_iterator(
         println!("Mode: Parallel execution");
     }
     println!();
-    
+
     // Execute in main repository if requested
     if include_main {
-        let meta_file = MetaConfig::find_meta_file()
-            .ok_or_else(|| anyhow::anyhow!("No .meta file found"))?;
+        let meta_file =
+            MetaConfig::find_meta_file().ok_or_else(|| anyhow::anyhow!("No .meta file found"))?;
         let base_path = meta_file.parent().unwrap();
-        
+
         println!("=== Main Repository ===");
         if let Err(e) = execute_command_in_directory(command, args, base_path) {
             eprintln!("Failed in main repository: {}", e);
         }
     }
-    
+
     // Execute in projects
     if parallel && projects.len() > 1 && !streaming {
         // Use buffered output for parallel execution
         let project_names: Vec<String> = projects.iter().map(|p| p.name.clone()).collect();
         let output_manager = Arc::new(OutputManager::new(project_names));
-        let mut progress_indicator = ProgressIndicator::new(Arc::clone(&output_manager), format!("{} {}", command, args.join(" ")));
-        
-        println!("Executing command in {} project(s) [parallel mode]", projects.len());
+        let mut progress_indicator = ProgressIndicator::new(
+            Arc::clone(&output_manager),
+            format!("{} {}", command, args.join(" ")),
+        );
+
+        println!(
+            "Executing command in {} project(s) [parallel mode]",
+            projects.len()
+        );
         println!("Command: {} {}", command, args.join(" "));
-        
+
         if !no_progress {
             progress_indicator.start();
         }
-        
+
         use std::thread;
         let mut handles = vec![];
-        
+
         for project in projects.clone() {
             let cmd = command.to_string();
             let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
             let output_manager_clone = Arc::clone(&output_manager);
             let project_name = project.name.clone();
-            
+
             let handle = thread::spawn(move || {
                 output_manager_clone.start_project(&project_name);
-                
+
                 if !project.exists {
                     let error_msg = "Directory does not exist, skipping";
-                    output_manager_clone.complete_project(&project_name, -1, Vec::new(), error_msg.as_bytes().to_vec());
+                    output_manager_clone.complete_project(
+                        &project_name,
+                        -1,
+                        Vec::new(),
+                        error_msg.as_bytes().to_vec(),
+                    );
                     return;
                 }
-                
+
                 let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 match execute_command_in_directory_buffered(&cmd, &args_refs, &project.path) {
                     Ok((exit_code, stdout, stderr, command_str)) => {
                         output_manager_clone.set_project_command(&project_name, command_str);
-                        output_manager_clone.complete_project(&project_name, exit_code, stdout, stderr);
+                        output_manager_clone.complete_project(
+                            &project_name,
+                            exit_code,
+                            stdout,
+                            stderr,
+                        );
                     }
                     Err(e) => {
                         let error_msg = format!("Error: {}", e);
-                        output_manager_clone.complete_project(&project_name, -1, Vec::new(), error_msg.into_bytes());
+                        output_manager_clone.complete_project(
+                            &project_name,
+                            -1,
+                            Vec::new(),
+                            error_msg.into_bytes(),
+                        );
                     }
                 }
             });
             handles.push(handle);
         }
-        
+
         for handle in handles {
             handle.join().unwrap();
         }
-        
+
         // Stop progress indicator and display results
         if !no_progress {
             progress_indicator.stop();
@@ -151,17 +174,17 @@ pub fn execute_with_iterator(
             print!("\r\x1b[K");
         }
         output_manager.display_final_results();
-        
+
         return Ok(());
     } else {
         for (idx, project) in projects.iter().enumerate() {
             println!("[{}/{}] {}", idx + 1, projects.len(), project.name);
-            
+
             if !project.exists {
                 println!("  ⚠️  Directory does not exist, skipping");
                 continue;
             }
-            
+
             if let Err(e) = execute_command_in_directory(command, args, &project.path) {
                 eprintln!("  ❌ Failed: {}", e);
             } else {
@@ -169,16 +192,16 @@ pub fn execute_with_iterator(
             }
         }
     }
-    
+
     println!("\n=== Execution Complete ===");
     Ok(())
 }
 
 /// Execute command in directory with buffered output (for parallel execution)
 pub fn execute_command_in_directory_buffered<P: AsRef<Path>>(
-    command: &str, 
-    args: &[&str], 
-    directory: P
+    command: &str,
+    args: &[&str],
+    directory: P,
 ) -> Result<(i32, Vec<u8>, Vec<u8>, String)> {
     let dir = directory.as_ref();
     let command_str = if args.is_empty() {
@@ -186,12 +209,12 @@ pub fn execute_command_in_directory_buffered<P: AsRef<Path>>(
     } else {
         format!("{} {}", command, args.join(" "))
     };
-    
+
     let mut cmd = Command::new(command);
     cmd.args(args).current_dir(dir);
-    
+
     let output = cmd.output()?;
-    
+
     Ok((
         output.status.code().unwrap_or(-1),
         output.stdout,
@@ -203,10 +226,10 @@ pub fn execute_command_in_directory_buffered<P: AsRef<Path>>(
 pub fn execute_in_all_projects(command: &str, args: &[&str]) -> Result<()> {
     let meta_file = MetaConfig::find_meta_file()
         .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
-    
+
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
-    
+
     let iterator = ProjectIterator::new(&config, base_path);
     execute_with_iterator(command, args, iterator, true, false, false, false)
 }
@@ -214,17 +237,19 @@ pub fn execute_in_all_projects(command: &str, args: &[&str]) -> Result<()> {
 pub fn execute_in_specific_projects(command: &str, args: &[&str], projects: &[&str]) -> Result<()> {
     let meta_file = MetaConfig::find_meta_file()
         .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
-    
+
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
-    
-    println!("Executing '{}' in specified projects", 
-        format!("{} {}", command, args.join(" ")));
-    
+
+    println!(
+        "Executing '{}' in specified projects",
+        format!("{} {}", command, args.join(" "))
+    );
+
     for project_name in projects {
         if let Some(_repo_url) = config.projects.get(*project_name) {
             let full_path = base_path.join(project_name);
-            
+
             if full_path.exists() {
                 if let Err(e) = execute_command_in_directory(command, args, &full_path) {
                     eprintln!("Failed in {}: {}", project_name, e);
@@ -234,10 +259,13 @@ pub fn execute_in_specific_projects(command: &str, args: &[&str], projects: &[&s
                 println!("Project directory not found, skipping");
             }
         } else {
-            eprintln!("Project '{}' not found in .meta configuration", project_name);
+            eprintln!(
+                "Project '{}' not found in .meta configuration",
+                project_name
+            );
         }
     }
-    
+
     println!("\n=== Execution Complete ===");
     Ok(())
 }

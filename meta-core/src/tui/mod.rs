@@ -5,28 +5,28 @@
 //! - New menuconfig-style interface (recommended)
 
 // Legacy vim-like interface (deprecated)
-mod modes;
-mod keybindings;
 mod app;
+mod keybindings;
+mod modes;
 
 // New menuconfig-style interface (recommended)
-mod simple_keys;
 mod menu_app;
+mod simple_keys;
 
 // Widgets (shared between both interfaces)
 pub mod widgets;
 
 // Legacy exports (deprecated)
-pub use modes::{Mode, EditorMode};
-pub use keybindings::{KeyHandler, KeyAction};
 pub use app::{TuiApp, TuiAppState, TuiConfig};
+pub use keybindings::{KeyAction, KeyHandler};
+pub use modes::{EditorMode, Mode};
 
 // New exports (recommended)
-pub use simple_keys::{handle_key, Action};
 pub use menu_app::{MenuApp, MenuAppState};
+pub use simple_keys::{handle_key, Action};
 
 // Shared exports
-pub use widgets::{TreeWidget, StatusBar, HelpPanel, TreeNode, TreeState, Breadcrumb, ContextBar};
+pub use widgets::{Breadcrumb, ContextBar, HelpPanel, StatusBar, TreeNode, TreeState, TreeWidget};
 
 use anyhow::Result;
 use crossterm::{
@@ -34,10 +34,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
 /// Initialize a TUI terminal with alternate screen

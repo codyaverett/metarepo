@@ -1,14 +1,11 @@
-use anyhow::Result;
-use clap::ArgMatches;
-use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig,
-    plugin, command, arg,
-};
 use super::config::RulesConfig;
+use super::create::RuleCreator;
 use super::engine::RuleEngine;
 use super::project::{ProjectRulesManager, RulesStats};
-use super::create::RuleCreator;
+use anyhow::Result;
+use clap::ArgMatches;
 use colored::*;
+use metarepo_core::{arg, command, plugin, BasePlugin, MetaPlugin, RuntimeConfig};
 use std::collections::HashMap;
 
 /// RulesPlugin using the new simplified plugin architecture
@@ -18,7 +15,7 @@ impl RulesPlugin {
     pub fn new() -> Self {
         Self
     }
-    
+
     /// Create the plugin using the builder pattern
     pub fn create_plugin() -> impl MetaPlugin {
         plugin("rules")
@@ -217,46 +214,48 @@ impl RulesPlugin {
 fn handle_check(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let fix = matches.get_flag("fix");
     let project = matches.get_one::<String>("project");
-    
+
     let manager = ProjectRulesManager::new(config);
-    
+
     // Determine which projects to check
     let projects = if let Some(project_name) = project {
         vec![project_name.clone()]
     } else {
         config.meta_config.projects.keys().cloned().collect()
     };
-    
+
     let mut total_violations = 0;
-    
+
     for project_name in projects {
         let project_path = manager.get_project_path(&project_name)?;
-        
+
         if !project_path.exists() {
             println!("{}: {}", project_name.yellow(), "Directory not found".red());
             continue;
         }
-        
+
         // Load project-specific or workspace rules
         let rules_config = manager.load_project_rules(&project_name)?;
         let engine = RuleEngine::new(rules_config.clone());
-        
+
         println!("\n{} {}", "Checking project:".bold(), project_name.cyan());
         println!("{}", "=".repeat(50));
-        
+
         // Show rules source
-        let stats = RulesStats::from_config(&rules_config, 
-            super::project::check_project_rules_inheritance(&project_path));
+        let stats = RulesStats::from_config(
+            &rules_config,
+            super::project::check_project_rules_inheritance(&project_path),
+        );
         stats.print();
         println!();
-        
+
         let violations = engine.validate(&project_path)?;
-        
+
         if violations.is_empty() {
             println!("✅ {}", "All rules passed!".green());
         } else {
             total_violations += violations.len();
-            
+
             for violation in &violations {
                 match violation.severity {
                     super::engine::Severity::Error => {
@@ -269,20 +268,20 @@ fn handle_check(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
                         println!("ℹ️  {} {}", "INFO:".blue().bold(), violation.message);
                     }
                 }
-                
+
                 if let Some(path) = &violation.path {
                     println!("   {}: {}", "Path".dimmed(), path.display());
                 }
-                
+
                 if violation.fixable {
                     println!("   {} This can be auto-fixed", "→".green());
                 }
             }
-            
+
             if fix {
                 println!("\n{}", "Attempting to fix violations...".yellow());
                 let fixable: Vec<_> = violations.iter().filter(|v| v.fixable).cloned().collect();
-                
+
                 if !fixable.is_empty() {
                     super::engine::fix_violations(&project_path, &fixable)?;
                     println!("✅ Fixed {} violations", fixable.len());
@@ -290,14 +289,18 @@ fn handle_check(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             }
         }
     }
-    
+
     if total_violations > 0 {
-        println!("\n{} Found {} total violations", "Summary:".bold(), total_violations);
+        println!(
+            "\n{} Found {} total violations",
+            "Summary:".bold(),
+            total_violations
+        );
         if !fix {
             println!("💡 Run with --fix to automatically fix fixable violations");
         }
     }
-    
+
     Ok(())
 }
 
@@ -305,7 +308,7 @@ fn handle_check(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 fn handle_init(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let output_path = matches.get_one::<String>("output").unwrap();
     let project = matches.get_one::<String>("project");
-    
+
     let full_path = if let Some(project_name) = project {
         let manager = ProjectRulesManager::new(config);
         let project_path = manager.get_project_path(project_name)?;
@@ -315,46 +318,55 @@ fn handle_init(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     } else {
         config.working_dir.join(output_path)
     };
-    
+
     if full_path.exists() {
-        println!("{} Rules configuration already exists at: {}", 
-                "Warning:".yellow(), 
-                full_path.display());
+        println!(
+            "{} Rules configuration already exists at: {}",
+            "Warning:".yellow(),
+            full_path.display()
+        );
         return Ok(());
     }
-    
+
     let default_config = RulesConfig::default_config();
     let yaml = serde_yaml::to_string(&default_config)?;
     std::fs::write(&full_path, &yaml)?;
-    
+
     println!("✅ Created rules configuration at: {}", full_path.display());
     if project.is_some() {
-        println!("📝 Project {} now has specific rules", project.unwrap().cyan());
+        println!(
+            "📝 Project {} now has specific rules",
+            project.unwrap().cyan()
+        );
     }
     println!("\n{}", "Example configuration:".bold());
     println!("{}", yaml);
-    
+
     Ok(())
 }
 
 /// Handler for the list command
 fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let project = matches.get_one::<String>("project");
-    
+
     let rules_config = if let Some(project_name) = project {
         let manager = ProjectRulesManager::new(config);
         manager.load_project_rules(project_name)?
     } else {
         load_rules_config(config)?
     };
-    
+
     println!("{}", "Configured Rules:".bold().underline());
     println!();
-    
+
     if !rules_config.directories.is_empty() {
         println!("{}", "📁 Directory Rules:".cyan().bold());
         for dir_rule in &rules_config.directories {
-            let required = if dir_rule.required { "required" } else { "optional" };
+            let required = if dir_rule.required {
+                "required"
+            } else {
+                "optional"
+            };
             println!("   • {} ({})", dir_rule.path, required.dimmed());
             if let Some(desc) = &dir_rule.description {
                 println!("     {}", desc.dimmed());
@@ -362,7 +374,7 @@ fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         }
         println!();
     }
-    
+
     if !rules_config.components.is_empty() {
         println!("{}", "🧩 Component Rules:".cyan().bold());
         for comp_rule in &rules_config.components {
@@ -377,7 +389,7 @@ fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         }
         println!();
     }
-    
+
     if !rules_config.files.is_empty() {
         println!("{}", "📄 File Rules:".cyan().bold());
         for file_rule in &rules_config.files {
@@ -393,7 +405,7 @@ fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -429,14 +441,18 @@ fn handle_create(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
             let required = sub_matches.get_flag("required");
             let description = sub_matches.get_one::<String>("description").cloned();
             let project = sub_matches.get_one::<String>("project").map(|s| s.as_str());
-            
+
             let creator = RuleCreator::new(None);
             creator.create_directory_rule(path, required, description, project)?;
         }
         Some(("component", sub_matches)) => {
             let pattern = sub_matches.get_one::<String>("pattern").unwrap();
-            let structure = if let Some(structure_str) = sub_matches.get_one::<String>("structure") {
-                structure_str.split(',').map(|s| s.trim().to_string()).collect()
+            let structure = if let Some(structure_str) = sub_matches.get_one::<String>("structure")
+            {
+                structure_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect()
             } else {
                 // Interactive mode to get structure
                 println!("Enter structure items (empty line to finish):");
@@ -457,14 +473,14 @@ fn handle_create(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
             };
             let description = sub_matches.get_one::<String>("description").cloned();
             let project = sub_matches.get_one::<String>("project").map(|s| s.as_str());
-            
+
             let creator = RuleCreator::new(None);
             creator.create_component_rule(pattern, structure, description, project)?;
         }
         Some(("file", sub_matches)) => {
             let pattern = sub_matches.get_one::<String>("pattern").unwrap();
             let mut requires = HashMap::new();
-            
+
             if let Some(requires_str) = sub_matches.get_one::<String>("requires") {
                 for req in requires_str.split(',') {
                     if let Some((key, value)) = req.split_once(':') {
@@ -472,10 +488,10 @@ fn handle_create(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
                     }
                 }
             }
-            
+
             let description = sub_matches.get_one::<String>("description").cloned();
             let project = sub_matches.get_one::<String>("project").map(|s| s.as_str());
-            
+
             let creator = RuleCreator::new(None);
             creator.create_file_rule(pattern, requires, description, project)?;
         }
@@ -508,7 +524,7 @@ fn load_rules_config(config: &RuntimeConfig) -> Result<RulesConfig> {
     } else {
         config.working_dir.join(".rules.yaml")
     };
-    
+
     if rules_path.exists() {
         super::config::load_config(rules_path)
     } else {
@@ -543,11 +559,11 @@ impl BasePlugin for RulesPlugin {
     fn version(&self) -> Option<&str> {
         Some(env!("CARGO_PKG_VERSION"))
     }
-    
+
     fn description(&self) -> Option<&str> {
         Some("Enforce project file structure rules")
     }
-    
+
     fn author(&self) -> Option<&str> {
         Some("Metarepo Contributors")
     }

@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
+use clap::{ArgMatches, Command as ClapCommand};
 use metarepo_core::{MetaConfig, MetaPlugin, RuntimeConfig};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use clap::{ArgMatches, Command as ClapCommand};
 
 // Protocol messages for plugin communication
 #[derive(Debug, Serialize, Deserialize)]
@@ -101,9 +101,13 @@ impl ExternalPlugin {
 
         // Get plugin info
         let info = Self::send_request(&mut child, PluginRequest::GetInfo)?;
-        
+
         let (name, version, experimental) = match info {
-            PluginResponse::Info { name, version, experimental } => (name, version, experimental),
+            PluginResponse::Info {
+                name,
+                version,
+                experimental,
+            } => (name, version, experimental),
             PluginResponse::Error { message } => {
                 return Err(anyhow::anyhow!("Plugin returned error: {}", message));
             }
@@ -114,7 +118,7 @@ impl ExternalPlugin {
 
         // Get command structure
         let commands = Self::send_request(&mut child, PluginRequest::RegisterCommands)?;
-        
+
         let commands = match commands {
             PluginResponse::Commands { commands } => commands,
             PluginResponse::Error { message } => {
@@ -128,7 +132,7 @@ impl ExternalPlugin {
         // Log plugin information only in verbose mode
         // eprintln!("Loaded plugin '{}' v{} from {:?}", name, version, path);
         tracing::debug!("Loaded plugin '{}' v{} from {:?}", name, version, path);
-        
+
         Ok(Box::new(ExternalPlugin {
             path: path.to_path_buf(),
             name,
@@ -140,10 +144,14 @@ impl ExternalPlugin {
     }
 
     fn send_request(child: &mut Child, request: PluginRequest) -> Result<PluginResponse> {
-        let stdin = child.stdin.as_mut()
+        let stdin = child
+            .stdin
+            .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Failed to get plugin stdin"))?;
-        
-        let stdout = child.stdout.as_mut()
+
+        let stdout = child
+            .stdout
+            .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Failed to get plugin stdout"))?;
 
         // Send request
@@ -167,22 +175,20 @@ impl ExternalPlugin {
         // Store command info as leaked static strings to satisfy clap's lifetime requirements
         let name: &'static str = Box::leak(info.name.clone().into_boxed_str());
         let about: &'static str = Box::leak(info.about.clone().into_boxed_str());
-        
-        let mut cmd = ClapCommand::new(name)
-            .about(about);
+
+        let mut cmd = ClapCommand::new(name).about(about);
 
         // Add arguments
         for arg in &info.args {
             let arg_name: &'static str = Box::leak(arg.name.clone().into_boxed_str());
             let arg_help: &'static str = Box::leak(arg.help.clone().into_boxed_str());
-            
-            let mut clap_arg = clap::Arg::new(arg_name)
-                .help(arg_help);
-            
+
+            let mut clap_arg = clap::Arg::new(arg_name).help(arg_help);
+
             if arg.required {
                 clap_arg = clap_arg.required(true).index(1);
             }
-            
+
             cmd = cmd.arg(clap_arg);
         }
 
@@ -212,18 +218,18 @@ impl MetaPlugin for ExternalPlugin {
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         // Extract command and arguments from matches
         let mut args = Vec::new();
-        
+
         // Get subcommand and its arguments
         if let Some((subcmd, sub_matches)) = matches.subcommand() {
             args.push(subcmd.to_string());
-            
+
             // Get all argument values from subcommand matches
             for arg_id in sub_matches.ids() {
                 // Skip built-in arguments
                 if arg_id == "verbose" || arg_id == "quiet" || arg_id == "experimental" {
                     continue;
                 }
-                
+
                 // Try to get as string values
                 if let Ok(Some(values)) = sub_matches.try_get_many::<String>(arg_id.as_str()) {
                     for value in values {
@@ -260,12 +266,8 @@ impl MetaPlugin for ExternalPlugin {
                 }
                 Ok(())
             }
-            PluginResponse::Error { message } => {
-                Err(anyhow::anyhow!("Plugin error: {}", message))
-            }
-            _ => {
-                Err(anyhow::anyhow!("Unexpected response from plugin"))
-            }
+            PluginResponse::Error { message } => Err(anyhow::anyhow!("Plugin error: {}", message)),
+            _ => Err(anyhow::anyhow!("Unexpected response from plugin")),
         }
     }
 
@@ -355,7 +357,8 @@ impl PluginLoader {
         } else {
             Err(anyhow::anyhow!(
                 "Plugin '{}' not found. Install with: cargo install metarepo-plugin-{}",
-                name, name
+                name,
+                name
             ))
         }
     }
@@ -414,6 +417,7 @@ mod tests {
             working_dir: PathBuf::from("/tmp"),
             meta_file_path: None,
             experimental: false,
+            non_interactive: None,
         };
 
         let dto: RuntimeConfigDto = (&config).into();

@@ -1,12 +1,12 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use tokio::process::{Child, Command};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use tokio::process::{Child, Command};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
@@ -47,7 +47,10 @@ impl McpServerInstance {
 
     pub async fn start(&mut self) -> Result<()> {
         if self.is_running() {
-            return Err(anyhow::anyhow!("Server '{}' is already running", self.config.name));
+            return Err(anyhow::anyhow!(
+                "Server '{}' is already running",
+                self.config.name
+            ));
         }
 
         let mut cmd = Command::new(&self.config.command);
@@ -67,13 +70,16 @@ impl McpServerInstance {
             }
         }
 
-        let mut child = cmd.spawn()
+        let mut child = cmd
+            .spawn()
             .with_context(|| format!("Failed to start MCP server '{}'", self.config.name))?;
 
         // Keep stdin to send initialization and keep the server alive
-        let mut stdin = child.stdin.take()
+        let mut stdin = child
+            .stdin
+            .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to get stdin for MCP server"))?;
-        
+
         // Send initialization request to the MCP server
         let init_request = json!({
             "jsonrpc": "2.0",
@@ -88,17 +94,19 @@ impl McpServerInstance {
                 }
             }
         });
-        
+
         let init_str = format!("{}\n", init_request.to_string());
-        stdin.write_all(init_str.as_bytes()).await
+        stdin
+            .write_all(init_str.as_bytes())
+            .await
             .with_context(|| "Failed to send initialization to MCP server")?;
         stdin.flush().await?;
-        
+
         // Store stdin to keep the connection alive
         self.stdin = Some(stdin);
 
         let output_buffer = Arc::clone(&self.output_buffer);
-        
+
         if let Some(stdout) = child.stdout.take() {
             let buffer_clone = Arc::clone(&output_buffer);
             tokio::spawn(async move {
@@ -130,25 +138,28 @@ impl McpServerInstance {
 
         self.process = Some(child);
         self.start_time = Some(std::time::Instant::now());
-        
+
         Ok(())
     }
 
     pub async fn stop(&mut self) -> Result<()> {
         // Drop stdin first to close the connection gracefully
         self.stdin = None;
-        
+
         if let Some(mut child) = self.process.take() {
             // Give the process a moment to exit gracefully
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            
+
             // Then kill if still running
             let _ = child.kill().await;
             self.start_time = None;
             self.output_buffer.lock().unwrap().clear();
             Ok(())
         } else {
-            Err(anyhow::anyhow!("Server '{}' is not running", self.config.name))
+            Err(anyhow::anyhow!(
+                "Server '{}' is not running",
+                self.config.name
+            ))
         }
     }
 
@@ -166,9 +177,7 @@ impl McpServerInstance {
     pub fn get_status(&self) -> McpServerStatus {
         let pid = self.process.as_ref().and_then(|p| p.id());
         let uptime = self.start_time.map(|t| t.elapsed().as_secs());
-        let last_output = self.output_buffer.lock().unwrap()
-            .last()
-            .cloned();
+        let last_output = self.output_buffer.lock().unwrap().last().cloned();
 
         McpServerStatus {
             name: self.config.name.clone(),
@@ -211,20 +220,27 @@ impl McpServerManager {
     }
 
     pub async fn start_server(&mut self, name: &str) -> Result<()> {
-        let server = self.servers.get_mut(name)
+        let server = self
+            .servers
+            .get_mut(name)
             .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", name))?;
         server.start().await
     }
 
     pub async fn stop_server(&mut self, name: &str) -> Result<()> {
-        let server = self.servers.get_mut(name)
+        let server = self
+            .servers
+            .get_mut(name)
             .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", name))?;
         server.stop().await
     }
 
     pub async fn restart_server(&mut self, name: &str) -> Result<()> {
-        if let Ok(server) = self.servers.get_mut(name)
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", name)) {
+        if let Ok(server) = self
+            .servers
+            .get_mut(name)
+            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", name))
+        {
             if server.is_running() {
                 server.stop().await?;
             }
@@ -235,21 +251,19 @@ impl McpServerManager {
 
     pub fn get_status(&self, name: Option<&str>) -> Vec<McpServerStatus> {
         match name {
-            Some(n) => {
-                self.servers.get(n)
-                    .map(|s| vec![s.get_status()])
-                    .unwrap_or_default()
-            }
-            None => {
-                self.servers.values()
-                    .map(|s| s.get_status())
-                    .collect()
-            }
+            Some(n) => self
+                .servers
+                .get(n)
+                .map(|s| vec![s.get_status()])
+                .unwrap_or_default(),
+            None => self.servers.values().map(|s| s.get_status()).collect(),
         }
     }
 
     pub fn get_server_output(&self, name: &str, lines: usize) -> Result<Vec<String>> {
-        let server = self.servers.get(name)
+        let server = self
+            .servers
+            .get(name)
             .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", name))?;
         Ok(server.get_output(lines))
     }

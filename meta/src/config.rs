@@ -1,5 +1,5 @@
 use anyhow::Result;
-use metarepo_core::{MetaConfig, RuntimeConfig, NonInteractiveMode};
+use metarepo_core::{MetaConfig, NonInteractiveMode, RuntimeConfig};
 
 pub fn create_runtime_config(experimental: bool) -> Result<RuntimeConfig> {
     create_runtime_config_with_flags(experimental, None)
@@ -31,7 +31,7 @@ pub fn create_runtime_config_with_flags(
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    
+
     #[test]
     fn test_default_config() {
         let config = MetaConfig::default();
@@ -39,32 +39,38 @@ mod tests {
         assert!(config.projects.is_empty());
         assert!(config.plugins.is_none());
     }
-    
+
     #[test]
     fn test_config_serialization() {
         use metarepo_core::ProjectEntry;
         let mut config = MetaConfig::default();
-        config.projects.insert("app1".to_string(), ProjectEntry::Url("https://github.com/user/app1.git".to_string()));
-        
+        config.projects.insert(
+            "app1".to_string(),
+            ProjectEntry::Url("https://github.com/user/app1.git".to_string()),
+        );
+
         let json = serde_json::to_string_pretty(&config).unwrap();
         let deserialized: MetaConfig = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(config.projects, deserialized.projects);
     }
-    
+
     #[test]
     fn test_config_file_operations() {
         let dir = tempdir().unwrap();
         let config_path = dir.path().join(".meta");
-        
+
         use metarepo_core::ProjectEntry;
         let mut config = MetaConfig::default();
-        config.projects.insert("test".to_string(), ProjectEntry::Url("https://github.com/test/repo.git".to_string()));
-        
+        config.projects.insert(
+            "test".to_string(),
+            ProjectEntry::Url("https://github.com/test/repo.git".to_string()),
+        );
+
         // Save config
         config.save_to_file(&config_path).unwrap();
         assert!(config_path.exists());
-        
+
         // Load config
         let loaded = MetaConfig::load_from_file(&config_path).unwrap();
         assert_eq!(config.projects, loaded.projects);

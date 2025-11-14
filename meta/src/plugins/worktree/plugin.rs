@@ -1,12 +1,11 @@
+use super::{add_worktrees, list_all_worktrees, prune_worktrees, remove_worktrees};
 use anyhow::Result;
 use clap::ArgMatches;
 use colored::Colorize;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig,
-    plugin, command, arg,
-    is_interactive, prompt_text, prompt_multiselect, NonInteractiveMode,
+    arg, command, is_interactive, plugin, prompt_multiselect, prompt_text, BasePlugin, MetaPlugin,
+    NonInteractiveMode, RuntimeConfig,
 };
-use super::{add_worktrees, remove_worktrees, list_all_worktrees, prune_worktrees};
 
 /// WorktreePlugin using the simplified plugin architecture
 pub struct WorktreePlugin;
@@ -15,7 +14,7 @@ impl WorktreePlugin {
     pub fn new() -> Self {
         Self
     }
-    
+
     /// Create the plugin using the builder pattern
     pub fn create_plugin() -> impl MetaPlugin {
         plugin("worktree")
@@ -165,7 +164,9 @@ impl WorktreePlugin {
 
 /// Handler for the add command
 fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let non_interactive = config.non_interactive.unwrap_or(NonInteractiveMode::Defaults);
+    let non_interactive = config
+        .non_interactive
+        .unwrap_or(NonInteractiveMode::Defaults);
 
     // Get or prompt for branch name
     let branch = match matches.get_one::<String>("branch") {
@@ -173,12 +174,7 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         None => {
             if is_interactive() {
                 println!("\n  🌳 {}", "Create a new worktree".cyan().bold());
-                prompt_text(
-                    "Branch name or commit",
-                    None,
-                    false,
-                    non_interactive,
-                )?
+                prompt_text("Branch name or commit", None, false, non_interactive)?
             } else {
                 return Err(anyhow::anyhow!(
                     "Branch name is required. Use 'meta worktree add <branch>' or run interactively in a terminal"
@@ -196,8 +192,7 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     // Prefer --from over positional commit arg
     let starting_point = from_ref.or(commit).map(|s| s.as_str());
 
-    let base_path = config.meta_root()
-        .unwrap_or(config.working_dir.clone());
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
 
     // Get current project context
     let current_project = config.current_project();
@@ -230,24 +225,31 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
         if !project_names.is_empty() {
             println!("\n  📋 {}", "Select projects for worktree".cyan().bold());
-            let selected = prompt_multiselect(
-                "Projects",
-                project_names,
-                vec![],
-                non_interactive,
-            )?;
+            let selected = prompt_multiselect("Projects", project_names, vec![], non_interactive)?;
             projects.extend(selected);
         }
     }
     // If no projects specified, will use current project or trigger interactive selection
 
-    add_worktrees(&branch, &projects, &base_path, path_suffix, create_branch, starting_point, no_hooks, current_project.as_deref(), &config.meta_config)?;
+    add_worktrees(
+        &branch,
+        &projects,
+        &base_path,
+        path_suffix,
+        create_branch,
+        starting_point,
+        no_hooks,
+        current_project.as_deref(),
+        &config.meta_config,
+    )?;
     Ok(())
 }
 
 /// Handler for the remove command
 fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let non_interactive = config.non_interactive.unwrap_or(NonInteractiveMode::Defaults);
+    let non_interactive = config
+        .non_interactive
+        .unwrap_or(NonInteractiveMode::Defaults);
 
     // Get or prompt for branch name
     let branch = match matches.get_one::<String>("branch") {
@@ -271,8 +273,7 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
     let force = matches.get_flag("force");
 
-    let base_path = config.meta_root()
-        .unwrap_or(config.working_dir.clone());
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
 
     // Get current project context
     let current_project = config.current_project();
@@ -305,26 +306,26 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
         if !project_names.is_empty() {
             println!("\n  📋 {}", "Select projects for removal".cyan().bold());
-            let selected = prompt_multiselect(
-                "Projects",
-                project_names,
-                vec![],
-                non_interactive,
-            )?;
+            let selected = prompt_multiselect("Projects", project_names, vec![], non_interactive)?;
             projects.extend(selected);
         }
     }
     // If no projects specified, will use current project or trigger interactive selection
 
-    remove_worktrees(&branch, &projects, &base_path, force, current_project.as_deref())?;
+    remove_worktrees(
+        &branch,
+        &projects,
+        &base_path,
+        force,
+        current_project.as_deref(),
+    )?;
     Ok(())
 }
 
 /// Handler for the list command
 fn handle_list(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let base_path = config.meta_root()
-        .unwrap_or(config.working_dir.clone());
-    
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
+
     list_all_worktrees(&base_path)?;
     Ok(())
 }
@@ -332,10 +333,9 @@ fn handle_list(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 /// Handler for the prune command
 fn handle_prune(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let dry_run = matches.get_flag("dry-run");
-    
-    let base_path = config.meta_root()
-        .unwrap_or(config.working_dir.clone());
-    
+
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
+
     prune_worktrees(&base_path, dry_run)?;
     Ok(())
 }
@@ -345,13 +345,13 @@ impl MetaPlugin for WorktreePlugin {
     fn name(&self) -> &str {
         "worktree"
     }
-    
+
     fn register_commands(&self, app: clap::Command) -> clap::Command {
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
         plugin.register_commands(app)
     }
-    
+
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
@@ -363,11 +363,11 @@ impl BasePlugin for WorktreePlugin {
     fn version(&self) -> Option<&str> {
         Some(env!("CARGO_PKG_VERSION"))
     }
-    
+
     fn description(&self) -> Option<&str> {
         Some("Git worktree management across workspace projects")
     }
-    
+
     fn author(&self) -> Option<&str> {
         Some("Metarepo Contributors")
     }

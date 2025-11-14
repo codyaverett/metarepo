@@ -1,10 +1,8 @@
 //! Config plugin for managing .meta configuration
 
 use anyhow::{anyhow, Result};
-use clap::{ArgMatches, Command, Arg};
-use metarepo_core::{
-    BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig,
-};
+use clap::{Arg, ArgMatches, Command};
+use metarepo_core::{BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
 use std::path::PathBuf;
 
 use super::tui_editor::ConfigEditor;
@@ -20,9 +18,10 @@ impl ConfigPlugin {
         let meta_file = if let Some(file) = matches.get_one::<String>("file") {
             PathBuf::from(file)
         } else {
-            config.meta_file_path.clone().ok_or_else(|| {
-                anyhow!("Could not find .meta file. Use --file to specify path.")
-            })?
+            config
+                .meta_file_path
+                .clone()
+                .ok_or_else(|| anyhow!("Could not find .meta file. Use --file to specify path."))?
         };
 
         // Launch TUI editor
@@ -33,7 +32,10 @@ impl ConfigPlugin {
     }
 
     fn handle_show(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        let format = matches.get_one::<String>("format").map(|s| s.as_str()).unwrap_or("json");
+        let format = matches
+            .get_one::<String>("format")
+            .map(|s| s.as_str())
+            .unwrap_or("json");
 
         match format {
             "json" => {
@@ -49,7 +51,10 @@ impl ConfigPlugin {
                 println!("{}", toml);
             }
             _ => {
-                return Err(anyhow!("Unknown format: {}. Use json, yaml, or toml", format));
+                return Err(anyhow!(
+                    "Unknown format: {}. Use json, yaml, or toml",
+                    format
+                ));
             }
         }
 
@@ -67,9 +72,9 @@ impl ConfigPlugin {
 
         let mut current = &config_json;
         for part in &parts {
-            current = current.get(part).ok_or_else(|| {
-                anyhow!("Key '{}' not found in config", key)
-            })?;
+            current = current
+                .get(part)
+                .ok_or_else(|| anyhow!("Key '{}' not found in config", key))?;
         }
 
         // Pretty print the value
@@ -100,18 +105,19 @@ impl ConfigPlugin {
                 current[part] = value;
             } else {
                 // Navigate deeper
-                current = current.get_mut(part).ok_or_else(|| {
-                    anyhow!("Key path '{}' not found", parts[..=i].join("."))
-                })?;
+                current = current
+                    .get_mut(part)
+                    .ok_or_else(|| anyhow!("Key path '{}' not found", parts[..=i].join(".")))?;
             }
         }
 
         // Convert back to MetaConfig and save
         let updated_config: MetaConfig = serde_json::from_value(config_json)?;
 
-        let meta_file = config.meta_file_path.clone().ok_or_else(|| {
-            anyhow!("Could not find .meta file path")
-        })?;
+        let meta_file = config
+            .meta_file_path
+            .clone()
+            .ok_or_else(|| anyhow!("Could not find .meta file path"))?;
 
         updated_config.save_to_file(&meta_file)?;
 
@@ -124,9 +130,10 @@ impl ConfigPlugin {
         let meta_file = if let Some(file) = matches.get_one::<String>("file") {
             PathBuf::from(file)
         } else {
-            config.meta_file_path.clone().ok_or_else(|| {
-                anyhow!("Could not find .meta file. Use --file to specify path.")
-            })?
+            config
+                .meta_file_path
+                .clone()
+                .ok_or_else(|| anyhow!("Could not find .meta file. Use --file to specify path."))?
         };
 
         // Try to load the config
@@ -163,8 +170,8 @@ impl MetaPlugin for ConfigPlugin {
                                 .short('f')
                                 .long("file")
                                 .value_name("FILE")
-                                .help("Path to .meta file")
-                        )
+                                .help("Path to .meta file"),
+                        ),
                 )
                 .subcommand(
                     Command::new("show")
@@ -176,18 +183,15 @@ impl MetaPlugin for ConfigPlugin {
                                 .value_name("FORMAT")
                                 .help("Output format (json, yaml, toml)")
                                 .default_value("json")
-                                .value_parser(["json", "yaml", "toml"])
-                        )
+                                .value_parser(["json", "yaml", "toml"]),
+                        ),
                 )
                 .subcommand(
                     Command::new("get")
                         .about("Get a specific config value")
-                        .arg(
-                            Arg::new("key")
-                                .required(true)
-                                .value_name("KEY")
-                                .help("Config key path (e.g., 'default_bare' or 'projects.myproject.url')")
-                        )
+                        .arg(Arg::new("key").required(true).value_name("KEY").help(
+                            "Config key path (e.g., 'default_bare' or 'projects.myproject.url')",
+                        )),
                 )
                 .subcommand(
                     Command::new("set")
@@ -196,14 +200,14 @@ impl MetaPlugin for ConfigPlugin {
                             Arg::new("key")
                                 .required(true)
                                 .value_name("KEY")
-                                .help("Config key path")
+                                .help("Config key path"),
                         )
                         .arg(
                             Arg::new("value")
                                 .required(true)
                                 .value_name("VALUE")
-                                .help("Value to set")
-                        )
+                                .help("Value to set"),
+                        ),
                 )
                 .subcommand(
                     Command::new("validate")
@@ -213,9 +217,9 @@ impl MetaPlugin for ConfigPlugin {
                                 .short('f')
                                 .long("file")
                                 .value_name("FILE")
-                                .help("Path to .meta file to validate")
-                        )
-                )
+                                .help("Path to .meta file to validate"),
+                        ),
+                ),
         )
     }
 

@@ -31,10 +31,7 @@ impl<'a> Widget for Breadcrumb<'a> {
 
         for (i, part) in self.path.iter().enumerate() {
             if i > 0 {
-                spans.push(Span::styled(
-                    " → ",
-                    Style::default().fg(Color::DarkGray),
-                ));
+                spans.push(Span::styled(" → ", Style::default().fg(Color::DarkGray)));
             }
 
             let style = if i == self.path.len() - 1 {
@@ -134,9 +131,7 @@ impl<'a> Widget for ContextBar<'a> {
 
             help_spans.push(Span::styled(
                 "Q",
-                Style::default()
-                    .fg(Color::Red)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ));
             help_spans.push(Span::raw(":Quit "));
         }

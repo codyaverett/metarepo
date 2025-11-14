@@ -162,8 +162,7 @@ pub trait MenuApp {
                     // Otherwise toggle expand/collapse
                     let selected_idx = self.state().tree_state.selected;
                     let roots = self.get_tree_roots_mut();
-                    let visible: Vec<_> =
-                        roots.iter_mut().flat_map(|r| r.flatten_mut()).collect();
+                    let visible: Vec<_> = roots.iter_mut().flat_map(|r| r.flatten_mut()).collect();
                     if let Some(&node_ptr) = visible.get(selected_idx) {
                         unsafe {
                             (*node_ptr).toggle();
@@ -177,8 +176,7 @@ pub trait MenuApp {
                 if self.is_selected_editable() {
                     self.start_editing();
                 } else {
-                    self.state_mut()
-                        .set_status("Selected item is not editable");
+                    self.state_mut().set_status("Selected item is not editable");
                 }
             }
             Action::ConfirmEdit => {
@@ -207,8 +205,7 @@ pub trait MenuApp {
 
             // Not yet implemented
             Action::Search => {
-                self.state_mut()
-                    .set_status("Search not yet implemented");
+                self.state_mut().set_status("Search not yet implemented");
             }
 
             // Delegated to editing mode

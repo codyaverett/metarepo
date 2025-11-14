@@ -167,11 +167,8 @@ impl ConfigEditor {
         settings_node.depth = 0;
 
         if let Some(default_bare) = config.default_bare {
-            let mut bare_node = TreeNode::with_value(
-                "default_bare",
-                &default_bare.to_string(),
-                "boolean",
-            );
+            let mut bare_node =
+                TreeNode::with_value("default_bare", &default_bare.to_string(), "boolean");
             bare_node.depth = 1;
             settings_node.add_child(bare_node);
         }
@@ -255,7 +252,8 @@ impl MenuApp for ConfigEditor {
                     (*node_ptr).value = Some(new_value);
                 }
                 self.state.modified = true;
-                self.state.set_status("Edit saved (press 's' to write to file)");
+                self.state
+                    .set_status("Edit saved (press 's' to write to file)");
             }
         }
 

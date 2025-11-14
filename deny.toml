@@ -2,9 +2,6 @@
 # This file configures dependency checking for known vulnerabilities,
 # license compliance, and other security concerns
 
-# Lint level for when multiple versions of the same license are detected
-multiple-versions = "warn"
-
 [advisories]
 # The advisories section is used to detect issues for crates by looking in the
 # advisory database.
@@ -13,7 +10,7 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 
 # Deny all advisories unless explicitly ignored
 vulnerability = "deny"
-unmaintained = "warn"
+unmaintained = "allow"
 yanked = "deny"
 notice = "warn"
 
@@ -52,9 +49,8 @@ default = "deny"
 # Confidence threshold for license detection (0.0 to 1.0)
 confidence-threshold = 0.8
 
-[[licenses.exceptions]]
-# Allow specific crates to use specific licenses
-# Example:
+# Uncomment and configure if you need license exceptions:
+# [[licenses.exceptions]]
 # name = "some-crate"
 # allow = ["GPL-3.0"]
 
@@ -77,22 +73,8 @@ skip = [
 # Allow certain wildcard dependencies
 allow-wildcard-paths = false
 
-# Highlight specific dependencies
-highlight = [
-    # Security-critical dependencies
-    "git2",
-    "serde",
-    "serde_json",
-    "serde_yaml",
-    "toml",
-]
-
 # Warn when multiple versions of the same crate are detected
 multiple-versions = "warn"
-
-# The maximum number of allowed different versions of the same crate
-# Setting this to 1 would mean only a single version of each crate is allowed
-multiple-version-limit = 3
 
 [sources]
 # Deny crates from unknown registries
