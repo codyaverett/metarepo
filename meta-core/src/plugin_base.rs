@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Command;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use crate::MetaPlugin;
@@ -17,36 +17,36 @@ pub trait BasePlugin: MetaPlugin {
             experimental: self.is_experimental(),
         }
     }
-    
+
     /// Get plugin version
     fn version(&self) -> Option<&str> {
         None
     }
-    
+
     /// Get plugin description
     fn description(&self) -> Option<&str> {
         None
     }
-    
+
     /// Get plugin author
     fn author(&self) -> Option<&str> {
         None
     }
-    
+
     /// Default help implementation that generates from command structure
     fn show_help(&self, format: HelpFormat) -> Result<()> {
         let app = self.build_help_command();
         let formatter = format.formatter();
         formatter.format_help(&app)
     }
-    
+
     /// Build a command for help generation
     fn build_help_command(&self) -> Command {
         let name: &'static str = Box::leak(format!("meta {}", self.name()).into_boxed_str());
         let app = Command::new(name);
         self.register_commands(app)
     }
-    
+
     /// Show AI-friendly help output
     fn show_ai_help(&self) -> Result<()> {
         self.show_help(HelpFormat::Json)
@@ -81,7 +81,7 @@ impl HelpFormat {
             HelpFormat::Markdown => Box::new(MarkdownHelpFormatter),
         }
     }
-    
+
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "terminal" | "term" => Some(HelpFormat::Terminal),
@@ -151,13 +151,13 @@ pub struct MarkdownHelpFormatter;
 impl HelpFormatter for MarkdownHelpFormatter {
     fn format_help(&self, app: &Command) -> Result<()> {
         let mut output = String::new();
-        
+
         // Command name and description
         output.push_str(&format!("# {}\n\n", app.get_name()));
         if let Some(about) = app.get_about() {
             output.push_str(&format!("{}\n\n", about));
         }
-        
+
         // Usage
         output.push_str("## Usage\n\n```\n");
         output.push_str(&format!("{} [OPTIONS]", app.get_name()));
@@ -165,15 +165,21 @@ impl HelpFormatter for MarkdownHelpFormatter {
             output.push_str(" <COMMAND>");
         }
         output.push_str("\n```\n\n");
-        
+
         // Options
         let args: Vec<_> = app.get_arguments().collect();
         if !args.is_empty() {
             output.push_str("## Options\n\n");
             for arg in args {
                 if let Some(help) = arg.get_help() {
-                    let short = arg.get_short().map(|s| format!("-{}", s)).unwrap_or_default();
-                    let long = arg.get_long().map(|l| format!("--{}", l)).unwrap_or_default();
+                    let short = arg
+                        .get_short()
+                        .map(|s| format!("-{}", s))
+                        .unwrap_or_default();
+                    let long = arg
+                        .get_long()
+                        .map(|l| format!("--{}", l))
+                        .unwrap_or_default();
                     let flags = match (&short[..], &long[..]) {
                         ("", l) => l.to_string(),
                         (s, "") => s.to_string(),
@@ -184,7 +190,7 @@ impl HelpFormatter for MarkdownHelpFormatter {
             }
             output.push('\n');
         }
-        
+
         // Subcommands
         let subcommands: Vec<_> = app.get_subcommands().collect();
         if !subcommands.is_empty() {
@@ -196,7 +202,7 @@ impl HelpFormatter for MarkdownHelpFormatter {
                 }
             }
         }
-        
+
         println!("{}", output);
         Ok(())
     }
@@ -227,17 +233,22 @@ fn extract_command_info(app: &Command) -> CommandInfo {
         name: app.get_name().to_string(),
         description: app.get_about().map(|s| s.to_string()),
         version: app.get_version().map(|s| s.to_string()),
-        subcommands: app.get_subcommands()
+        subcommands: app
+            .get_subcommands()
             .map(|cmd| extract_command_info(cmd))
             .collect(),
-        arguments: app.get_arguments()
+        arguments: app
+            .get_arguments()
             .map(|arg| ArgumentInfo {
                 name: arg.get_id().to_string(),
                 short: arg.get_short(),
                 long: arg.get_long().map(|s| s.to_string()),
                 help: arg.get_help().map(|s| s.to_string()),
                 required: arg.is_required_set(),
-                takes_value: arg.get_num_args().map(|n| n.takes_values()).unwrap_or(false),
+                takes_value: arg
+                    .get_num_args()
+                    .map(|n| n.takes_values())
+                    .unwrap_or(false),
             })
             .collect(),
     }
@@ -246,7 +257,7 @@ fn extract_command_info(app: &Command) -> CommandInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_help_format_from_str() {
         assert_eq!(HelpFormat::parse("terminal"), Some(HelpFormat::Terminal));
@@ -257,12 +268,12 @@ mod tests {
         assert_eq!(HelpFormat::parse("markdown"), Some(HelpFormat::Markdown));
         assert_eq!(HelpFormat::parse("md"), Some(HelpFormat::Markdown));
         assert_eq!(HelpFormat::parse("unknown"), None);
-        
+
         // Test case insensitive
         assert_eq!(HelpFormat::parse("JSON"), Some(HelpFormat::Json));
         assert_eq!(HelpFormat::parse("Terminal"), Some(HelpFormat::Terminal));
     }
-    
+
     #[test]
     fn test_help_format_display() {
         assert_eq!(format!("{}", HelpFormat::Terminal), "terminal");
@@ -270,7 +281,7 @@ mod tests {
         assert_eq!(format!("{}", HelpFormat::Yaml), "yaml");
         assert_eq!(format!("{}", HelpFormat::Markdown), "markdown");
     }
-    
+
     #[test]
     fn test_extract_command_info() {
         let app = Command::new("test-app")
@@ -280,33 +291,29 @@ mod tests {
                 clap::Arg::new("verbose")
                     .short('v')
                     .long("verbose")
-                    .help("Enable verbose output")
+                    .help("Enable verbose output"),
             )
             .arg(
                 clap::Arg::new("input")
                     .long("input")
                     .help("Input file")
                     .required(true)
-                    .value_name("FILE")
+                    .value_name("FILE"),
             )
             .subcommand(
                 Command::new("sub")
                     .about("Subcommand")
-                    .arg(
-                        clap::Arg::new("flag")
-                            .short('f')
-                            .help("A flag")
-                    )
+                    .arg(clap::Arg::new("flag").short('f').help("A flag")),
             );
-        
+
         let info = extract_command_info(&app);
-        
+
         assert_eq!(info.name, "test-app");
         assert_eq!(info.description, Some("Test application".to_string()));
         assert_eq!(info.version, Some("1.0.0".to_string()));
         assert_eq!(info.subcommands.len(), 1);
         assert_eq!(info.subcommands[0].name, "sub");
-        
+
         // Check arguments (note: clap includes help and version by default)
         let verbose_arg = info.arguments.iter().find(|a| a.name == "verbose");
         assert!(verbose_arg.is_some());
@@ -314,61 +321,65 @@ mod tests {
         assert_eq!(verbose.short, Some('v'));
         assert_eq!(verbose.long, Some("verbose".to_string()));
         assert_eq!(verbose.help, Some("Enable verbose output".to_string()));
-        
+
         let input_arg = info.arguments.iter().find(|a| a.name == "input");
         assert!(input_arg.is_some());
         let input = input_arg.unwrap();
         assert_eq!(input.long, Some("input".to_string()));
         assert!(input.required);
     }
-    
+
     #[test]
     fn test_plugin_metadata() {
         #[derive(Debug)]
         struct TestPlugin;
-        
+
         impl MetaPlugin for TestPlugin {
             fn name(&self) -> &str {
                 "test"
             }
-            
+
             fn register_commands(&self, app: Command) -> Command {
                 app
             }
-            
-            fn handle_command(&self, _matches: &clap::ArgMatches, _config: &crate::RuntimeConfig) -> Result<()> {
+
+            fn handle_command(
+                &self,
+                _matches: &clap::ArgMatches,
+                _config: &crate::RuntimeConfig,
+            ) -> Result<()> {
                 Ok(())
             }
-            
+
             fn is_experimental(&self) -> bool {
                 true
             }
         }
-        
+
         impl BasePlugin for TestPlugin {
             fn version(&self) -> Option<&str> {
                 Some("1.2.3")
             }
-            
+
             fn description(&self) -> Option<&str> {
                 Some("Test plugin")
             }
-            
+
             fn author(&self) -> Option<&str> {
                 Some("Test Author")
             }
         }
-        
+
         let plugin = TestPlugin;
         let metadata = plugin.metadata();
-        
+
         assert_eq!(metadata.name, "test");
         assert_eq!(metadata.version, "1.2.3");
         assert_eq!(metadata.description, "Test plugin");
         assert_eq!(metadata.author, "Test Author");
         assert!(metadata.experimental);
     }
-    
+
     // Note: Testing formatter types is not directly possible due to trait object limitations
     // The test above for HelpFormat::from_str and display is sufficient
 }

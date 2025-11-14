@@ -1,10 +1,7 @@
+use super::initialize_meta_repo;
 use anyhow::Result;
 use clap::ArgMatches;
-use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig,
-    plugin,
-};
-use super::initialize_meta_repo;
+use metarepo_core::{plugin, BasePlugin, MetaPlugin, RuntimeConfig};
 
 /// InitPlugin using the new simplified plugin architecture
 pub struct InitPlugin;
@@ -13,7 +10,7 @@ impl InitPlugin {
     pub fn new() -> Self {
         Self
     }
-    
+
     /// Create the plugin using the builder pattern
     pub fn create_plugin() -> impl MetaPlugin {
         plugin("init")
@@ -29,7 +26,7 @@ impl MetaPlugin for InitPlugin {
     fn name(&self) -> &str {
         "init"
     }
-    
+
     fn register_commands(&self, app: clap::Command) -> clap::Command {
         // Register the init command directly at the top level
         app.subcommand(
@@ -40,7 +37,7 @@ impl MetaPlugin for InitPlugin {
                 .version(env!("CARGO_PKG_VERSION"))
         )
     }
-    
+
     fn handle_command(&self, _matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         // Directly initialize the meta repository
         initialize_meta_repo(&config.working_dir)?;
@@ -52,11 +49,11 @@ impl BasePlugin for InitPlugin {
     fn version(&self) -> Option<&str> {
         Some(env!("CARGO_PKG_VERSION"))
     }
-    
+
     fn description(&self) -> Option<&str> {
         Some("Initialize a new meta repository")
     }
-    
+
     fn author(&self) -> Option<&str> {
         Some("Metarepo Contributors")
     }

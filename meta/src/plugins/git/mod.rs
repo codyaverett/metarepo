@@ -6,8 +6,8 @@ use std::path::Path;
 // Export the main plugin
 pub use self::plugin::GitPlugin;
 
-mod plugin;
 mod operations;
+mod plugin;
 
 pub use operations::get_git_status;
 
@@ -16,7 +16,10 @@ use crate::plugins::shared::{clone_with_auth, create_default_worktree};
 
 pub fn clone_repository(repo_url: &str, target_path: &Path, bare: bool) -> Result<()> {
     if target_path.exists() {
-        return Err(anyhow::anyhow!("Target directory already exists: {:?}", target_path));
+        return Err(anyhow::anyhow!(
+            "Target directory already exists: {:?}",
+            target_path
+        ));
     }
 
     // Extract repo name from URL for cleaner display
@@ -54,14 +57,16 @@ pub fn clone_repository(repo_url: &str, target_path: &Path, bare: bool) -> Resul
 }
 
 pub fn clone_missing_repos() -> Result<()> {
-    let meta_file = MetaConfig::find_meta_file()
-        .ok_or_else(|| anyhow::anyhow!("No .meta file found"))?;
+    let meta_file =
+        MetaConfig::find_meta_file().ok_or_else(|| anyhow::anyhow!("No .meta file found"))?;
 
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
 
     // Collect missing projects first to show count
-    let missing_projects: Vec<(String, String, std::path::PathBuf, bool)> = config.projects.keys()
+    let missing_projects: Vec<(String, String, std::path::PathBuf, bool)> = config
+        .projects
+        .keys()
         .filter_map(|project_path| {
             let full_path = base_path.join(project_path);
             if !full_path.exists() {
@@ -81,14 +86,19 @@ pub fn clone_missing_repos() -> Result<()> {
     }
 
     let total = missing_projects.len();
-    println!("Cloning {} missing project{}\n", total, if total == 1 { "" } else { "s" });
+    println!(
+        "Cloning {} missing project{}\n",
+        total,
+        if total == 1 { "" } else { "s" }
+    );
 
     let mut success_count = 0;
     let mut failed_count = 0;
 
     for (i, (project_path, repo_url, full_path, is_bare)) in missing_projects.iter().enumerate() {
         let project_name = project_path.rsplit('/').next().unwrap_or(project_path);
-        println!("[{}/{}] Cloning {}",
+        println!(
+            "[{}/{}] Cloning {}",
             (i + 1).to_string().cyan(),
             total.to_string().cyan(),
             project_name.bright_white()
@@ -103,9 +113,14 @@ pub fn clone_missing_repos() -> Result<()> {
         }
     }
 
-    println!("Summary: {} cloned, {} failed",
+    println!(
+        "Summary: {} cloned, {} failed",
         success_count.to_string().green(),
-        if failed_count > 0 { failed_count.to_string().red() } else { "0".bright_black() }
+        if failed_count > 0 {
+            failed_count.to_string().red()
+        } else {
+            "0".bright_black()
+        }
     );
 
     Ok(())

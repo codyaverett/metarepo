@@ -53,7 +53,9 @@ pub fn clone_with_auth(url: &str, path: &Path, bare: bool) -> Result<Repository>
             }
 
             // If we couldn't authenticate, return an error
-            Err(git2::Error::from_str("SSH authentication failed. Please ensure your SSH keys are set up correctly."))
+            Err(git2::Error::from_str(
+                "SSH authentication failed. Please ensure your SSH keys are set up correctly.",
+            ))
         });
 
         // Configure fetch options with our callbacks
@@ -81,9 +83,12 @@ pub fn clone_with_auth(url: &str, path: &Path, bare: bool) -> Result<Repository>
         if bare {
             let mut builder = git2::build::RepoBuilder::new();
             builder.bare(true);
-            builder.clone(url, path).map_err(|e| anyhow::anyhow!("Failed to clone repository: {}", e))
+            builder
+                .clone(url, path)
+                .map_err(|e| anyhow::anyhow!("Failed to clone repository: {}", e))
         } else {
-            Repository::clone(url, path).map_err(|e| anyhow::anyhow!("Failed to clone repository: {}", e))
+            Repository::clone(url, path)
+                .map_err(|e| anyhow::anyhow!("Failed to clone repository: {}", e))
         }
     }
 }
@@ -108,10 +113,17 @@ pub fn create_default_worktree(bare_repo_path: &Path, project_path: &Path) -> Re
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow::anyhow!("Failed to create default worktree: {}", stderr));
+        return Err(anyhow::anyhow!(
+            "Failed to create default worktree: {}",
+            stderr
+        ));
     }
 
-    println!("     {} {}", "✅".green(), format!("Created default worktree: {}", worktree_path.display()).green());
+    println!(
+        "     {} {}",
+        "✅".green(),
+        format!("Created default worktree: {}", worktree_path.display()).green()
+    );
 
     Ok(())
 }

@@ -201,7 +201,9 @@ pub trait TuiApp {
                 let roots = self.get_tree_roots_mut();
                 let visible: Vec<_> = roots.iter_mut().flat_map(|r| r.flatten_mut()).collect();
                 if let Some(&node_ptr) = visible.get(selected_idx) {
-                    unsafe { (*node_ptr).toggle(); }
+                    unsafe {
+                        (*node_ptr).toggle();
+                    }
                 }
             }
             KeyAction::ExpandNode => {
@@ -209,7 +211,9 @@ pub trait TuiApp {
                 let roots = self.get_tree_roots_mut();
                 let visible: Vec<_> = roots.iter_mut().flat_map(|r| r.flatten_mut()).collect();
                 if let Some(&node_ptr) = visible.get(selected_idx) {
-                    unsafe { (*node_ptr).expand(); }
+                    unsafe {
+                        (*node_ptr).expand();
+                    }
                 }
             }
             KeyAction::CollapseNode => {
@@ -217,7 +221,9 @@ pub trait TuiApp {
                 let roots = self.get_tree_roots_mut();
                 let visible: Vec<_> = roots.iter_mut().flat_map(|r| r.flatten_mut()).collect();
                 if let Some(&node_ptr) = visible.get(selected_idx) {
-                    unsafe { (*node_ptr).collapse(); }
+                    unsafe {
+                        (*node_ptr).collapse();
+                    }
                 }
             }
 
@@ -230,7 +236,9 @@ pub trait TuiApp {
             }
             KeyAction::Quit => {
                 if !self.can_quit() {
-                    self.state_mut().set_status("Error: Unsaved changes. Use :q! to force quit or :wq to save and quit");
+                    self.state_mut().set_status(
+                        "Error: Unsaved changes. Use :q! to force quit or :wq to save and quit",
+                    );
                 } else {
                     self.state_mut().should_quit = true;
                 }
@@ -272,7 +280,9 @@ pub trait TuiApp {
             }
             KeyAction::Quit => {
                 if !self.can_quit() {
-                    self.state_mut().set_status("Error: Unsaved changes. Use :q! to force quit or :wq to save and quit");
+                    self.state_mut().set_status(
+                        "Error: Unsaved changes. Use :q! to force quit or :wq to save and quit",
+                    );
                 } else {
                     self.state_mut().should_quit = true;
                 }
@@ -295,8 +305,8 @@ pub trait TuiApp {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(1),      // Main content
-                Constraint::Length(1),    // Status bar
+                Constraint::Min(1),    // Main content
+                Constraint::Length(1), // Status bar
             ])
             .split(frame.area());
 

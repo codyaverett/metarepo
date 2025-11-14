@@ -273,10 +273,7 @@ impl<'a> TreeWidget<'a> {
         // Label with type indicator for editable items
         if node.value.is_some() {
             // Editable item - show with brackets
-            spans.push(Span::styled(
-                "[",
-                Style::default().fg(Color::DarkGray),
-            ));
+            spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
                 &node.node_type,
                 Style::default().fg(if is_selected {
@@ -285,21 +282,12 @@ impl<'a> TreeWidget<'a> {
                     Color::Blue
                 }),
             ));
-            spans.push(Span::styled(
-                "] ",
-                Style::default().fg(Color::DarkGray),
-            ));
-            spans.push(Span::styled(
-                &node.label,
-                Style::default().fg(Color::White),
-            ));
+            spans.push(Span::styled("] ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(&node.label, Style::default().fg(Color::White)));
 
             // Value display
             if let Some(ref val) = node.value {
-                spans.push(Span::styled(
-                    ": ",
-                    Style::default().fg(Color::DarkGray),
-                ));
+                spans.push(Span::styled(": ", Style::default().fg(Color::DarkGray)));
                 spans.push(Span::styled(
                     val,
                     Style::default().fg(if is_selected {

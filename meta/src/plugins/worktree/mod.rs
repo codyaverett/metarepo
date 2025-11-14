@@ -21,7 +21,7 @@ pub struct WorktreeInfo {
 #[derive(Debug)]
 pub enum BranchStatus {
     Local,
-    Remote(String),  // Contains the remote ref (e.g., "origin/feature-123")
+    Remote(String), // Contains the remote ref (e.g., "origin/feature-123")
     NotFound,
 }
 
@@ -82,7 +82,7 @@ fn resolve_project_identifier(config: &MetaConfig, identifier: &str) -> Option<S
     if config.projects.contains_key(identifier) {
         return Some(identifier.to_string());
     }
-    
+
     // Check if it's a basename match
     for project_name in config.projects.keys() {
         if let Some(basename) = std::path::Path::new(project_name).file_name() {
@@ -91,7 +91,7 @@ fn resolve_project_identifier(config: &MetaConfig, identifier: &str) -> Option<S
             }
         }
     }
-    
+
     // TODO: Check custom aliases when implemented
     None
 }
@@ -187,7 +187,11 @@ pub fn add_worktrees(
             if let Some(project_name) = resolved {
                 selected.push(project_name);
             } else {
-                eprintln!("{} Project '{}' not found in workspace", "✗".yellow(), project_id);
+                eprintln!(
+                    "{} Project '{}' not found in workspace",
+                    "✗".yellow(),
+                    project_id
+                );
             }
         }
         selected
@@ -198,10 +202,15 @@ pub fn add_worktrees(
         return Ok(());
     }
 
-    println!("\nCreating worktree '{}' for {} project{}\n",
+    println!(
+        "\nCreating worktree '{}' for {} project{}\n",
         branch.bright_white(),
         selected_projects.len(),
-        if selected_projects.len() == 1 { "" } else { "s" }
+        if selected_projects.len() == 1 {
+            ""
+        } else {
+            "s"
+        }
     );
 
     let mut success_count = 0;
@@ -217,7 +226,11 @@ pub fn add_worktrees(
         }
 
         if !project_path.join(".git").exists() {
-            eprintln!("{} {} (not a git repo)", "✗".yellow(), project_name.bright_white());
+            eprintln!(
+                "{} {} (not a git repo)",
+                "✗".yellow(),
+                project_name.bright_white()
+            );
             failed.push(project_name.clone());
             continue;
         }
@@ -256,7 +269,7 @@ pub fn add_worktrees(
             .arg(&git_dir)
             .arg("worktree")
             .arg("add")
-            .arg("-q");  // Quiet mode - suppress text output
+            .arg("-q"); // Quiet mode - suppress text output
 
         // Determine the strategy based on flags and branch existence
         if create_branch {
@@ -276,7 +289,11 @@ pub fn add_worktrees(
                 }
                 Ok(BranchStatus::Remote(remote_ref)) => {
                     // Branch exists remotely, create local tracking branch
-                    println!("  {} Found remote branch: {}", "ℹ".cyan(), remote_ref.bright_white());
+                    println!(
+                        "  {} Found remote branch: {}",
+                        "ℹ".cyan(),
+                        remote_ref.bright_white()
+                    );
                     cmd.arg("-b").arg(branch);
                     cmd.arg(&worktree_path);
                     cmd.arg(&remote_ref);
@@ -287,11 +304,19 @@ pub fn add_worktrees(
                         start.to_string()
                     } else {
                         // Prompt user for starting point
-                        println!("  {} Branch '{}' not found", "⚠".yellow(), branch.bright_white());
+                        println!(
+                            "  {} Branch '{}' not found",
+                            "⚠".yellow(),
+                            branch.bright_white()
+                        );
                         prompt_for_starting_point()?
                     };
 
-                    println!("  {} Creating new branch from {}", "✓".green(), start_point.bright_white());
+                    println!(
+                        "  {} Creating new branch from {}",
+                        "✓".green(),
+                        start_point.bright_white()
+                    );
                     cmd.arg("-b").arg(branch);
                     cmd.arg(&worktree_path);
                     cmd.arg(&start_point);
@@ -305,10 +330,10 @@ pub fn add_worktrees(
         }
 
         // Stream git output in real-time
-        cmd.stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+        cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
-        let status = cmd.status()
+        let status = cmd
+            .status()
             .context(format!("Failed to create worktree for {}", project_name))?;
 
         if status.success() {
@@ -326,7 +351,9 @@ pub fn add_worktrees(
                         .current_dir(&worktree_path);
 
                     // Add project environment variables if configured
-                    if let Some(metarepo_core::ProjectEntry::Metadata(metadata)) = config.projects.get(project_name) {
+                    if let Some(metarepo_core::ProjectEntry::Metadata(metadata)) =
+                        config.projects.get(project_name)
+                    {
                         for (key, value) in &metadata.env {
                             cmd.env(key, value);
                         }
@@ -353,9 +380,14 @@ pub fn add_worktrees(
         }
     }
 
-    println!("\nSummary: {} created, {} failed",
+    println!(
+        "\nSummary: {} created, {} failed",
         success_count.to_string().green(),
-        if !failed.is_empty() { failed.len().to_string().red() } else { "0".bright_black() }
+        if !failed.is_empty() {
+            failed.len().to_string().red()
+        } else {
+            "0".bright_black()
+        }
     );
 
     Ok(())
@@ -371,19 +403,23 @@ pub fn remove_worktrees(
 ) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
     }
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
-    
+
     // Find projects that have this worktree
     let mut projects_with_worktree = Vec::new();
     for (project_name, _) in &config.projects {
         let project_path = base_path.join(project_name);
         if let Ok(worktrees) = list_worktrees(&project_path) {
             for wt in worktrees {
-                if wt.path.file_name().map(|n| n.to_string_lossy().to_string()) == Some(branch.to_string()) 
-                    || wt.branch == branch {
+                if wt.path.file_name().map(|n| n.to_string_lossy().to_string())
+                    == Some(branch.to_string())
+                    || wt.branch == branch
+                {
                     projects_with_worktree.push(project_name.clone());
                     break;
                 }
@@ -399,7 +435,12 @@ pub fn remove_worktrees(
                 println!("Using current project: {}", current.bold());
                 vec![current.to_string()]
             } else {
-                println!("{} Current project '{}' doesn't have worktree '{}'", "✗".yellow(), current, branch);
+                println!(
+                    "{} Current project '{}' doesn't have worktree '{}'",
+                    "✗".yellow(),
+                    current,
+                    branch
+                );
                 return Ok(());
             }
         } else if !projects_with_worktree.is_empty() {
@@ -429,10 +470,15 @@ pub fn remove_worktrees(
         return Ok(());
     }
 
-    println!("\nRemoving worktree '{}' from {} project{}\n",
+    println!(
+        "\nRemoving worktree '{}' from {} project{}\n",
         branch.bright_white(),
         selected_projects.len(),
-        if selected_projects.len() == 1 { "" } else { "s" }
+        if selected_projects.len() == 1 {
+            ""
+        } else {
+            "s"
+        }
     );
 
     let mut success_count = 0;
@@ -447,7 +493,7 @@ pub fn remove_worktrees(
             .arg(&project_path)
             .arg("worktree")
             .arg("remove")
-            .arg("-q");  // Quiet mode
+            .arg("-q"); // Quiet mode
 
         if force {
             cmd.arg("--force");
@@ -456,7 +502,8 @@ pub fn remove_worktrees(
         // Try to find the worktree path
         if let Ok(worktrees) = list_worktrees(&project_path) {
             let matching_wt = worktrees.iter().find(|wt| {
-                wt.path.file_name().map(|n| n.to_string_lossy().to_string()) == Some(branch.to_string())
+                wt.path.file_name().map(|n| n.to_string_lossy().to_string())
+                    == Some(branch.to_string())
                     || wt.branch == branch
             });
 
@@ -464,10 +511,10 @@ pub fn remove_worktrees(
                 cmd.arg(&wt.path);
 
                 // Stream git output in real-time
-                cmd.stdout(Stdio::inherit())
-                    .stderr(Stdio::inherit());
+                cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
-                let status = cmd.status()
+                let status = cmd
+                    .status()
                     .context(format!("Failed to remove worktree for {}", project_name))?;
 
                 if status.success() {
@@ -482,9 +529,7 @@ pub fn remove_worktrees(
         }
     }
 
-    println!("\nSummary: {} removed",
-        success_count.to_string().green()
-    );
+    println!("\nSummary: {} removed", success_count.to_string().green());
 
     Ok(())
 }
@@ -493,7 +538,9 @@ pub fn remove_worktrees(
 pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
     }
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
@@ -507,19 +554,20 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
     // Collect all worktrees grouped by branch name
     for (project_name, _) in &config.projects {
         let project_path = base_path.join(project_name);
-        
+
         if !project_path.exists() || !project_path.join(".git").exists() {
             continue;
         }
 
         if let Ok(worktrees) = list_worktrees(&project_path) {
-            let non_main_worktrees: Vec<_> = worktrees.into_iter()
+            let non_main_worktrees: Vec<_> = worktrees
+                .into_iter()
                 .filter(|wt| !wt.path.starts_with(&project_path) || wt.path != project_path)
                 .collect();
 
             if !non_main_worktrees.is_empty() {
                 projects_with_worktrees += 1;
-                
+
                 for wt in non_main_worktrees {
                     total_worktrees += 1;
                     let branch_name = if !wt.branch.is_empty() {
@@ -530,7 +578,8 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
                         "unknown".to_string()
                     };
 
-                    worktree_map.entry(branch_name)
+                    worktree_map
+                        .entry(branch_name)
                         .or_insert_with(Vec::new)
                         .push((project_name.clone(), wt.path));
                 }
@@ -553,11 +602,10 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
                 };
 
                 // Show relative path from project root
-                let relative_path = path.strip_prefix(base_path)
-                    .unwrap_or(path)
-                    .display();
+                let relative_path = path.strip_prefix(base_path).unwrap_or(path).display();
 
-                println!("  {} ({})",
+                println!(
+                    "  {} ({})",
                     format!("{}: {}", project.bright_blue(), relative_path),
                     status
                 );
@@ -565,7 +613,8 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
             println!();
         }
 
-        println!("Total: {} worktrees across {} projects",
+        println!(
+            "Total: {} worktrees across {} projects",
             total_worktrees.to_string().cyan(),
             projects_with_worktrees.to_string().cyan()
         );
@@ -579,7 +628,9 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
 pub fn prune_worktrees(base_path: &Path, dry_run: bool) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!("No .meta file found. Run 'meta init' first."));
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
     }
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
@@ -612,16 +663,19 @@ pub fn prune_worktrees(base_path: &Path, dry_run: bool) -> Result<()> {
         cmd.arg("--verbose");
 
         // Stream git output in real-time
-        cmd.stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+        cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
-        let _status = cmd.status()
+        let _status = cmd
+            .status()
             .context(format!("Failed to prune worktrees for {}", project_name))?;
     }
 
     if dry_run {
         println!("\n{}", "Check complete".dimmed());
-        println!("{}", "Run without --dry-run to remove stale worktrees".dimmed());
+        println!(
+            "{}",
+            "Run without --dry-run to remove stale worktrees".dimmed()
+        );
     } else {
         println!("\n{}", "Prune complete".green());
     }
@@ -633,7 +687,11 @@ pub fn prune_worktrees(base_path: &Path, dry_run: bool) -> Result<()> {
 fn select_projects_interactive(config: &MetaConfig) -> Result<Vec<String>> {
     use std::io::{self, Write};
 
-    println!("\n  {} {}", "📋".cyan(), "Select projects for worktree (space to toggle, enter to confirm):".bold());
+    println!(
+        "\n  {} {}",
+        "📋".cyan(),
+        "Select projects for worktree (space to toggle, enter to confirm):".bold()
+    );
     println!("  {}", "─".repeat(60).bright_black());
 
     let projects: Vec<String> = config.projects.keys().cloned().collect();
@@ -644,7 +702,10 @@ fn select_projects_interactive(config: &MetaConfig) -> Result<Vec<String>> {
         println!("  {} {}", format!("[{}]", i + 1).bright_black(), project);
     }
 
-    print!("\n  {} Enter project numbers (comma-separated) or 'all': ", "→".bright_black());
+    print!(
+        "\n  {} Enter project numbers (comma-separated) or 'all': ",
+        "→".bright_black()
+    );
     io::stdout().flush()?;
 
     let mut input = String::new();
@@ -674,14 +735,21 @@ fn select_projects_interactive(config: &MetaConfig) -> Result<Vec<String>> {
 fn select_projects_for_removal(available: &[String], branch: &str) -> Result<Vec<String>> {
     use std::io::{self, Write};
 
-    println!("\n  {} {}", "📋".cyan(), format!("Select projects to remove worktree '{}' from:", branch).bold());
+    println!(
+        "\n  {} {}",
+        "📋".cyan(),
+        format!("Select projects to remove worktree '{}' from:", branch).bold()
+    );
     println!("  {}", "─".repeat(60).bright_black());
 
     for (i, project) in available.iter().enumerate() {
         println!("  {} {}", format!("[{}]", i + 1).bright_black(), project);
     }
 
-    print!("\n  {} Enter project numbers (comma-separated) or 'all': ", "→".bright_black());
+    print!(
+        "\n  {} Enter project numbers (comma-separated) or 'all': ",
+        "→".bright_black()
+    );
     io::stdout().flush()?;
 
     let mut input = String::new();
@@ -711,7 +779,11 @@ fn select_projects_for_removal(available: &[String], branch: &str) -> Result<Vec
 fn prompt_for_starting_point() -> Result<String> {
     use std::io::{self, Write};
 
-    println!("\n  {} {}", "🌿".cyan(), "Branch doesn't exist. Create it from:".bold());
+    println!(
+        "\n  {} {}",
+        "🌿".cyan(),
+        "Branch doesn't exist. Create it from:".bold()
+    );
     println!("  {}", "─".repeat(60).bright_black());
     println!("  {} HEAD (current commit)", "[1]".bright_black());
     println!("  {} origin/main", "[2]".bright_black());
@@ -730,7 +802,10 @@ fn prompt_for_starting_point() -> Result<String> {
         "2" => Ok("origin/main".to_string()),
         "3" => Ok("origin/develop".to_string()),
         "4" => {
-            print!("  {} Enter custom ref (branch/tag/commit): ", "→".bright_black());
+            print!(
+                "  {} Enter custom ref (branch/tag/commit): ",
+                "→".bright_black()
+            );
             io::stdout().flush()?;
             let mut custom = String::new();
             io::stdin().read_line(&mut custom)?;

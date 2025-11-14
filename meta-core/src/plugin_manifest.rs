@@ -7,11 +7,11 @@ use std::path::Path;
 pub struct PluginManifest {
     /// Plugin metadata
     pub plugin: PluginInfo,
-    
+
     /// Commands provided by the plugin
     #[serde(default)]
     pub commands: Vec<ManifestCommand>,
-    
+
     /// Plugin configuration options
     #[serde(default)]
     pub config: Option<PluginConfig>,
@@ -94,15 +94,15 @@ pub struct PluginConfig {
     /// How the plugin should be executed
     #[serde(default)]
     pub execution: ExecutionConfig,
-    
+
     /// Plugin capabilities
     #[serde(default)]
     pub capabilities: Vec<String>,
-    
+
     /// Required environment variables
     #[serde(default)]
     pub required_env: Vec<String>,
-    
+
     /// Plugin dependencies
     #[serde(default)]
     pub dependencies: Vec<Dependency>,
@@ -113,16 +113,16 @@ pub struct ExecutionConfig {
     /// Execution mode: "process", "wasm", "docker"
     #[serde(default = "default_exec_mode")]
     pub mode: String,
-    
+
     /// Path to the executable (relative to manifest)
     pub binary: Option<String>,
-    
+
     /// Docker image for docker mode
     pub docker_image: Option<String>,
-    
+
     /// WASM module for wasm mode
     pub wasm_module: Option<String>,
-    
+
     /// Communication protocol: "json-rpc", "cli", "grpc"
     #[serde(default = "default_protocol")]
     pub protocol: String,
@@ -150,30 +150,30 @@ impl PluginManifest {
         let content = std::fs::read_to_string(path)?;
         Self::from_str(&content)
     }
-    
+
     /// Parse manifest from TOML string
     pub fn from_str(content: &str) -> Result<Self> {
         let manifest: PluginManifest = toml::from_str(content)?;
         manifest.validate()?;
         Ok(manifest)
     }
-    
+
     /// Validate the manifest
     pub fn validate(&self) -> Result<()> {
         // Validate plugin info
         if self.plugin.name.is_empty() {
             return Err(anyhow::anyhow!("Plugin name cannot be empty"));
         }
-        
+
         if self.plugin.version.is_empty() {
             return Err(anyhow::anyhow!("Plugin version cannot be empty"));
         }
-        
+
         // Validate commands
         for cmd in &self.commands {
             Self::validate_command(cmd)?;
         }
-        
+
         // Validate execution config if present
         if let Some(ref config) = self.config {
             let exec = &config.execution;
@@ -198,21 +198,21 @@ impl PluginManifest {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn validate_command(cmd: &ManifestCommand) -> Result<()> {
         if cmd.name.is_empty() {
             return Err(anyhow::anyhow!("Command name cannot be empty"));
         }
-        
+
         // Validate arguments
         for arg in &cmd.args {
             if arg.name.is_empty() {
                 return Err(anyhow::anyhow!("Argument name cannot be empty"));
             }
-            
+
             // Ensure either short or long flag is provided for non-positional args
             if !arg.required && arg.short.is_none() && arg.long.is_none() {
                 return Err(anyhow::anyhow!(
@@ -221,15 +221,15 @@ impl PluginManifest {
                 ));
             }
         }
-        
+
         // Recursively validate subcommands
         for subcmd in &cmd.subcommands {
             Self::validate_command(subcmd)?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Generate a sample manifest
     pub fn example() -> Self {
         PluginManifest {
@@ -244,55 +244,51 @@ impl PluginManifest {
                 experimental: false,
                 min_meta_version: Some("0.4.0".to_string()),
             },
-            commands: vec![
-                ManifestCommand {
-                    name: "example".to_string(),
-                    description: "Example command".to_string(),
-                    long_description: Some("This is a longer description of the example command.".to_string()),
-                    aliases: vec!["ex".to_string()],
-                    args: vec![
-                        ManifestArg {
-                            name: "verbose".to_string(),
-                            short: Some('v'),
-                            long: Some("verbose".to_string()),
-                            help: "Enable verbose output".to_string(),
-                            required: false,
-                            takes_value: false,
-                            default_value: None,
-                            possible_values: vec![],
-                            value_type: ArgValueType::Bool,
-                        },
-                        ManifestArg {
-                            name: "input".to_string(),
-                            short: Some('i'),
-                            long: Some("input".to_string()),
-                            help: "Input file path".to_string(),
-                            required: true,
-                            takes_value: true,
-                            default_value: None,
-                            possible_values: vec![],
-                            value_type: ArgValueType::Path,
-                        },
-                    ],
-                    subcommands: vec![
-                        ManifestCommand {
-                            name: "run".to_string(),
-                            description: "Run the example".to_string(),
-                            long_description: None,
-                            aliases: vec![],
-                            args: vec![],
-                            subcommands: vec![],
-                            examples: vec![],
-                        },
-                    ],
-                    examples: vec![
-                        Example {
-                            command: "meta example -v --input file.txt run".to_string(),
-                            description: "Run the example with verbose output".to_string(),
-                        },
-                    ],
-                },
-            ],
+            commands: vec![ManifestCommand {
+                name: "example".to_string(),
+                description: "Example command".to_string(),
+                long_description: Some(
+                    "This is a longer description of the example command.".to_string(),
+                ),
+                aliases: vec!["ex".to_string()],
+                args: vec![
+                    ManifestArg {
+                        name: "verbose".to_string(),
+                        short: Some('v'),
+                        long: Some("verbose".to_string()),
+                        help: "Enable verbose output".to_string(),
+                        required: false,
+                        takes_value: false,
+                        default_value: None,
+                        possible_values: vec![],
+                        value_type: ArgValueType::Bool,
+                    },
+                    ManifestArg {
+                        name: "input".to_string(),
+                        short: Some('i'),
+                        long: Some("input".to_string()),
+                        help: "Input file path".to_string(),
+                        required: true,
+                        takes_value: true,
+                        default_value: None,
+                        possible_values: vec![],
+                        value_type: ArgValueType::Path,
+                    },
+                ],
+                subcommands: vec![ManifestCommand {
+                    name: "run".to_string(),
+                    description: "Run the example".to_string(),
+                    long_description: None,
+                    aliases: vec![],
+                    args: vec![],
+                    subcommands: vec![],
+                    examples: vec![],
+                }],
+                examples: vec![Example {
+                    command: "meta example -v --input file.txt run".to_string(),
+                    description: "Run the example with verbose output".to_string(),
+                }],
+            }],
             config: Some(PluginConfig {
                 execution: ExecutionConfig {
                     mode: "process".to_string(),
@@ -307,7 +303,7 @@ impl PluginManifest {
             }),
         }
     }
-    
+
     /// Write example manifest to file
     pub fn write_example(path: &Path) -> Result<()> {
         let manifest = Self::example();

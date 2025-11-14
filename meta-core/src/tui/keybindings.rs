@@ -103,9 +103,7 @@ impl KeyHandler {
             (KeyCode::End, _) => KeyAction::MoveToBottom,
 
             // Tree operations
-            (KeyCode::Enter, _) | (KeyCode::Char('o'), KeyModifiers::NONE) => {
-                KeyAction::ToggleNode
-            }
+            (KeyCode::Enter, _) | (KeyCode::Char('o'), KeyModifiers::NONE) => KeyAction::ToggleNode,
             (KeyCode::Char('O'), KeyModifiers::SHIFT) => KeyAction::ExpandNode,
             (KeyCode::Char('C'), KeyModifiers::SHIFT) => KeyAction::CollapseNode,
 

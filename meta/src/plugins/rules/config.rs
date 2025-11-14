@@ -7,28 +7,28 @@ use std::path::Path;
 pub struct RulesConfig {
     #[serde(default)]
     pub directories: Vec<DirectoryRule>,
-    
+
     #[serde(default)]
     pub components: Vec<ComponentRule>,
-    
+
     #[serde(default)]
     pub files: Vec<FileRule>,
-    
+
     #[serde(default)]
     pub naming: Vec<NamingRule>,
-    
+
     #[serde(default)]
     pub dependencies: Vec<DependencyRule>,
-    
+
     #[serde(default)]
     pub imports: Vec<ImportRule>,
-    
+
     #[serde(default)]
     pub documentation: Vec<DocumentationRule>,
-    
+
     #[serde(default)]
     pub size: Vec<SizeRule>,
-    
+
     #[serde(default)]
     pub security: Vec<SecurityRule>,
 }
@@ -176,7 +176,7 @@ impl RulesConfig {
             security: Vec::new(),
         }
     }
-    
+
     pub fn minimal() -> Self {
         Self {
             directories: vec![
@@ -201,7 +201,7 @@ impl RulesConfig {
             security: Vec::new(),
         }
     }
-    
+
     pub fn default_config() -> Self {
         Self {
             directories: vec![
@@ -221,18 +221,16 @@ impl RulesConfig {
                     description: Some("Documentation directory".to_string()),
                 },
             ],
-            components: vec![
-                ComponentRule {
-                    pattern: "components/**/".to_string(),
-                    structure: vec![
-                        "[ComponentName].vue".to_string(),
-                        "__tests__/".to_string(),
-                        "__tests__/[ComponentName].test.js".to_string(),
-                        "[ComponentName].stories.js".to_string(),
-                    ],
-                    description: Some("Vue component structure".to_string()),
-                },
-            ],
+            components: vec![ComponentRule {
+                pattern: "components/**/".to_string(),
+                structure: vec![
+                    "[ComponentName].vue".to_string(),
+                    "__tests__/".to_string(),
+                    "__tests__/[ComponentName].test.js".to_string(),
+                    "[ComponentName].stories.js".to_string(),
+                ],
+                description: Some("Vue component structure".to_string()),
+            }],
             files: vec![
                 FileRule {
                     pattern: "**/*.vue".to_string(),
@@ -244,49 +242,41 @@ impl RulesConfig {
                 },
                 FileRule {
                     pattern: "src/**/*.rs".to_string(),
-                    requires: HashMap::from([
-                        ("test".to_string(), "#[test]".to_string()),
-                    ]),
+                    requires: HashMap::from([("test".to_string(), "#[test]".to_string())]),
                     description: Some("Rust files should have tests".to_string()),
                 },
             ],
-            naming: vec![
-                NamingRule {
-                    pattern: "src/components/**/*.vue".to_string(),
-                    naming_pattern: "[A-Z][a-zA-Z0-9]+\\.vue$".to_string(),
-                    case_style: Some("PascalCase".to_string()),
-                    description: Some("Vue components must be PascalCase".to_string()),
-                },
-            ],
+            naming: vec![NamingRule {
+                pattern: "src/components/**/*.vue".to_string(),
+                naming_pattern: "[A-Z][a-zA-Z0-9]+\\.vue$".to_string(),
+                case_style: Some("PascalCase".to_string()),
+                description: Some("Vue components must be PascalCase".to_string()),
+            }],
             dependencies: Vec::new(),
             imports: Vec::new(),
             documentation: Vec::new(),
-            size: vec![
-                SizeRule {
-                    pattern: "**/*.js".to_string(),
-                    max_lines: Some(500),
-                    max_bytes: None,
-                    max_functions: Some(10),
-                    max_complexity: None,
-                    description: Some("JavaScript files should be reasonably sized".to_string()),
-                },
-            ],
-            security: vec![
-                SecurityRule {
-                    pattern: "**/*.{js,ts,py}".to_string(),
-                    forbidden_patterns: vec![
-                        "api[_-]?key.*=.*['\"]".to_string(),
-                        "password.*=.*['\"]".to_string(),
-                    ],
-                    require_https: true,
-                    no_hardcoded_secrets: true,
-                    forbidden_functions: vec!["eval".to_string(), "exec".to_string()],
-                    description: Some("Basic security checks".to_string()),
-                },
-            ],
+            size: vec![SizeRule {
+                pattern: "**/*.js".to_string(),
+                max_lines: Some(500),
+                max_bytes: None,
+                max_functions: Some(10),
+                max_complexity: None,
+                description: Some("JavaScript files should be reasonably sized".to_string()),
+            }],
+            security: vec![SecurityRule {
+                pattern: "**/*.{js,ts,py}".to_string(),
+                forbidden_patterns: vec![
+                    "api[_-]?key.*=.*['\"]".to_string(),
+                    "password.*=.*['\"]".to_string(),
+                ],
+                require_https: true,
+                no_hardcoded_secrets: true,
+                forbidden_functions: vec!["eval".to_string(), "exec".to_string()],
+                description: Some("Basic security checks".to_string()),
+            }],
         }
     }
-    
+
     pub fn example_react_config() -> Self {
         Self {
             directories: vec![
@@ -301,27 +291,21 @@ impl RulesConfig {
                     description: Some("Test files directory".to_string()),
                 },
             ],
-            components: vec![
-                ComponentRule {
-                    pattern: "src/components/**/".to_string(),
-                    structure: vec![
-                        "[ComponentName].tsx".to_string(),
-                        "[ComponentName].test.tsx".to_string(),
-                        "[ComponentName].stories.tsx".to_string(),
-                        "index.ts".to_string(),
-                    ],
-                    description: Some("React TypeScript component structure".to_string()),
-                },
-            ],
-            files: vec![
-                FileRule {
-                    pattern: "**/*.tsx".to_string(),
-                    requires: HashMap::from([
-                        ("test".to_string(), "*.test.tsx".to_string()),
-                    ]),
-                    description: Some("TypeScript React files must have tests".to_string()),
-                },
-            ],
+            components: vec![ComponentRule {
+                pattern: "src/components/**/".to_string(),
+                structure: vec![
+                    "[ComponentName].tsx".to_string(),
+                    "[ComponentName].test.tsx".to_string(),
+                    "[ComponentName].stories.tsx".to_string(),
+                    "index.ts".to_string(),
+                ],
+                description: Some("React TypeScript component structure".to_string()),
+            }],
+            files: vec![FileRule {
+                pattern: "**/*.tsx".to_string(),
+                requires: HashMap::from([("test".to_string(), "*.test.tsx".to_string())]),
+                description: Some("TypeScript React files must have tests".to_string()),
+            }],
             naming: vec![
                 NamingRule {
                     pattern: "src/components/**/*.tsx".to_string(),
@@ -347,14 +331,16 @@ impl RulesConfig {
 
 pub fn load_config<P: AsRef<Path>>(path: P) -> Result<RulesConfig> {
     let content = std::fs::read_to_string(path)?;
-    
+
     // Try to parse as YAML first, then JSON
     if let Ok(config) = serde_yaml::from_str::<RulesConfig>(&content) {
         Ok(config)
     } else if let Ok(config) = serde_json::from_str::<RulesConfig>(&content) {
         Ok(config)
     } else {
-        Err(anyhow::anyhow!("Failed to parse rules configuration as YAML or JSON"))
+        Err(anyhow::anyhow!(
+            "Failed to parse rules configuration as YAML or JSON"
+        ))
     }
 }
 
@@ -367,7 +353,7 @@ pub fn save_config<P: AsRef<Path>>(path: P, config: &RulesConfig) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_minimal_config() {
         let config = RulesConfig::minimal();
@@ -375,7 +361,7 @@ mod tests {
         assert!(config.components.is_empty());
         assert!(config.files.is_empty());
     }
-    
+
     #[test]
     fn test_default_config() {
         let config = RulesConfig::default_config();
@@ -383,13 +369,13 @@ mod tests {
         assert!(!config.components.is_empty());
         assert!(!config.files.is_empty());
     }
-    
+
     #[test]
     fn test_serialize_deserialize() {
         let config = RulesConfig::default_config();
         let yaml = serde_yaml::to_string(&config).unwrap();
         let parsed: RulesConfig = serde_yaml::from_str(&yaml).unwrap();
-        
+
         assert_eq!(config.directories.len(), parsed.directories.len());
         assert_eq!(config.components.len(), parsed.components.len());
         assert_eq!(config.files.len(), parsed.files.len());

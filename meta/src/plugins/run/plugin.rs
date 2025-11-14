@@ -1,13 +1,12 @@
+use super::{list_scripts, run_script};
 use anyhow::Result;
 use clap::ArgMatches;
 use colored::Colorize;
 use metarepo_core::{
-    BasePlugin, MetaPlugin, RuntimeConfig,
-    plugin, command, arg,
-    is_interactive, prompt_select, NonInteractiveMode,
+    arg, command, is_interactive, plugin, prompt_select, BasePlugin, MetaPlugin,
+    NonInteractiveMode, RuntimeConfig,
 };
 use std::collections::HashMap;
-use super::{run_script, list_scripts};
 
 /// RunPlugin for executing project scripts
 pub struct RunPlugin;
@@ -16,7 +15,7 @@ impl RunPlugin {
     pub fn new() -> Self {
         Self
     }
-    
+
     /// Create the plugin using the builder pattern
     pub fn create_plugin() -> impl MetaPlugin {
         plugin("run")
@@ -111,10 +110,11 @@ impl RunPlugin {
     }
 }
 
-
 /// Handler for the script command
 fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let non_interactive = config.non_interactive.unwrap_or(NonInteractiveMode::Defaults);
+    let non_interactive = config
+        .non_interactive
+        .unwrap_or(NonInteractiveMode::Defaults);
 
     // Get or prompt for script name
     let script_name = match matches.get_one::<String>("script") {
@@ -131,12 +131,7 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
                 let script_names: Vec<String> = all_scripts.keys().cloned().collect();
 
                 println!("\n  🚀 {}", "Run a script".cyan().bold());
-                prompt_select(
-                    "Script",
-                    script_names,
-                    None,
-                    non_interactive,
-                )?
+                prompt_select("Script", script_names, None, non_interactive)?
             } else {
                 return Err(anyhow::anyhow!(
                     "Script name is required. Use 'meta run <script>' or run interactively in a terminal"
@@ -151,8 +146,7 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
     let no_progress = matches.get_flag("no-progress");
     let streaming = matches.get_flag("streaming");
 
-    let base_path = config.meta_root()
-        .unwrap_or(config.working_dir.clone());
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
 
     // Get current project context
     let current_project = config.current_project();
@@ -192,21 +186,31 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
     }
     // If no projects specified, will use current project or find projects with script
 
-    run_script(&script_name, &projects, &base_path, current_project.as_deref(), parallel, existing_only, git_only, no_progress, streaming, &env_vars)?;
+    run_script(
+        &script_name,
+        &projects,
+        &base_path,
+        current_project.as_deref(),
+        parallel,
+        existing_only,
+        git_only,
+        no_progress,
+        streaming,
+        &env_vars,
+    )?;
     Ok(())
 }
 
 /// Handler for the list command
 fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let base_path = config.meta_root()
-        .unwrap_or(config.working_dir.clone());
-    
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
+
     let project = if let Some(project_id) = matches.get_one::<String>("project") {
         config.resolve_project(project_id)
     } else {
         config.current_project()
     };
-    
+
     list_scripts(&base_path, project.as_deref())?;
     Ok(())
 }
@@ -216,7 +220,7 @@ impl MetaPlugin for RunPlugin {
     fn name(&self) -> &str {
         "run"
     }
-    
+
     fn register_commands(&self, app: clap::Command) -> clap::Command {
         // Register the main 'run' command with optional script argument
         let run_cmd = clap::Command::new("run")
@@ -226,33 +230,33 @@ impl MetaPlugin for RunPlugin {
                 clap::Arg::new("script")
                     .help("Name of the script to run")
                     .index(1)
-                    .required(false)
+                    .required(false),
             )
             .arg(
                 clap::Arg::new("project")
                     .long("project")
                     .short('p')
                     .help("Single project to run script in")
-                    .value_name("PROJECT")
+                    .value_name("PROJECT"),
             )
             .arg(
                 clap::Arg::new("projects")
                     .long("projects")
                     .help("Comma-separated list of projects")
-                    .value_name("PROJECTS")
+                    .value_name("PROJECTS"),
             )
             .arg(
                 clap::Arg::new("all")
                     .long("all")
                     .short('a')
                     .help("Run script in all projects")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("parallel")
                     .long("parallel")
                     .help("Run scripts in parallel across projects")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("env")
@@ -260,54 +264,54 @@ impl MetaPlugin for RunPlugin {
                     .short('e')
                     .help("Set environment variable (KEY=VALUE)")
                     .action(clap::ArgAction::Append)
-                    .value_name("KEY=VALUE")
+                    .value_name("KEY=VALUE"),
             )
             .arg(
                 clap::Arg::new("list")
                     .long("list")
                     .short('l')
                     .help("List available scripts")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("existing-only")
                     .long("existing-only")
                     .help("Only run in existing project directories")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("git-only")
                     .long("git-only")
                     .help("Only run in git repositories")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("no-progress")
                     .long("no-progress")
                     .help("Disable progress indicators (useful for CI environments)")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::Arg::new("streaming")
                     .long("streaming")
                     .help("Show output as it happens instead of buffered (legacy behavior)")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             );
-        
+
         app.subcommand(run_cmd)
     }
-    
+
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         // Check for list flag
         if matches.get_flag("list") {
             return handle_list(matches, config);
         }
-        
+
         // Check if script is provided
         if matches.get_one::<String>("script").is_some() {
             return handle_run_script(matches, config);
         }
-        
+
         // No script provided, list available scripts
         handle_list(matches, config)
     }
@@ -317,11 +321,11 @@ impl BasePlugin for RunPlugin {
     fn version(&self) -> Option<&str> {
         None
     }
-    
+
     fn description(&self) -> Option<&str> {
         Some("Run project-specific scripts defined in .meta")
     }
-    
+
     fn author(&self) -> Option<&str> {
         Some("Metarepo Contributors")
     }

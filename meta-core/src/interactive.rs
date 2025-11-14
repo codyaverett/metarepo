@@ -43,12 +43,15 @@ pub fn is_interactive() -> bool {
 /// # Examples
 /// ```no_run
 /// # use metarepo_core::interactive::*;
+/// # fn main() -> anyhow::Result<()> {
 /// let name = prompt_text(
 ///     "Project name",
 ///     None,
 ///     false,
 ///     NonInteractiveMode::Fail,
 /// )?;
+/// # Ok(())
+/// # }
 /// ```
 pub fn prompt_text(
     prompt: &str,
@@ -71,10 +74,7 @@ pub fn prompt_text(
         match input.interact_text() {
             Ok(value) => {
                 if !allow_empty && value.trim().is_empty() {
-                    eprintln!(
-                        "{}",
-                        style("  ✗ Input cannot be empty").red()
-                    );
+                    eprintln!("{}", style("  ✗ Input cannot be empty").red());
                     continue;
                 }
                 return Ok(value);
@@ -102,7 +102,8 @@ pub fn prompt_url(
     non_interactive: NonInteractiveMode,
 ) -> Result<Option<String>> {
     if !is_interactive() {
-        let result = handle_non_interactive(non_interactive, prompt, default.map(|s| s.to_string()));
+        let result =
+            handle_non_interactive(non_interactive, prompt, default.map(|s| s.to_string()));
         match result {
             Ok(val) => {
                 if val.is_empty() && !required {
@@ -141,7 +142,10 @@ pub fn prompt_url(
                     if !is_valid_url(&value) {
                         eprintln!(
                             "{}",
-                            style("  ✗ Invalid URL format. Expected http(s)://, git@, or file path").red()
+                            style(
+                                "  ✗ Invalid URL format. Expected http(s)://, git@, or file path"
+                            )
+                            .red()
                         );
                         continue;
                     }
@@ -426,7 +430,10 @@ mod tests {
     fn test_handle_non_interactive_fail() {
         let result = handle_non_interactive(NonInteractiveMode::Fail, "test", None);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Interactive input required"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Interactive input required"));
     }
 
     #[test]
