@@ -133,21 +133,12 @@ impl TreeNode {
 }
 
 /// State for tree widget navigation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TreeState {
     /// Currently selected index in flattened view
     pub selected: usize,
     /// Scroll offset
     pub offset: usize,
-}
-
-impl Default for TreeState {
-    fn default() -> Self {
-        Self {
-            selected: 0,
-            offset: 0,
-        }
-    }
 }
 
 impl TreeState {

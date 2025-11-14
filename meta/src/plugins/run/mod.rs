@@ -13,6 +13,7 @@ pub use self::plugin::RunPlugin;
 mod plugin;
 
 /// Execute a script for selected projects
+#[allow(clippy::too_many_arguments)]
 pub fn run_script(
     script_name: &str,
     projects: &[String],

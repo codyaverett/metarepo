@@ -16,7 +16,7 @@ pub enum PluginRequest {
     HandleCommand {
         command: String,
         args: Vec<String>,
-        config: RuntimeConfigDto,
+        config: Box<RuntimeConfigDto>,
     },
 }
 
@@ -251,7 +251,7 @@ impl MetaPlugin for ExternalPlugin {
         let request = PluginRequest::HandleCommand {
             command: self.name.clone(),
             args,
-            config: config.into(),
+            config: Box::new(config.into()),
         };
 
         let response = Self::send_request(&mut child, request)?;
@@ -329,9 +329,9 @@ impl PluginLoader {
 
     fn load_plugin_spec(name: &str, spec: &str) -> Result<Box<dyn MetaPlugin>> {
         // Handle different spec formats
-        if spec.starts_with("file:") {
+        if let Some(stripped) = spec.strip_prefix("file:") {
             // Local file path
-            let path = PathBuf::from(&spec[5..]);
+            let path = PathBuf::from(stripped);
             Self::load_from_path(&path)
         } else if spec.starts_with("git+") {
             // Git repository - would need to clone and build

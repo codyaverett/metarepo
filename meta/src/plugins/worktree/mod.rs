@@ -155,6 +155,7 @@ pub fn list_worktrees(repo_path: &Path) -> Result<Vec<WorktreeInfo>> {
 }
 
 /// Add a worktree for selected projects
+#[allow(clippy::too_many_arguments)]
 pub fn add_worktrees(
     branch: &str,
     projects: &[String],
@@ -174,7 +175,7 @@ pub fn add_worktrees(
             vec![current.to_string()]
         } else {
             // Interactive selection
-            select_projects_interactive(&config)?
+            select_projects_interactive(config)?
         }
     } else if projects.len() == 1 && projects[0] == "--all" {
         config.projects.keys().cloned().collect()
@@ -183,7 +184,7 @@ pub fn add_worktrees(
         let mut selected = Vec::new();
         for project_id in projects {
             // Try to find the project by full name, basename, or alias
-            let resolved = resolve_project_identifier(&config, project_id);
+            let resolved = resolve_project_identifier(config, project_id);
             if let Some(project_name) = resolved {
                 selected.push(project_name);
             } else {
@@ -412,7 +413,7 @@ pub fn remove_worktrees(
 
     // Find projects that have this worktree
     let mut projects_with_worktree = Vec::new();
-    for (project_name, _) in &config.projects {
+    for project_name in config.projects.keys() {
         let project_path = base_path.join(project_name);
         if let Ok(worktrees) = list_worktrees(&project_path) {
             for wt in worktrees {
@@ -552,7 +553,7 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
     let mut worktree_map: HashMap<String, Vec<(String, PathBuf)>> = HashMap::new();
 
     // Collect all worktrees grouped by branch name
-    for (project_name, _) in &config.projects {
+    for project_name in config.projects.keys() {
         let project_path = base_path.join(project_name);
 
         if !project_path.exists() || !project_path.join(".git").exists() {
@@ -580,7 +581,7 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
 
                     worktree_map
                         .entry(branch_name)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push((project_name.clone(), wt.path));
                 }
             }
@@ -605,8 +606,8 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
                 let relative_path = path.strip_prefix(base_path).unwrap_or(path).display();
 
                 println!(
-                    "  {} ({})",
-                    format!("{}: {}", project.bright_blue(), relative_path),
+                    "  {}: {} ({})",
+                    project.bright_blue(), relative_path,
                     status
                 );
             }
@@ -641,7 +642,7 @@ pub fn prune_worktrees(base_path: &Path, dry_run: bool) -> Result<()> {
         println!("\nPruning stale worktrees\n");
     }
 
-    for (project_name, _) in &config.projects {
+    for project_name in config.projects.keys() {
         let project_path = base_path.join(project_name);
 
         if !project_path.exists() || !project_path.join(".git").exists() {

@@ -366,8 +366,7 @@ fn handle_non_interactive_multiselect(
                     .map(|idx| {
                         items
                             .get(*idx)
-                            .ok_or_else(|| anyhow!("Default index {} out of range", idx))
-                            .map(|s| s.clone())
+                            .ok_or_else(|| anyhow!("Default index {} out of range", idx)).cloned()
                     })
                     .collect::<Result<Vec<_>>>()?)
             }

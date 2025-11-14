@@ -187,7 +187,7 @@ async fn handle_add_async(matches: &ArgMatches) -> Result<()> {
 
     let working_dir = matches
         .get_one::<String>("workdir")
-        .map(|s| PathBuf::from(s));
+        .map(PathBuf::from);
 
     let env = matches.get_one::<String>("env").map(|s| {
         let mut map = HashMap::new();
@@ -237,7 +237,7 @@ async fn handle_list_async() -> Result<()> {
     }
 
     println!("Configured MCP servers:");
-    println!("{:<20} {:<30} {}", "Name", "Command", "Args");
+    println!("{:<20} {:<30} Args", "Name", "Command");
     println!("{}", "-".repeat(70));
 
     for server in servers {

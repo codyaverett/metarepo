@@ -235,7 +235,7 @@ fn extract_command_info(app: &Command) -> CommandInfo {
         version: app.get_version().map(|s| s.to_string()),
         subcommands: app
             .get_subcommands()
-            .map(|cmd| extract_command_info(cmd))
+            .map(extract_command_info)
             .collect(),
         arguments: app
             .get_arguments()

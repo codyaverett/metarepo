@@ -68,6 +68,12 @@ pub struct MetarepoMcpServer {
     metarepo_path: PathBuf,
 }
 
+impl Default for MetarepoMcpServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MetarepoMcpServer {
     pub fn new() -> Self {
         let metarepo_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("meta"));
@@ -441,13 +447,13 @@ impl MetarepoMcpServer {
         match name {
             "help" => {
                 if let Some(plugin) = arguments.get("plugin").and_then(|v| v.as_str()) {
-                    cmd.args(&[plugin, "--help"]);
+                    cmd.args([plugin, "--help"]);
                 } else {
                     cmd.arg("--help");
                 }
             }
             "git_status" => {
-                cmd.args(&["git", "status"]);
+                cmd.args(["git", "status"]);
                 if arguments
                     .get("verbose")
                     .and_then(|v| v.as_bool())
@@ -457,7 +463,7 @@ impl MetarepoMcpServer {
                 }
             }
             "git_diff" => {
-                cmd.args(&["git", "diff"]);
+                cmd.args(["git", "diff"]);
                 if arguments
                     .get("staged")
                     .and_then(|v| v.as_bool())
@@ -467,9 +473,9 @@ impl MetarepoMcpServer {
                 }
             }
             "git_commit" => {
-                cmd.args(&["git", "commit"]);
+                cmd.args(["git", "commit"]);
                 if let Some(message) = arguments.get("message").and_then(|v| v.as_str()) {
-                    cmd.args(&["-m", message]);
+                    cmd.args(["-m", message]);
                 }
                 if arguments
                     .get("all")
@@ -480,25 +486,25 @@ impl MetarepoMcpServer {
                 }
             }
             "git_pull" => {
-                cmd.args(&["git", "pull"]);
+                cmd.args(["git", "pull"]);
             }
             "git_push" => {
-                cmd.args(&["git", "push"]);
+                cmd.args(["git", "push"]);
             }
             "project_list" => {
-                cmd.args(&["project", "list"]);
+                cmd.args(["project", "list"]);
             }
             "project_add" => {
-                cmd.args(&["project", "add"]);
+                cmd.args(["project", "add"]);
                 if let Some(path) = arguments.get("path").and_then(|v| v.as_str()) {
                     cmd.arg(path);
                 }
                 if let Some(name) = arguments.get("name").and_then(|v| v.as_str()) {
-                    cmd.args(&["--name", name]);
+                    cmd.args(["--name", name]);
                 }
             }
             "project_remove" => {
-                cmd.args(&["project", "remove"]);
+                cmd.args(["project", "remove"]);
                 if let Some(name) = arguments.get("name").and_then(|v| v.as_str()) {
                     cmd.arg(name);
                 }
@@ -520,7 +526,7 @@ impl MetarepoMcpServer {
                 }
             }
             "mcp_add_server" => {
-                cmd.args(&["mcp", "add"]);
+                cmd.args(["mcp", "add"]);
                 if let Some(name) = arguments.get("name").and_then(|v| v.as_str()) {
                     cmd.arg(name);
                 }
@@ -536,10 +542,10 @@ impl MetarepoMcpServer {
                 }
             }
             "mcp_list_servers" => {
-                cmd.args(&["mcp", "list"]);
+                cmd.args(["mcp", "list"]);
             }
             "mcp_remove_server" => {
-                cmd.args(&["mcp", "remove"]);
+                cmd.args(["mcp", "remove"]);
                 if let Some(name) = arguments.get("name").and_then(|v| v.as_str()) {
                     cmd.arg(name);
                 }

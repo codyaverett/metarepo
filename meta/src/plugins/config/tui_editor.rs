@@ -168,7 +168,7 @@ impl ConfigEditor {
 
         if let Some(default_bare) = config.default_bare {
             let mut bare_node =
-                TreeNode::with_value("default_bare", &default_bare.to_string(), "boolean");
+                TreeNode::with_value("default_bare", default_bare.to_string(), "boolean");
             bare_node.depth = 1;
             settings_node.add_child(bare_node);
         }

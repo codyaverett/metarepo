@@ -4,6 +4,9 @@ use std::collections::HashMap;
 
 use crate::{BasePlugin, MetaPlugin, RuntimeConfig};
 
+/// Type alias for command handlers
+type CommandHandler = Box<dyn Fn(&ArgMatches, &RuntimeConfig) -> Result<()> + Send + Sync>;
+
 /// Builder for creating plugins declaratively
 pub struct PluginBuilder {
     name: String,
@@ -12,7 +15,7 @@ pub struct PluginBuilder {
     author: String,
     experimental: bool,
     commands: Vec<CommandBuilder>,
-    handlers: HashMap<String, Box<dyn Fn(&ArgMatches, &RuntimeConfig) -> Result<()> + Send + Sync>>,
+    handlers: HashMap<String, CommandHandler>,
 }
 
 impl PluginBuilder {
@@ -90,7 +93,7 @@ pub struct BuiltPlugin {
     author: String,
     experimental: bool,
     commands: Vec<CommandBuilder>,
-    handlers: HashMap<String, Box<dyn Fn(&ArgMatches, &RuntimeConfig) -> Result<()> + Send + Sync>>,
+    handlers: HashMap<String, CommandHandler>,
 }
 
 impl MetaPlugin for BuiltPlugin {
@@ -489,7 +492,7 @@ mod tests {
         );
 
         // Check aliases
-        let aliases: Vec<&str> = cmd.get_visible_aliases().map(|a| a).collect();
+        let aliases: Vec<&str> = cmd.get_visible_aliases().collect();
         assert!(aliases.contains(&"t"));
         assert!(aliases.contains(&"tst"));
 
