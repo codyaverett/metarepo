@@ -233,10 +233,7 @@ fn extract_command_info(app: &Command) -> CommandInfo {
         name: app.get_name().to_string(),
         description: app.get_about().map(|s| s.to_string()),
         version: app.get_version().map(|s| s.to_string()),
-        subcommands: app
-            .get_subcommands()
-            .map(extract_command_info)
-            .collect(),
+        subcommands: app.get_subcommands().map(extract_command_info).collect(),
         arguments: app
             .get_arguments()
             .map(|arg| ArgumentInfo {

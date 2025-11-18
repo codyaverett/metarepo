@@ -185,9 +185,7 @@ async fn handle_add_async(matches: &ArgMatches) -> Result<()> {
         .map(|s| s.split_whitespace().map(|s| s.to_string()).collect())
         .unwrap_or_default();
 
-    let working_dir = matches
-        .get_one::<String>("workdir")
-        .map(PathBuf::from);
+    let working_dir = matches.get_one::<String>("workdir").map(PathBuf::from);
 
     let env = matches.get_one::<String>("env").map(|s| {
         let mut map = HashMap::new();

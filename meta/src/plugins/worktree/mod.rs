@@ -607,7 +607,8 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
 
                 println!(
                     "  {}: {} ({})",
-                    project.bright_blue(), relative_path,
+                    project.bright_blue(),
+                    relative_path,
                     status
                 );
             }
