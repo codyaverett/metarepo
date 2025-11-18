@@ -39,6 +39,7 @@ help:
 	@echo "  $(GREEN)make fmt$(NC)         - Format code"
 	@echo "  $(GREEN)make lint$(NC)        - Run clippy linter"
 	@echo "  $(GREEN)make audit$(NC)       - Check for security vulnerabilities"
+	@echo "  $(GREEN)make install-hooks$(NC) - Install git pre-commit hooks"
 	@echo ""
 	@echo "$(YELLOW)Publishing:$(NC)"
 	@echo "  $(GREEN)make publish-dry$(NC) - Dry run all package publishing"
@@ -168,6 +169,12 @@ version:
 watch:
 	@echo "$(CYAN)👁️  Watching for changes...$(NC)"
 	@cargo watch -x "build --bin $(BINARY_NAME)"
+
+# Install git hooks
+.PHONY: install-hooks
+install-hooks:
+	@echo "$(CYAN)📎 Installing git hooks...$(NC)"
+	@./scripts/install-hooks.sh
 
 .PHONY: all
 all: fmt check test build

@@ -243,7 +243,8 @@ pub fn execute_in_specific_projects(command: &str, args: &[&str], projects: &[&s
 
     println!(
         "Executing '{} {}' in specified projects",
-        command, args.join(" ")
+        command,
+        args.join(" ")
     );
 
     for project_name in projects {

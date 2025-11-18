@@ -103,3 +103,4 @@ See `.github/scripts/README.md` for complete documentation including:
 - Integration examples
 - Error handling
 - CI/CD usage patterns
+- After completing a feature or major milestones generate a commit message for the work done and wait for me to commit the changes to the git repo.

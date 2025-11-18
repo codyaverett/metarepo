@@ -420,7 +420,10 @@ impl RuleEngine {
                             rule: format!("import:{}", rule.source_pattern),
                             message: format!(
                                 "File '{}' uses relative imports but absolute imports are required",
-                                file_path.strip_prefix(project_path).unwrap_or(&file_path).display()
+                                file_path
+                                    .strip_prefix(project_path)
+                                    .unwrap_or(&file_path)
+                                    .display()
                             ),
                             severity: Severity::Warning,
                             path: Some(file_path.clone()),
@@ -632,7 +635,8 @@ pub fn fix_violations<P: AsRef<Path>>(project_path: P, violations: &[Violation])
 
         if let Some(path) = &violation.path {
             // Only fix directory creation for now
-            if (violation.rule.starts_with("directory:") || violation.rule.starts_with("component:"))
+            if (violation.rule.starts_with("directory:")
+                || violation.rule.starts_with("component:"))
                 && !path.exists()
             {
                 std::fs::create_dir_all(path)?;
