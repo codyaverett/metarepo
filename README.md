@@ -55,20 +55,31 @@ metarepo/
 - `meta git update` - Clone missing repositories
 
 **Project Plugin** - Project management operations
-- `meta project create <path> <repo_url>` - Create and clone new project
-- `meta project import <path> <repo_url>` - Import existing project
+- `meta project add <path> [source]` - Add a project to the workspace (aliases: `import`, `i`, `a`)
+- `meta project list` - List all projects (aliases: `ls`, `l`)
+- `meta project tree` - Display project hierarchy as a tree
+- `meta project update` - Update all projects (pull latest changes)
+- `meta project remove <name>` - Remove a project from the workspace
+- `meta project rename <old_name> <new_name>` - Rename a project
+- `meta project tag add <project> <tags>` - Add tags to a project (use `--all` to apply to all projects)
+- `meta project tag remove <project> <tags>` - Remove tags from a project (use `--all` to apply to all projects)
+- `meta project tag list <project>` - List tags for a project (use `--all` to list tags for all projects)
 
 **Exec Plugin** - Execute commands across multiple repositories
 - `meta exec <command>` - Execute a command in all project directories
 - `meta exec --projects <project1,project2> <command>` - Execute in specific projects
-- `meta exec --include-only <patterns> <command>` - Only include matching projects
-- `meta exec --exclude <patterns> <command>` - Exclude matching projects
-- `meta exec --existing-only <command>` - Only iterate over existing projects
-- `meta exec --git-only <command>` - Only iterate over git repositories
+- `meta exec --include-only <patterns> <command>` - Only include matching projects (automatically applies to all projects)
+- `meta exec --exclude <patterns> <command>` - Exclude matching projects (automatically applies to all projects)
+- `meta exec --include-tags <tags> <command>` - Only include projects with these tags (automatically applies to all projects)
+- `meta exec --exclude-tags <tags> <command>` - Exclude projects with these tags (automatically applies to all projects)
+- `meta exec --existing-only <command>` - Only iterate over existing projects (automatically applies to all projects)
+- `meta exec --git-only <command>` - Only iterate over git repositories (automatically applies to all projects)
 - `meta exec --parallel <command>` - Execute commands in parallel
 - `meta exec --include-main <command>` - Include the main meta repository
 - `meta exec --no-progress` - Disable progress indicators (useful for CI)
 - `meta exec --streaming` - Show output as it happens instead of buffered
+
+Note: When using filter flags (`--include-tags`, `--exclude-tags`, `--include-only`, `--exclude`, `--existing-only`, or `--git-only`), you don't need to specify `--all` - filters automatically apply to all projects that match the criteria.
 
 **Run Plugin** - Run project-specific scripts defined in .meta
 - `meta run <script>` - Run a named script from .meta configuration
@@ -76,6 +87,8 @@ metarepo/
 - `meta run --project <project> <script>` - Run script in a specific project
 - `meta run --projects <project1,project2> <script>` - Run in multiple projects
 - `meta run --all <script>` - Run script in all projects
+- `meta run --include-tags <tags> <script>` - Only run in projects with these tags
+- `meta run --exclude-tags <tags> <script>` - Exclude projects with these tags
 - `meta run --parallel <script>` - Execute scripts in parallel
 - `meta run --env KEY=VALUE <script>` - Set environment variables
 - `meta run --existing-only <script>` - Only run in existing directories
@@ -172,6 +185,11 @@ cargo run --bin meta -- exec --projects frontend,backend npm test
 cargo run --bin meta -- exec --git-only git status
 cargo run --bin meta -- exec --exclude node_modules,target ls -la
 
+# Execute with tag filters (no --all needed when using filters)
+cargo run --bin meta -- exec --include-tags frontend,production git status
+cargo run --bin meta -- exec --exclude-tags test cargo build
+cargo run --bin meta -- exec --include-tags production --exclude-tags staging cargo test
+
 # Execute in parallel
 cargo run --bin meta -- exec --parallel npm test
 
@@ -182,6 +200,16 @@ cargo run --bin meta -- exec --include-main git status
 cargo run --bin meta -- run build
 cargo run --bin meta -- run --list
 cargo run --bin meta -- run --parallel test
+
+# Run scripts with tag filters
+cargo run --bin meta -- run test --include-tags frontend
+cargo run --bin meta -- run deploy --include-tags production --parallel
+
+# Tag management examples
+cargo run --bin meta -- project tag add frontend-app frontend,production
+cargo run --bin meta -- project tag add --all common,shared
+cargo run --bin meta -- project tag list --all
+cargo run --bin meta -- project tag remove --all deprecated
 
 # Check project structure against rules
 cargo run --bin meta -- rules check
@@ -205,15 +233,129 @@ cargo run --bin meta -- plugin update
 cargo run --bin meta -- init
 
 # 2. Add some projects
-cargo run --bin meta -- project create frontend https://github.com/user/frontend.git
-cargo run --bin meta -- project create backend https://github.com/user/backend.git
+cargo run --bin meta -- project add frontend https://github.com/user/frontend.git
+cargo run --bin meta -- project add backend https://github.com/user/backend.git
 
-# 3. Check status of all repositories
+# 3. Tag projects for organization
+cargo run --bin meta -- project tag add frontend frontend,production,react
+cargo run --bin meta -- project tag add backend backend,production,rust
+
+# 4. Check status of all repositories
 cargo run --bin meta -- git status
 
-# 4. If someone else adds projects, update to get missing ones
+# 5. Execute commands on tagged subsets (filters automatically apply to all matching projects)
+cargo run --bin meta -- exec --include-tags frontend npm install
+cargo run --bin meta -- exec --include-tags production cargo build
+cargo run --bin meta -- exec --include-tags backend --exclude-tags test cargo test
+
+# 6. If someone else adds projects, update to get missing ones
 cargo run --bin meta -- git update
 ```
+
+### Project Tags
+
+**New in v0.11.0:** Tag functionality allows you to categorize and filter projects for more efficient workspace management.
+
+#### Managing Tags
+
+```bash
+# Add tags to categorize projects
+meta project tag add frontend-app frontend,production,react
+
+# Add tags to all projects at once
+meta project tag add --all common,shared
+
+# List tags for a project
+meta project tag list frontend-app
+
+# List tags for all projects
+meta project tag list --all
+
+# Remove tags from a project
+meta project tag remove frontend-app react
+
+# Remove tags from all projects
+meta project tag remove --all deprecated
+```
+
+Tags can be specified as comma-separated (`frontend,production`) or space-separated (`frontend production`). Use `--all` as the project name to operate on all projects in the workspace.
+
+#### Using Tags for Filtering
+
+Tags integrate seamlessly with existing filtering mechanisms. When you use tag filters (or any filter flags), they automatically apply to all projects that match - you don't need to specify `--all`:
+
+```bash
+# Execute commands only in tagged projects (no --all needed)
+meta exec --include-tags frontend,production git status
+meta exec --exclude-tags test cargo build
+
+# Run scripts only in tagged projects
+meta run test --include-tags frontend
+meta run deploy --include-tags production --parallel
+
+# Combine tags with other filters
+meta exec --include-tags frontend --git-only --parallel npm install
+
+# Use both include and exclude tags together
+meta exec --include-tags production --exclude-tags staging cargo test
+```
+
+**Tag Filtering Logic:**
+- `--include-tags`: Projects must have **at least one** matching tag (OR logic)
+- `--exclude-tags`: Projects must **not have any** of the excluded tags (AND logic)
+- Tags work together with pattern matching, `--git-only`, and `--existing-only` filters
+- Filter flags automatically apply to all projects - no need to specify `--all` when using filters
+
+**Updating Tags Based on Existing Tags:**
+
+The `meta project tag` commands don't support `--include-tags` or `--exclude-tags` flags directly. To update tags for projects based on their existing tags, you can combine `meta exec` with tag commands:
+
+```bash
+# List projects matching tag criteria to see what will be updated
+meta exec --include-tags frontend -- echo
+
+# Add tags to projects that already have specific tags
+# Note: This requires knowing the project name, so you may need to script this
+meta exec --include-tags frontend -- sh -c 'PROJECT=$(basename $(pwd)) && meta project tag add "$PROJECT" production'
+
+# Remove tags from projects matching certain criteria
+meta exec --include-tags legacy -- sh -c 'PROJECT=$(basename $(pwd)) && meta project tag remove "$PROJECT" deprecated'
+
+# Add tags to production projects, excluding staging
+meta exec --include-tags production --exclude-tags staging -- sh -c 'PROJECT=$(basename $(pwd)) && meta project tag add "$PROJECT" stable'
+```
+
+Alternatively, use `--all` to apply tags to all projects, then use filtering in exec/run commands:
+
+```bash
+# Add a tag to all projects
+meta project tag add --all common
+
+# Use tag filtering in exec/run to work with subsets
+meta exec --include-tags common,frontend npm install
+meta exec --exclude-tags common cargo build
+```
+
+For more complex tag-based updates, consider using a script that combines `meta project list` with tag filtering logic.
+
+**Example Workflow:**
+```bash
+# Tag projects by technology stack
+meta project tag add react-app frontend,react,typescript
+meta project tag add vue-app frontend,vue,javascript
+meta project tag add api-server backend,rust,production
+
+# Tag projects by environment
+meta project tag add staging-api backend,staging
+meta project tag add prod-api backend,production
+
+# Execute commands on specific subsets (no --all needed with filters)
+meta exec --include-tags frontend npm run lint
+meta exec --include-tags production,backend cargo test
+meta exec --include-tags staging --exclude-tags production ./deploy.sh
+```
+
+Tags are stored in the `.meta` file and are backward-compatible. Projects using the simple URL format are automatically upgraded to Metadata format when tags are added.
 
 ### Advanced Configuration
 

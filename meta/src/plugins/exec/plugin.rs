@@ -55,6 +55,18 @@ impl ExecPlugin {
                             .takes_value(true),
                     )
                     .arg(
+                        arg("include-tags")
+                            .long("include-tags")
+                            .help("Only include projects with these tags (comma-separated)")
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("exclude-tags")
+                            .long("exclude-tags")
+                            .help("Exclude projects with these tags (comma-separated)")
+                            .takes_value(true),
+                    )
+                    .arg(
                         arg("existing-only")
                             .long("existing-only")
                             .help("Only iterate over existing projects"),
@@ -97,11 +109,19 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                 None => Vec::new(),
             };
 
+            // Check if any filters are specified (tags or patterns)
+            let has_filters = matches.get_one::<String>("include-tags").is_some()
+                || matches.get_one::<String>("exclude-tags").is_some()
+                || matches.get_one::<String>("include-only").is_some()
+                || matches.get_one::<String>("exclude").is_some()
+                || matches.get_flag("existing-only")
+                || matches.get_flag("git-only");
+
             // Collect selected projects
             let mut selected_projects = Vec::new();
 
             // Check for --all flag
-            if matches.get_flag("all") {
+            if matches.get_flag("all") || has_filters {
                 // Run in all projects
                 let mut iterator = ProjectIterator::new(&config, base_path);
 
@@ -116,6 +136,18 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                     let pattern_vec: Vec<String> =
                         patterns_str.split(',').map(|s| s.to_string()).collect();
                     iterator = iterator.with_exclude_patterns(pattern_vec);
+                }
+
+                if let Some(tags_str) = matches.get_one::<String>("include-tags") {
+                    let tag_vec: Vec<String> =
+                        tags_str.split(',').map(|s| s.trim().to_string()).collect();
+                    iterator = iterator.with_include_tags(tag_vec);
+                }
+
+                if let Some(tags_str) = matches.get_one::<String>("exclude-tags") {
+                    let tag_vec: Vec<String> =
+                        tags_str.split(',').map(|s| s.trim().to_string()).collect();
+                    iterator = iterator.with_exclude_tags(tag_vec);
                 }
 
                 if matches.get_flag("existing-only") {
@@ -202,6 +234,19 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                 iterator = iterator.with_exclude_patterns(pattern_vec);
             }
 
+            // Apply tag filters
+            if let Some(tags_str) = matches.get_one::<String>("include-tags") {
+                let tag_vec: Vec<String> =
+                    tags_str.split(',').map(|s| s.trim().to_string()).collect();
+                iterator = iterator.with_include_tags(tag_vec);
+            }
+
+            if let Some(tags_str) = matches.get_one::<String>("exclude-tags") {
+                let tag_vec: Vec<String> =
+                    tags_str.split(',').map(|s| s.trim().to_string()).collect();
+                iterator = iterator.with_exclude_tags(tag_vec);
+            }
+
             // Apply filters
             if matches.get_flag("existing-only") {
                 iterator = iterator.filter_existing();
@@ -284,6 +329,18 @@ impl MetaPlugin for ExecPlugin {
                     .long("exclude")
                     .help("Exclude projects matching these patterns (comma-separated)")
                     .value_name("PATTERNS"),
+            )
+            .arg(
+                clap::Arg::new("include-tags")
+                    .long("include-tags")
+                    .help("Only include projects with these tags (comma-separated)")
+                    .value_name("TAGS"),
+            )
+            .arg(
+                clap::Arg::new("exclude-tags")
+                    .long("exclude-tags")
+                    .help("Exclude projects with these tags (comma-separated)")
+                    .value_name("TAGS"),
             )
             .arg(
                 clap::Arg::new("existing-only")

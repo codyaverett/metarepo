@@ -461,6 +461,7 @@ pub fn import_project_with_options(
                 env: std::collections::HashMap::new(),
                 worktree_init: None,
                 bare: Some(true),
+                tags: Vec::new(),
             }),
         );
     } else {
@@ -1914,4 +1915,889 @@ pub fn rename_project(old_name: &str, new_name: &str, base_path: &Path) -> Resul
     println!();
 
     Ok(())
+}
+
+/// Add tags to a project
+pub fn add_project_tags(project_name: &str, tags: &[String], base_path: &Path) -> Result<()> {
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
+    }
+
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    // Check if project exists
+    if !config.projects.contains_key(project_name) {
+        return Err(anyhow::anyhow!(
+            "Project '{}' not found in .meta file",
+            project_name
+        ));
+    }
+
+    // Get the project entry and convert to Metadata if needed
+    let entry = config.projects.remove(project_name).unwrap();
+    let mut metadata = match entry {
+        ProjectEntry::Url(url) => {
+            // Convert simple URL entry to Metadata format
+            use metarepo_core::ProjectMetadata;
+            ProjectMetadata {
+                url,
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: Vec::new(),
+            }
+        }
+        ProjectEntry::Metadata(meta) => meta,
+    };
+
+    // Add tags if not already present
+    let mut added = Vec::new();
+    let mut skipped = Vec::new();
+
+    for tag in tags {
+        let tag_str = tag.trim();
+        if tag_str.is_empty() {
+            continue;
+        }
+
+        if !metadata.tags.contains(&tag_str.to_string()) {
+            metadata.tags.push(tag_str.to_string());
+            added.push(tag_str);
+        } else {
+            skipped.push(tag_str);
+        }
+    }
+
+    if !added.is_empty() {
+        println!(
+            "\n  {} {}",
+            "✅".green(),
+            format!("Added {} tag(s) to project '{}'", added.len(), project_name)
+                .bold()
+                .green()
+        );
+        for tag in &added {
+            println!("     {} {}", "└".bright_black(), tag.bright_white());
+        }
+    }
+
+    if !skipped.is_empty() {
+        println!(
+            "\n  {} {}",
+            "ℹ".bright_black(),
+            format!("Skipped {} tag(s) (already exist)", skipped.len()).dimmed()
+        );
+        for tag in &skipped {
+            println!("     {} {}", "└".bright_black(), tag.dimmed());
+        }
+    }
+
+    if added.is_empty() && skipped.is_empty() {
+        println!(
+            "\n  {} {}",
+            "ℹ".bright_black(),
+            "No valid tags provided".dimmed()
+        );
+    }
+
+    // Save back to config
+    config
+        .projects
+        .insert(project_name.to_string(), ProjectEntry::Metadata(metadata));
+    config.save_to_file(&meta_file_path)?;
+
+    Ok(())
+}
+
+/// Remove tags from a project
+pub fn remove_project_tags(project_name: &str, tags: &[String], base_path: &Path) -> Result<()> {
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
+    }
+
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    // Check if project exists
+    if !config.projects.contains_key(project_name) {
+        return Err(anyhow::anyhow!(
+            "Project '{}' not found in .meta file",
+            project_name
+        ));
+    }
+
+    // Get the project entry
+    let entry = config.projects.remove(project_name).unwrap();
+    let metadata = match entry {
+        ProjectEntry::Url(_) => {
+            // Simple URL entry has no tags, nothing to remove
+            println!(
+                "\n  {} {}",
+                "ℹ".bright_black(),
+                format!("Project '{}' has no tags", project_name).dimmed()
+            );
+            // Put it back
+            config.projects.insert(project_name.to_string(), entry);
+            config.save_to_file(&meta_file_path)?;
+            return Ok(());
+        }
+        ProjectEntry::Metadata(mut meta) => {
+            // Remove tags if present
+            let mut removed = Vec::new();
+            let mut not_found = Vec::new();
+
+            for tag in tags {
+                let tag_str = tag.trim();
+                if tag_str.is_empty() {
+                    continue;
+                }
+
+                if meta.tags.contains(&tag_str.to_string()) {
+                    meta.tags.retain(|t| t != tag_str);
+                    removed.push(tag_str);
+                } else {
+                    not_found.push(tag_str);
+                }
+            }
+
+            if !removed.is_empty() {
+                println!(
+                    "\n  {} {}",
+                    "✅".green(),
+                    format!(
+                        "Removed {} tag(s) from project '{}'",
+                        removed.len(),
+                        project_name
+                    )
+                    .bold()
+                    .green()
+                );
+                for tag in &removed {
+                    println!("     {} {}", "└".bright_black(), tag.bright_white());
+                }
+            }
+
+            if !not_found.is_empty() {
+                println!(
+                    "\n  {} {}",
+                    "ℹ".bright_black(),
+                    format!("{} tag(s) not found", not_found.len()).dimmed()
+                );
+                for tag in &not_found {
+                    println!("     {} {}", "└".bright_black(), tag.dimmed());
+                }
+            }
+
+            if removed.is_empty() && not_found.is_empty() {
+                println!(
+                    "\n  {} {}",
+                    "ℹ".bright_black(),
+                    "No valid tags provided".dimmed()
+                );
+            }
+
+            meta
+        }
+    };
+
+    // Save back to config
+    config
+        .projects
+        .insert(project_name.to_string(), ProjectEntry::Metadata(metadata));
+    config.save_to_file(&meta_file_path)?;
+
+    Ok(())
+}
+
+/// Add tags to all projects
+pub fn add_tags_to_all_projects(tags: &[String], base_path: &Path) -> Result<()> {
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
+    }
+
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    if config.projects.is_empty() {
+        println!(
+            "\n  {} {}",
+            "ℹ".bright_black(),
+            "No projects found in workspace".dimmed()
+        );
+        return Ok(());
+    }
+
+    let mut success_count = 0;
+    let mut failed = Vec::new();
+
+    println!(
+        "\n  {} {}",
+        "🏷️".cyan(),
+        format!("Adding tags to {} project(s)", config.projects.len()).bold()
+    );
+    println!("  {}", "═".repeat(60).bright_black());
+
+    for project_name in config.projects.keys() {
+        match add_project_tags(project_name, tags, base_path) {
+            Ok(_) => success_count += 1,
+            Err(e) => {
+                eprintln!(
+                    "     {} {} {}",
+                    "❌".red(),
+                    project_name.bright_white(),
+                    format!("Failed: {}", e).red()
+                );
+                failed.push(project_name.clone());
+            }
+        }
+    }
+
+    println!("\n  {}", "─".repeat(60).bright_black());
+    println!(
+        "  {} {} projects updated, {} failed",
+        "Summary:".bright_black(),
+        success_count.to_string().green(),
+        if failed.is_empty() {
+            "0".bright_black()
+        } else {
+            failed.len().to_string().red()
+        }
+    );
+    println!();
+
+    if !failed.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Failed to add tags to {} project(s)",
+            failed.len()
+        ));
+    }
+
+    Ok(())
+}
+
+/// Remove tags from all projects
+pub fn remove_tags_from_all_projects(tags: &[String], base_path: &Path) -> Result<()> {
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
+    }
+
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    if config.projects.is_empty() {
+        println!(
+            "\n  {} {}",
+            "ℹ".bright_black(),
+            "No projects found in workspace".dimmed()
+        );
+        return Ok(());
+    }
+
+    let mut success_count = 0;
+    let mut failed = Vec::new();
+
+    println!(
+        "\n  {} {}",
+        "🏷️".cyan(),
+        format!("Removing tags from {} project(s)", config.projects.len()).bold()
+    );
+    println!("  {}", "═".repeat(60).bright_black());
+
+    for project_name in config.projects.keys() {
+        match remove_project_tags(project_name, tags, base_path) {
+            Ok(_) => success_count += 1,
+            Err(e) => {
+                eprintln!(
+                    "     {} {} {}",
+                    "❌".red(),
+                    project_name.bright_white(),
+                    format!("Failed: {}", e).red()
+                );
+                failed.push(project_name.clone());
+            }
+        }
+    }
+
+    println!("\n  {}", "─".repeat(60).bright_black());
+    println!(
+        "  {} {} projects updated, {} failed",
+        "Summary:".bright_black(),
+        success_count.to_string().green(),
+        if failed.is_empty() {
+            "0".bright_black()
+        } else {
+            failed.len().to_string().red()
+        }
+    );
+    println!();
+
+    if !failed.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Failed to remove tags from {} project(s)",
+            failed.len()
+        ));
+    }
+
+    Ok(())
+}
+
+/// List tags for all projects
+pub fn list_tags_for_all_projects(base_path: &Path) -> Result<()> {
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
+    }
+
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    if config.projects.is_empty() {
+        println!(
+            "\n  {} {}",
+            "ℹ".bright_black(),
+            "No projects found in workspace".dimmed()
+        );
+        return Ok(());
+    }
+
+    println!(
+        "\n  {} {}",
+        "🏷️".cyan(),
+        format!("Tags for all projects ({})", config.projects.len()).bold()
+    );
+    println!("  {}", "═".repeat(60).bright_black());
+
+    let mut projects_with_tags = 0;
+    let mut projects_without_tags = 0;
+
+    for project_name in config.projects.keys() {
+        let tags = match config.projects.get(project_name) {
+            Some(ProjectEntry::Url(_)) => Vec::new(),
+            Some(ProjectEntry::Metadata(meta)) => meta.tags.clone(),
+            None => Vec::new(),
+        };
+
+        println!("\n  {} {}", "📦".blue(), project_name.bold());
+
+        if tags.is_empty() {
+            println!("     {} {}", "└".bright_black(), "No tags".dimmed());
+            projects_without_tags += 1;
+        } else {
+            for tag in &tags {
+                println!("     {} {}", "└".bright_black(), tag.bright_white());
+            }
+            projects_with_tags += 1;
+        }
+    }
+
+    println!("\n  {}", "─".repeat(60).bright_black());
+    println!(
+        "  {} {} projects with tags, {} without tags",
+        "Summary:".bright_black(),
+        projects_with_tags.to_string().green(),
+        projects_without_tags.to_string().bright_black()
+    );
+    println!();
+
+    Ok(())
+}
+
+/// List tags for a project
+pub fn list_project_tags(project_name: &str, base_path: &Path) -> Result<()> {
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
+    }
+
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    // Check if project exists
+    if !config.projects.contains_key(project_name) {
+        return Err(anyhow::anyhow!(
+            "Project '{}' not found in .meta file",
+            project_name
+        ));
+    }
+
+    // Get tags from project entry
+    let tags = match config.projects.get(project_name) {
+        Some(ProjectEntry::Url(_)) => Vec::new(),
+        Some(ProjectEntry::Metadata(meta)) => meta.tags.clone(),
+        None => Vec::new(),
+    };
+
+    println!(
+        "\n  {} {}",
+        "🏷️".cyan(),
+        format!("Tags for '{}'", project_name).bold()
+    );
+    println!("  {}", "═".repeat(60).bright_black());
+
+    if tags.is_empty() {
+        println!("  {} {}", "└".bright_black(), "No tags".dimmed());
+    } else {
+        for tag in &tags {
+            println!("  {} {}", "└".bright_black(), tag.bright_white());
+        }
+    }
+    println!();
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn create_test_config_with_project(base_path: &Path) -> Result<MetaConfig> {
+        let meta_file_path = base_path.join(".meta");
+        let mut config = MetaConfig::default();
+        config.projects.insert(
+            "test-project".to_string(),
+            ProjectEntry::Url("https://github.com/user/test.git".to_string()),
+        );
+        config.save_to_file(&meta_file_path)?;
+        Ok(config)
+    }
+
+    #[test]
+    fn test_add_project_tag() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        create_test_config_with_project(base_path).unwrap();
+
+        // Add a tag
+        add_project_tags("test-project", &["frontend".to_string()], base_path).unwrap();
+
+        // Verify tag was added
+        let config = MetaConfig::load_from_file(&base_path.join(".meta")).unwrap();
+        if let Some(ProjectEntry::Metadata(meta)) = config.projects.get("test-project") {
+            assert!(meta.tags.contains(&"frontend".to_string()));
+        } else {
+            panic!("Project should be converted to Metadata format");
+        }
+    }
+
+    #[test]
+    fn test_add_multiple_project_tags() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        create_test_config_with_project(base_path).unwrap();
+
+        // Add multiple tags
+        add_project_tags(
+            "test-project",
+            &[
+                "frontend".to_string(),
+                "production".to_string(),
+                "ui".to_string(),
+            ],
+            base_path,
+        )
+        .unwrap();
+
+        // Verify all tags were added
+        let config = MetaConfig::load_from_file(&base_path.join(".meta")).unwrap();
+        if let Some(ProjectEntry::Metadata(meta)) = config.projects.get("test-project") {
+            assert_eq!(meta.tags.len(), 3);
+            assert!(meta.tags.contains(&"frontend".to_string()));
+            assert!(meta.tags.contains(&"production".to_string()));
+            assert!(meta.tags.contains(&"ui".to_string()));
+        } else {
+            panic!("Project should be Metadata format");
+        }
+    }
+
+    #[test]
+    fn test_add_duplicate_tag() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        create_test_config_with_project(base_path).unwrap();
+
+        // Add tag twice
+        add_project_tags("test-project", &["frontend".to_string()], base_path).unwrap();
+        add_project_tags("test-project", &["frontend".to_string()], base_path).unwrap();
+
+        // Verify tag appears only once
+        let config = MetaConfig::load_from_file(&base_path.join(".meta")).unwrap();
+        if let Some(ProjectEntry::Metadata(meta)) = config.projects.get("test-project") {
+            assert_eq!(meta.tags.len(), 1);
+            assert!(meta.tags.contains(&"frontend".to_string()));
+        } else {
+            panic!("Project should be Metadata format");
+        }
+    }
+
+    #[test]
+    fn test_remove_project_tag() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        let meta_file_path = base_path.join(".meta");
+
+        // Create project with tags
+        let mut config = MetaConfig::default();
+        use metarepo_core::ProjectMetadata;
+        config.projects.insert(
+            "test-project".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/test.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec!["frontend".to_string(), "production".to_string()],
+            }),
+        );
+        config.save_to_file(&meta_file_path).unwrap();
+
+        // Remove a tag
+        remove_project_tags("test-project", &["frontend".to_string()], base_path).unwrap();
+
+        // Verify tag was removed
+        let config = MetaConfig::load_from_file(&meta_file_path).unwrap();
+        if let Some(ProjectEntry::Metadata(meta)) = config.projects.get("test-project") {
+            assert_eq!(meta.tags.len(), 1);
+            assert!(!meta.tags.contains(&"frontend".to_string()));
+            assert!(meta.tags.contains(&"production".to_string()));
+        } else {
+            panic!("Project should be Metadata format");
+        }
+    }
+
+    #[test]
+    fn test_remove_multiple_project_tags() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        let meta_file_path = base_path.join(".meta");
+
+        // Create project with tags
+        let mut config = MetaConfig::default();
+        use metarepo_core::ProjectMetadata;
+        config.projects.insert(
+            "test-project".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/test.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec![
+                    "frontend".to_string(),
+                    "production".to_string(),
+                    "ui".to_string(),
+                ],
+            }),
+        );
+        config.save_to_file(&meta_file_path).unwrap();
+
+        // Remove multiple tags
+        remove_project_tags(
+            "test-project",
+            &["frontend".to_string(), "ui".to_string()],
+            base_path,
+        )
+        .unwrap();
+
+        // Verify tags were removed
+        let config = MetaConfig::load_from_file(&meta_file_path).unwrap();
+        if let Some(ProjectEntry::Metadata(meta)) = config.projects.get("test-project") {
+            assert_eq!(meta.tags.len(), 1);
+            assert!(meta.tags.contains(&"production".to_string()));
+        } else {
+            panic!("Project should be Metadata format");
+        }
+    }
+
+    #[test]
+    fn test_remove_nonexistent_tag() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        let meta_file_path = base_path.join(".meta");
+
+        // Create project with tags
+        let mut config = MetaConfig::default();
+        use metarepo_core::ProjectMetadata;
+        config.projects.insert(
+            "test-project".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/test.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec!["frontend".to_string()],
+            }),
+        );
+        config.save_to_file(&meta_file_path).unwrap();
+
+        // Try to remove non-existent tag
+        remove_project_tags("test-project", &["nonexistent".to_string()], base_path).unwrap();
+
+        // Verify original tag still exists
+        let config = MetaConfig::load_from_file(&meta_file_path).unwrap();
+        if let Some(ProjectEntry::Metadata(meta)) = config.projects.get("test-project") {
+            assert_eq!(meta.tags.len(), 1);
+            assert!(meta.tags.contains(&"frontend".to_string()));
+        } else {
+            panic!("Project should be Metadata format");
+        }
+    }
+
+    #[test]
+    fn test_list_project_tags() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        let meta_file_path = base_path.join(".meta");
+
+        // Create project with tags
+        let mut config = MetaConfig::default();
+        use metarepo_core::ProjectMetadata;
+        config.projects.insert(
+            "test-project".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/test.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec!["frontend".to_string(), "production".to_string()],
+            }),
+        );
+        config.save_to_file(&meta_file_path).unwrap();
+
+        // List tags (function should not panic)
+        let result = list_project_tags("test-project", base_path);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_project_tags_empty() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        create_test_config_with_project(base_path).unwrap();
+
+        // List tags for project without tags
+        let result = list_project_tags("test-project", base_path);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_add_tag_to_nonexistent_project() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        create_test_config_with_project(base_path).unwrap();
+
+        // Try to add tag to non-existent project
+        let result = add_project_tags("nonexistent", &["tag".to_string()], base_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_tag_from_url_format_project() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        create_test_config_with_project(base_path).unwrap();
+
+        // Try to remove tag from project with simple URL format
+        let result = remove_project_tags("test-project", &["tag".to_string()], base_path);
+        assert!(result.is_ok()); // Should succeed but do nothing
+    }
+
+    fn create_test_config_with_multiple_projects(base_path: &Path) -> Result<MetaConfig> {
+        let meta_file_path = base_path.join(".meta");
+        let mut config = MetaConfig::default();
+        config.projects.insert(
+            "project1".to_string(),
+            ProjectEntry::Url("https://github.com/user/project1.git".to_string()),
+        );
+        config.projects.insert(
+            "project2".to_string(),
+            ProjectEntry::Url("https://github.com/user/project2.git".to_string()),
+        );
+        config.projects.insert(
+            "project3".to_string(),
+            ProjectEntry::Url("https://github.com/user/project3.git".to_string()),
+        );
+        config.save_to_file(&meta_file_path)?;
+        Ok(config)
+    }
+
+    #[test]
+    fn test_add_tags_to_all_projects() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        create_test_config_with_multiple_projects(base_path).unwrap();
+
+        // Add tags to all projects
+        add_tags_to_all_projects(&["common".to_string(), "shared".to_string()], base_path).unwrap();
+
+        // Verify all projects have the tags
+        let config = MetaConfig::load_from_file(&base_path.join(".meta")).unwrap();
+        for project_name in ["project1", "project2", "project3"] {
+            if let Some(ProjectEntry::Metadata(meta)) = config.projects.get(project_name) {
+                assert_eq!(meta.tags.len(), 2);
+                assert!(meta.tags.contains(&"common".to_string()));
+                assert!(meta.tags.contains(&"shared".to_string()));
+            } else {
+                panic!("Project {} should be Metadata format", project_name);
+            }
+        }
+    }
+
+    #[test]
+    fn test_add_tags_to_all_projects_empty_workspace() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+
+        // Create empty config
+        let meta_file_path = base_path.join(".meta");
+        let config = MetaConfig::default();
+        config.save_to_file(&meta_file_path).unwrap();
+
+        // Should succeed but do nothing
+        let result = add_tags_to_all_projects(&["tag".to_string()], base_path);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_remove_tags_from_all_projects() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        let meta_file_path = base_path.join(".meta");
+
+        // Create projects with tags
+        let mut config = MetaConfig::default();
+        use metarepo_core::ProjectMetadata;
+        config.projects.insert(
+            "project1".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/project1.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec![
+                    "common".to_string(),
+                    "shared".to_string(),
+                    "keep".to_string(),
+                ],
+            }),
+        );
+        config.projects.insert(
+            "project2".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/project2.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec![
+                    "common".to_string(),
+                    "shared".to_string(),
+                    "keep".to_string(),
+                ],
+            }),
+        );
+        config.save_to_file(&meta_file_path).unwrap();
+
+        // Remove tags from all projects
+        remove_tags_from_all_projects(&["common".to_string(), "shared".to_string()], base_path)
+            .unwrap();
+
+        // Verify tags were removed but 'keep' remains
+        let config = MetaConfig::load_from_file(&meta_file_path).unwrap();
+        for project_name in ["project1", "project2"] {
+            if let Some(ProjectEntry::Metadata(meta)) = config.projects.get(project_name) {
+                assert_eq!(meta.tags.len(), 1);
+                assert!(meta.tags.contains(&"keep".to_string()));
+                assert!(!meta.tags.contains(&"common".to_string()));
+                assert!(!meta.tags.contains(&"shared".to_string()));
+            } else {
+                panic!("Project {} should be Metadata format", project_name);
+            }
+        }
+    }
+
+    #[test]
+    fn test_remove_tags_from_all_projects_empty_workspace() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+
+        // Create empty config
+        let meta_file_path = base_path.join(".meta");
+        let config = MetaConfig::default();
+        config.save_to_file(&meta_file_path).unwrap();
+
+        // Should succeed but do nothing
+        let result = remove_tags_from_all_projects(&["tag".to_string()], base_path);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_tags_for_all_projects() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+        let meta_file_path = base_path.join(".meta");
+
+        // Create projects with and without tags
+        let mut config = MetaConfig::default();
+        use metarepo_core::ProjectMetadata;
+        config.projects.insert(
+            "project-with-tags".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/project1.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec!["frontend".to_string(), "production".to_string()],
+            }),
+        );
+        config.projects.insert(
+            "project-without-tags".to_string(),
+            ProjectEntry::Url("https://github.com/user/project2.git".to_string()),
+        );
+        config.save_to_file(&meta_file_path).unwrap();
+
+        // List tags for all projects (should not panic)
+        let result = list_tags_for_all_projects(base_path);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_tags_for_all_projects_empty_workspace() {
+        let temp_dir = tempdir().unwrap();
+        let base_path = temp_dir.path();
+
+        // Create empty config
+        let meta_file_path = base_path.join(".meta");
+        let config = MetaConfig::default();
+        config.save_to_file(&meta_file_path).unwrap();
+
+        // Should succeed but show no projects message
+        let result = list_tags_for_all_projects(base_path);
+        assert!(result.is_ok());
+    }
 }
