@@ -109,11 +109,19 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                 None => Vec::new(),
             };
 
+            // Check if any filters are specified (tags or patterns)
+            let has_filters = matches.get_one::<String>("include-tags").is_some()
+                || matches.get_one::<String>("exclude-tags").is_some()
+                || matches.get_one::<String>("include-only").is_some()
+                || matches.get_one::<String>("exclude").is_some()
+                || matches.get_flag("existing-only")
+                || matches.get_flag("git-only");
+
             // Collect selected projects
             let mut selected_projects = Vec::new();
 
             // Check for --all flag
-            if matches.get_flag("all") {
+            if matches.get_flag("all") || has_filters {
                 // Run in all projects
                 let mut iterator = ProjectIterator::new(&config, base_path);
 
