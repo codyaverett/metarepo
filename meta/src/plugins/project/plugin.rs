@@ -1,6 +1,8 @@
 use super::{
-    convert_to_bare, import_project_recursive_with_options, import_project_with_options,
-    list_projects, list_projects_minimal, remove_project, rename_project, show_project_tree,
+    add_project_tags, add_tags_to_all_projects, convert_to_bare,
+    import_project_recursive_with_options, import_project_with_options, list_project_tags,
+    list_projects, list_projects_minimal, list_tags_for_all_projects, remove_project,
+    remove_project_tags, remove_tags_from_all_projects, rename_project, show_project_tree,
     update_project_gitignore, update_projects,
 };
 use anyhow::Result;
@@ -197,6 +199,55 @@ impl ProjectPlugin {
                             .takes_value(true)
                     )
             )
+            .command(
+                command("tag")
+                    .about("Manage tags for projects")
+                    .with_help_formatting()
+                    .subcommand(
+                        command("add")
+                            .about("Add one or more tags to a project")
+                            .arg(
+                                arg("project")
+                                    .help("Name of the project (use '--all' to apply to all projects)")
+                                    .required(true)
+                                    .takes_value(true)
+                            )
+                            .arg(
+                                arg("tags")
+                                    .help("Tag(s) to add (comma-separated or space-separated)")
+                                    .required(true)
+                                    .takes_value(true)
+                            )
+                    )
+                    .subcommand(
+                        command("remove")
+                            .about("Remove one or more tags from a project")
+                            .aliases(vec!["rm".to_string()])
+                            .arg(
+                                arg("project")
+                                    .help("Name of the project (use '--all' to apply to all projects)")
+                                    .required(true)
+                                    .takes_value(true)
+                            )
+                            .arg(
+                                arg("tags")
+                                    .help("Tag(s) to remove (comma-separated or space-separated)")
+                                    .required(true)
+                                    .takes_value(true)
+                            )
+                    )
+                    .subcommand(
+                        command("list")
+                            .about("List tags for a project")
+                            .aliases(vec!["ls".to_string()])
+                            .arg(
+                                arg("project")
+                                    .help("Name of the project (use '--all' to list tags for all projects)")
+                                    .required(true)
+                                    .takes_value(true)
+                            )
+                    )
+            )
             .handler("add", handle_add)
             .handler("list", handle_list)
             .handler("tree", handle_tree)
@@ -205,6 +256,7 @@ impl ProjectPlugin {
             .handler("update-gitignore", handle_update_gitignore)
             .handler("rename", handle_rename)
             .handler("convert-to-bare", handle_convert_to_bare)
+            .handler("tag", handle_tag)
             .build()
     }
 }
@@ -447,6 +499,85 @@ fn handle_convert_to_bare(matches: &ArgMatches, config: &RuntimeConfig) -> Resul
     };
 
     convert_to_bare(project, &base_path)?;
+    Ok(())
+}
+
+/// Handler for the tag command
+fn handle_tag(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let base_path = if config.meta_root().is_some() {
+        config.meta_root().unwrap()
+    } else {
+        config.working_dir.clone()
+    };
+
+    match matches.subcommand() {
+        Some(("add", sub_matches)) => {
+            let project = sub_matches.get_one::<String>("project").unwrap();
+            let tags_input = sub_matches.get_one::<String>("tags").unwrap();
+
+            // Parse tags: split by comma first, then by whitespace
+            let mut tags = Vec::new();
+            for part in tags_input.split(',') {
+                // Also split by whitespace in case user uses spaces
+                for tag in part.split_whitespace() {
+                    let trimmed = tag.trim();
+                    if !trimmed.is_empty() {
+                        tags.push(trimmed.to_string());
+                    }
+                }
+            }
+
+            if tags.is_empty() {
+                return Err(anyhow::anyhow!("No valid tags provided"));
+            }
+
+            if project == "--all" {
+                add_tags_to_all_projects(&tags, &base_path)?;
+            } else {
+                add_project_tags(project, &tags, &base_path)?;
+            }
+        }
+        Some(("remove", sub_matches)) | Some(("rm", sub_matches)) => {
+            let project = sub_matches.get_one::<String>("project").unwrap();
+            let tags_input = sub_matches.get_one::<String>("tags").unwrap();
+
+            // Parse tags: split by comma first, then by whitespace
+            let mut tags = Vec::new();
+            for part in tags_input.split(',') {
+                // Also split by whitespace in case user uses spaces
+                for tag in part.split_whitespace() {
+                    let trimmed = tag.trim();
+                    if !trimmed.is_empty() {
+                        tags.push(trimmed.to_string());
+                    }
+                }
+            }
+
+            if tags.is_empty() {
+                return Err(anyhow::anyhow!("No valid tags provided"));
+            }
+
+            if project == "--all" {
+                remove_tags_from_all_projects(&tags, &base_path)?;
+            } else {
+                remove_project_tags(project, &tags, &base_path)?;
+            }
+        }
+        Some(("list", sub_matches)) | Some(("ls", sub_matches)) => {
+            let project = sub_matches.get_one::<String>("project").unwrap();
+            if project == "--all" {
+                list_tags_for_all_projects(&base_path)?;
+            } else {
+                list_project_tags(project, &base_path)?;
+            }
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Tag subcommand required. Use 'add', 'remove', or 'list'"
+            ));
+        }
+    }
+
     Ok(())
 }
 

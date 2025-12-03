@@ -25,6 +25,8 @@ pub fn run_script(
     no_progress: bool,
     streaming: bool,
     env_vars: &HashMap<String, String>,
+    include_tags: Option<&[String]>,
+    exclude_tags: Option<&[String]>,
 ) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -61,7 +63,7 @@ pub fn run_script(
     };
 
     // Apply filters using ProjectIterator if needed
-    if existing_only || git_only {
+    if existing_only || git_only || include_tags.is_some() || exclude_tags.is_some() {
         let mut iterator = ProjectIterator::new(&config, base_path);
 
         if existing_only {
@@ -70,6 +72,14 @@ pub fn run_script(
 
         if git_only {
             iterator = iterator.filter_git_repos();
+        }
+
+        if let Some(tags) = include_tags {
+            iterator = iterator.with_include_tags(tags.to_vec());
+        }
+
+        if let Some(tags) = exclude_tags {
+            iterator = iterator.with_exclude_tags(tags.to_vec());
         }
 
         // Collect filtered project names

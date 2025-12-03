@@ -213,6 +213,8 @@ pub struct ProjectMetadata {
     pub worktree_init: Option<String>,
     #[serde(default)]
     pub bare: Option<bool>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// The .meta file configuration format
@@ -552,5 +554,134 @@ mod tests {
         // Should return an error
         let result = MetaConfig::load_from_file(&meta_file);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_project_metadata_with_tags() {
+        let metadata = ProjectMetadata {
+            url: "https://github.com/user/repo.git".to_string(),
+            aliases: Vec::new(),
+            scripts: HashMap::new(),
+            env: HashMap::new(),
+            worktree_init: None,
+            bare: None,
+            tags: vec!["frontend".to_string(), "production".to_string()],
+        };
+
+        assert_eq!(metadata.tags.len(), 2);
+        assert!(metadata.tags.contains(&"frontend".to_string()));
+        assert!(metadata.tags.contains(&"production".to_string()));
+    }
+
+    #[test]
+    fn test_project_metadata_default_tags() {
+        let metadata = ProjectMetadata {
+            url: "https://github.com/user/repo.git".to_string(),
+            aliases: Vec::new(),
+            scripts: HashMap::new(),
+            env: HashMap::new(),
+            worktree_init: None,
+            bare: None,
+            tags: Vec::new(),
+        };
+
+        assert!(metadata.tags.is_empty());
+    }
+
+    #[test]
+    fn test_meta_config_save_and_load_with_tags() {
+        let temp_dir = tempdir().unwrap();
+        let meta_file = temp_dir.path().join(".meta");
+
+        // Create a config with projects that have tags
+        let mut config = MetaConfig::default();
+        config.projects.insert(
+            "project1".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/repo1.git".to_string(),
+                aliases: Vec::new(),
+                scripts: HashMap::new(),
+                env: HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec!["frontend".to_string(), "production".to_string()],
+            }),
+        );
+        config.projects.insert(
+            "project2".to_string(),
+            ProjectEntry::Url("https://github.com/user/repo2.git".to_string()),
+        );
+
+        // Save the config
+        config.save_to_file(&meta_file).unwrap();
+
+        // Load the config back
+        let loaded_config = MetaConfig::load_from_file(&meta_file).unwrap();
+
+        // Verify the loaded config matches
+        assert_eq!(loaded_config.projects.len(), 2);
+
+        // Check project1 has tags
+        if let Some(ProjectEntry::Metadata(meta)) = loaded_config.projects.get("project1") {
+            assert_eq!(meta.tags.len(), 2);
+            assert!(meta.tags.contains(&"frontend".to_string()));
+            assert!(meta.tags.contains(&"production".to_string()));
+        } else {
+            panic!("project1 should be Metadata variant");
+        }
+
+        // Check project2 is still simple URL format
+        assert_eq!(
+            loaded_config.projects.get("project2"),
+            Some(&ProjectEntry::Url(
+                "https://github.com/user/repo2.git".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_project_entry_metadata_tags_serialization() {
+        let temp_dir = tempdir().unwrap();
+        let meta_file = temp_dir.path().join(".meta");
+
+        let mut config = MetaConfig::default();
+        config.projects.insert(
+            "tagged-project".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/tagged.git".to_string(),
+                aliases: vec!["tagged".to_string()],
+                scripts: {
+                    let mut map = HashMap::new();
+                    map.insert("build".to_string(), "npm run build".to_string());
+                    map
+                },
+                env: HashMap::new(),
+                worktree_init: None,
+                bare: Some(true),
+                tags: vec![
+                    "frontend".to_string(),
+                    "ui".to_string(),
+                    "production".to_string(),
+                ],
+            }),
+        );
+
+        // Save and load
+        config.save_to_file(&meta_file).unwrap();
+        let loaded = MetaConfig::load_from_file(&meta_file).unwrap();
+
+        // Verify all fields including tags
+        if let Some(ProjectEntry::Metadata(meta)) = loaded.projects.get("tagged-project") {
+            assert_eq!(meta.url, "https://github.com/user/tagged.git");
+            assert_eq!(meta.aliases.len(), 1);
+            assert_eq!(meta.scripts.len(), 1);
+            assert_eq!(meta.bare, Some(true));
+            assert_eq!(meta.tags.len(), 3);
+            assert!(meta.tags.contains(&"frontend".to_string()));
+            assert!(meta.tags.contains(&"ui".to_string()));
+            assert!(meta.tags.contains(&"production".to_string()));
+        } else {
+            panic!("tagged-project should be Metadata variant");
+        }
     }
 }

@@ -7,16 +7,18 @@ pub struct ProjectInfo {
     pub path: PathBuf,
     pub repo_url: String,
     pub exists: bool,
+    pub tags: Vec<String>,
 }
 
 impl ProjectInfo {
-    pub fn new(name: String, path: PathBuf, repo_url: String) -> Self {
+    pub fn new(name: String, path: PathBuf, repo_url: String, tags: Vec<String>) -> Self {
         let exists = path.exists();
         Self {
             name,
             path,
             repo_url,
             exists,
+            tags,
         }
     }
 
@@ -33,6 +35,8 @@ pub struct ProjectIterator {
     current: usize,
     include_patterns: Vec<String>,
     exclude_patterns: Vec<String>,
+    include_tags: Vec<String>,
+    exclude_tags: Vec<String>,
 }
 
 impl ProjectIterator {
@@ -45,7 +49,18 @@ impl ProjectIterator {
             let repo_url = config
                 .get_project_url(path_str)
                 .unwrap_or_else(|| "local".to_string());
-            projects.push(ProjectInfo::new(name, path, repo_url));
+
+            // Extract tags from project metadata
+            let tags = config
+                .projects
+                .get(path_str)
+                .and_then(|entry| match entry {
+                    metarepo_core::ProjectEntry::Metadata(metadata) => Some(metadata.tags.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+
+            projects.push(ProjectInfo::new(name, path, repo_url, tags));
         }
 
         Self {
@@ -53,6 +68,8 @@ impl ProjectIterator {
             current: 0,
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
+            include_tags: Vec::new(),
+            exclude_tags: Vec::new(),
         }
     }
 
@@ -63,6 +80,16 @@ impl ProjectIterator {
 
     pub fn with_exclude_patterns(mut self, patterns: Vec<String>) -> Self {
         self.exclude_patterns = patterns;
+        self
+    }
+
+    pub fn with_include_tags(mut self, tags: Vec<String>) -> Self {
+        self.include_tags = tags;
+        self
+    }
+
+    pub fn with_exclude_tags(mut self, tags: Vec<String>) -> Self {
+        self.exclude_tags = tags;
         self
     }
 
@@ -95,6 +122,28 @@ impl ProjectIterator {
                     || self.matches_pattern(&project.path.to_string_lossy(), pattern)
             });
             if matches_exclude {
+                return false;
+            }
+        }
+
+        // If include tags are specified, project must have at least one matching tag
+        if !self.include_tags.is_empty() {
+            let has_matching_tag = self
+                .include_tags
+                .iter()
+                .any(|tag| project.tags.contains(tag));
+            if !has_matching_tag {
+                return false;
+            }
+        }
+
+        // Project must not have any exclude tags
+        if !self.exclude_tags.is_empty() {
+            let has_excluded_tag = self
+                .exclude_tags
+                .iter()
+                .any(|tag| project.tags.contains(tag));
+            if has_excluded_tag {
                 return false;
             }
         }
@@ -215,6 +264,7 @@ mod tests {
             "project".to_string(),
             project_path.clone(),
             "https://github.com/user/repo.git".to_string(),
+            Vec::new(),
         );
 
         assert_eq!(info.name, "project");
@@ -233,6 +283,7 @@ mod tests {
             "project".to_string(),
             project_path.clone(),
             "https://github.com/user/repo.git".to_string(),
+            Vec::new(),
         );
 
         // Initially not a git repo
@@ -246,6 +297,7 @@ mod tests {
             "project".to_string(),
             project_path.clone(),
             "https://github.com/user/repo.git".to_string(),
+            Vec::new(),
         );
         assert!(info.is_git_repo());
     }
@@ -424,5 +476,186 @@ mod tests {
         let iterator = ProjectIterator::new(&config, temp_dir.path())
             .with_include_patterns(vec!["project*".to_string()]);
         assert_eq!(iterator.count(), 2);
+    }
+
+    fn create_test_config_with_tags() -> MetaConfig {
+        let mut config = MetaConfig::default();
+        use metarepo_core::{ProjectEntry, ProjectMetadata};
+
+        // Project with tags
+        config.projects.insert(
+            "frontend-app".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/frontend-app.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec!["frontend".to_string(), "production".to_string()],
+            }),
+        );
+
+        // Project with different tags
+        config.projects.insert(
+            "backend-api".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/backend-api.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec!["backend".to_string(), "production".to_string()],
+            }),
+        );
+
+        // Project with single tag
+        config.projects.insert(
+            "test-utils".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/test-utils.git".to_string(),
+                aliases: Vec::new(),
+                scripts: std::collections::HashMap::new(),
+                env: std::collections::HashMap::new(),
+                worktree_init: None,
+                bare: None,
+                tags: vec!["test".to_string()],
+            }),
+        );
+
+        // Project without tags (simple URL format)
+        config.projects.insert(
+            "legacy-project".to_string(),
+            ProjectEntry::Url("https://github.com/user/legacy-project.git".to_string()),
+        );
+
+        config
+    }
+
+    #[test]
+    fn test_project_iterator_with_include_tags() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config_with_tags();
+
+        // Include only projects with "frontend" tag
+        let iterator = ProjectIterator::new(&config, temp_dir.path())
+            .with_include_tags(vec!["frontend".to_string()]);
+        let projects: Vec<ProjectInfo> = iterator.collect();
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "frontend-app");
+        assert!(projects[0].tags.contains(&"frontend".to_string()));
+    }
+
+    #[test]
+    fn test_project_iterator_with_exclude_tags() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config_with_tags();
+
+        // Exclude projects with "test" tag
+        let iterator = ProjectIterator::new(&config, temp_dir.path())
+            .with_exclude_tags(vec!["test".to_string()]);
+        let projects: Vec<ProjectInfo> = iterator.collect();
+
+        assert_eq!(projects.len(), 3);
+        assert!(!projects.iter().any(|p| p.name == "test-utils"));
+    }
+
+    #[test]
+    fn test_project_iterator_with_multiple_include_tags() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config_with_tags();
+
+        // Include projects with "production" tag (should match both frontend-app and backend-api)
+        let iterator = ProjectIterator::new(&config, temp_dir.path())
+            .with_include_tags(vec!["production".to_string()]);
+        let projects: Vec<ProjectInfo> = iterator.collect();
+
+        assert_eq!(projects.len(), 2);
+        let project_names: Vec<String> = projects.iter().map(|p| p.name.clone()).collect();
+        assert!(project_names.contains(&"frontend-app".to_string()));
+        assert!(project_names.contains(&"backend-api".to_string()));
+    }
+
+    #[test]
+    fn test_project_iterator_combined_tag_filters() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config_with_tags();
+
+        // Include production, exclude test
+        let iterator = ProjectIterator::new(&config, temp_dir.path())
+            .with_include_tags(vec!["production".to_string()])
+            .with_exclude_tags(vec!["test".to_string()]);
+        let projects: Vec<ProjectInfo> = iterator.collect();
+
+        assert_eq!(projects.len(), 2);
+        let project_names: Vec<String> = projects.iter().map(|p| p.name.clone()).collect();
+        assert!(project_names.contains(&"frontend-app".to_string()));
+        assert!(project_names.contains(&"backend-api".to_string()));
+        assert!(!project_names.contains(&"test-utils".to_string()));
+    }
+
+    #[test]
+    fn test_project_iterator_tags_with_patterns() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config_with_tags();
+
+        // Combine pattern and tag filters
+        let iterator = ProjectIterator::new(&config, temp_dir.path())
+            .with_include_patterns(vec!["*app".to_string()])
+            .with_include_tags(vec!["frontend".to_string()]);
+        let projects: Vec<ProjectInfo> = iterator.collect();
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "frontend-app");
+    }
+
+    #[test]
+    fn test_project_iterator_projects_without_tags() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config_with_tags();
+
+        // Projects without tags should have empty tags vector
+        let iterator = ProjectIterator::new(&config, temp_dir.path());
+        let projects: Vec<ProjectInfo> = iterator.collect();
+
+        let legacy_project = projects
+            .iter()
+            .find(|p| p.name == "legacy-project")
+            .unwrap();
+        assert!(legacy_project.tags.is_empty());
+    }
+
+    #[test]
+    fn test_project_iterator_include_tags_no_match() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config_with_tags();
+
+        // Include tag that doesn't exist
+        let iterator = ProjectIterator::new(&config, temp_dir.path())
+            .with_include_tags(vec!["nonexistent".to_string()]);
+        let projects: Vec<ProjectInfo> = iterator.collect();
+
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_project_info_with_tags() {
+        let temp_dir = tempdir().unwrap();
+        let project_path = temp_dir.path().join("project");
+        fs::create_dir(&project_path).unwrap();
+
+        let tags = vec!["frontend".to_string(), "production".to_string()];
+        let info = ProjectInfo::new(
+            "project".to_string(),
+            project_path.clone(),
+            "https://github.com/user/repo.git".to_string(),
+            tags.clone(),
+        );
+
+        assert_eq!(info.tags, tags);
+        assert!(info.tags.contains(&"frontend".to_string()));
+        assert!(info.tags.contains(&"production".to_string()));
     }
 }

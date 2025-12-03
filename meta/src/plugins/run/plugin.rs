@@ -74,6 +74,18 @@ impl RunPlugin {
                             .help("Only run in git repositories")
                     )
                     .arg(
+                        arg("include-tags")
+                            .long("include-tags")
+                            .help("Only include projects with these tags (comma-separated)")
+                            .takes_value(true)
+                    )
+                    .arg(
+                        arg("exclude-tags")
+                            .long("exclude-tags")
+                            .help("Exclude projects with these tags (comma-separated)")
+                            .takes_value(true)
+                    )
+                    .arg(
                         arg("no-progress")
                             .long("no-progress")
                             .help("Disable progress indicators (useful for CI environments)")
@@ -82,6 +94,18 @@ impl RunPlugin {
                         arg("streaming")
                             .long("streaming")
                             .help("Show output as it happens instead of buffered (legacy behavior)")
+                    )
+                    .arg(
+                        arg("include-tags")
+                            .long("include-tags")
+                            .help("Only include projects with these tags (comma-separated)")
+                            .takes_value(true)
+                    )
+                    .arg(
+                        arg("exclude-tags")
+                            .long("exclude-tags")
+                            .help("Exclude projects with these tags (comma-separated)")
+                            .takes_value(true)
                     )
                     .arg(
                         arg("env")
@@ -161,6 +185,14 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
         }
     }
 
+    // Parse tag filters
+    let include_tags: Option<Vec<String>> = matches
+        .get_one::<String>("include-tags")
+        .map(|s| s.split(',').map(|t| t.trim().to_string()).collect());
+    let exclude_tags: Option<Vec<String>> = matches
+        .get_one::<String>("exclude-tags")
+        .map(|s| s.split(',').map(|t| t.trim().to_string()).collect());
+
     // Collect selected projects
     let mut projects = Vec::new();
 
@@ -197,6 +229,8 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
         no_progress,
         streaming,
         &env_vars,
+        include_tags.as_deref(),
+        exclude_tags.as_deref(),
     )?;
     Ok(())
 }

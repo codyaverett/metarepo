@@ -260,6 +260,7 @@ pub fn convert_to_bare(project_name: &str, base_path: &Path) -> Result<()> {
             env: HashMap::new(),
             worktree_init: None,
             bare: Some(true),
+            tags: Vec::new(),
         }),
     );
 
