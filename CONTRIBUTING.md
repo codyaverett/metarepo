@@ -237,6 +237,186 @@ cargo clippy                # Run linter
 cargo clippy -- -D warnings # Fail on warnings
 ```
 
+### Pre-commit Hooks
+
+Pre-commit hooks automatically check code quality before each commit, catching issues early and maintaining consistent code standards.
+
+#### Installation
+
+Install the hooks once for your local repository:
+
+```bash
+make install-hooks
+```
+
+This creates a pre-commit hook at `.git/hooks/pre-commit` that runs automatically.
+
+#### When Hooks Run
+
+The hook runs **automatically** at this point in your git workflow:
+
+```bash
+git add <files>           # 1. Stage your changes
+git commit -m "message"   # 2. Hook runs HERE (before commit is created)
+                          # 3. If hook passes, commit is created
+```
+
+The hook only checks **staged files** (files you've run `git add` on), not all files in your working directory.
+
+#### What the Hook Does
+
+**Auto-fixes (applied automatically):**
+- Code formatting (`cargo fmt`) - Auto-formats all Rust code
+- Trailing whitespace - Removes from all text files
+- End-of-file newlines - Ensures files end with a newline
+
+When auto-fixes are applied, the hook:
+1. Makes the fixes
+2. Re-stages the fixed files
+3. Allows the commit to proceed
+4. Shows what was fixed in the output
+
+**Validations (must pass for commit to succeed):**
+- Clippy linting (`cargo clippy -- -D warnings`) - No warnings allowed
+- Merge conflict markers - Prevents committing `<<<<<<<`, `=======`, `>>>>>>>`
+- Large files - Warns if files >1MB are being committed
+- YAML syntax - Validates `.yml` and `.yaml` files
+- TOML syntax - Validates `Cargo.toml` and other `.toml` files
+- Security audit - Checks for vulnerabilities (if `cargo-audit` installed)
+
+#### Hook Outcomes
+
+**Success (all checks pass):**
+```bash
+$ git commit -m "fix: update logic"
+Running pre-commit checks...
+
+Auto-fix checks:
+  Formatting Rust code... ok
+  Removing trailing whitespace... ok
+  Ensuring files end with newline... ok
+
+Validation checks:
+  Running clippy... ok
+  Checking for merge conflicts... ok
+  Checking for large files... ok
+  Running security audit... ok
+
+All pre-commit checks passed
+
+[main abc1234] fix: update logic
+```
+
+**Auto-fixed (changes were formatted):**
+```bash
+$ git commit -m "feat: add feature"
+Running pre-commit checks...
+
+Auto-fix checks:
+  Running: cargo fmt --all
+  Code formatted and staged
+
+Pre-commit checks passed (1 auto-fixes applied)
+
+[main def5678] feat: add feature
+```
+
+**Failure (must fix issues):**
+```bash
+$ git commit -m "broken: bad code"
+Running pre-commit checks...
+
+Validation checks:
+  Running clippy... FAILED
+Error output:
+error: unused variable: `x`
+  --> src/main.rs:5:9
+
+Pre-commit checks failed (1 errors)
+
+To fix:
+  1. Review the errors above
+  2. Fix the issues
+  3. Re-stage your changes: git add .
+  4. Commit again
+
+To bypass (not recommended):
+  git commit --no-verify
+```
+
+#### Bypassing the Hook
+
+Sometimes you need to commit even when checks fail. Use `--no-verify` (or `-n`):
+
+```bash
+# Skip ALL pre-commit checks
+git commit --no-verify -m "wip: work in progress"
+
+# Short form
+git commit -n -m "wip: work in progress"
+```
+
+**When to bypass:**
+- Creating a WIP commit to save progress
+- Committing intentionally broken code for later fixing
+- Emergency hotfixes when hooks are blocking
+- Resolving git hook issues
+
+**When NOT to bypass:**
+- Avoiding fixing clippy warnings
+- Pushing to shared branches
+- Creating pull requests
+- As a regular practice
+
+> **Note:** Even if you bypass the hook, CI will still run all checks. You'll need to fix issues before merging.
+
+#### Troubleshooting
+
+**Hook not running?**
+```bash
+# Verify hook is installed
+ls -la .git/hooks/pre-commit
+
+# Reinstall if needed
+make install-hooks
+```
+
+**Hook fails on clean code?**
+```bash
+# Manually run the checks to see detailed output
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+**Slow hook execution?**
+The hook is designed to run in ~10-15 seconds. If it's slower:
+- Security audit adds ~5 seconds (only if `cargo-audit` installed)
+- Large number of files may slow down formatting checks
+- First run after dependency changes may trigger rebuilds
+
+**Disable hook temporarily:**
+```bash
+# Move hook out of the way
+mv .git/hooks/pre-commit .git/hooks/pre-commit.disabled
+
+# Re-enable when ready
+mv .git/hooks/pre-commit.disabled .git/hooks/pre-commit
+```
+
+#### Manual Checks (Alternative to Hooks)
+
+If you prefer not to use hooks, run these commands before committing:
+
+```bash
+make fmt          # Format code
+make lint         # Run clippy with -D warnings
+make test         # Run tests
+make audit        # Security audit
+
+# Or run all quality checks at once
+make all          # Runs: fmt check test build
+```
+
 ### Documentation
 
 ```bash
@@ -262,7 +442,7 @@ cargo doc --open            # Build and open docs
 
 ### Test Guidelines
 
-See [docs/qa/TESTING.md](docs/qa/TESTING.md) for comprehensive testing guidelines.
+See [docs/qa/TESTING_GUIDELINES.md](docs/qa/TESTING_GUIDELINES.md) for comprehensive testing guidelines.
 
 ## Documentation
 
