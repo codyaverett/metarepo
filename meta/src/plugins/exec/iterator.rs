@@ -1,3 +1,4 @@
+use git2::Repository;
 use metarepo_core::MetaConfig;
 use std::path::{Path, PathBuf};
 
@@ -25,6 +26,24 @@ impl ProjectInfo {
             return false;
         }
         self.path.join(".git").exists()
+    }
+
+    /// Check if the repository has uncommitted changes (staged, unstaged, or untracked)
+    pub fn has_uncommitted_changes(&self) -> bool {
+        if !self.is_git_repo() {
+            return false;
+        }
+        match Repository::open(&self.path) {
+            Ok(repo) => {
+                let mut opts = git2::StatusOptions::new();
+                opts.include_untracked(false).recurse_untracked_dirs(false);
+                match repo.statuses(Some(&mut opts)) {
+                    Ok(statuses) => !statuses.is_empty(),
+                    Err(_) => false,
+                }
+            }
+            Err(_) => false,
+        }
     }
 }
 
@@ -74,6 +93,20 @@ impl ProjectIterator {
     pub fn filter_git_repos(mut self) -> Self {
         self.projects.retain(|p| p.is_git_repo());
         self
+    }
+
+    /// Filter out repositories with uncommitted changes, returning the skipped project names
+    pub fn filter_clean_repos(mut self) -> (Self, Vec<String>) {
+        let mut skipped = Vec::new();
+        self.projects.retain(|p| {
+            if p.has_uncommitted_changes() {
+                skipped.push(p.name.clone());
+                false
+            } else {
+                true
+            }
+        });
+        (self, skipped)
     }
 
     fn matches_patterns(&self, project: &ProjectInfo) -> bool {
@@ -424,5 +457,98 @@ mod tests {
         let iterator = ProjectIterator::new(&config, temp_dir.path())
             .with_include_patterns(vec!["project*".to_string()]);
         assert_eq!(iterator.count(), 2);
+    }
+
+    #[test]
+    fn test_has_uncommitted_changes_clean_repo() {
+        let temp_dir = tempdir().unwrap();
+        let repo_path = temp_dir.path().join("clean-repo");
+        Repository::init(&repo_path).unwrap();
+
+        let info = ProjectInfo::new(
+            "clean-repo".to_string(),
+            repo_path,
+            "https://github.com/user/repo.git".to_string(),
+        );
+
+        // A freshly initialized repo with no files has no uncommitted changes
+        assert!(!info.has_uncommitted_changes());
+    }
+
+    #[test]
+    fn test_has_uncommitted_changes_dirty_repo() {
+        let temp_dir = tempdir().unwrap();
+        let repo_path = temp_dir.path().join("dirty-repo");
+        let repo = Repository::init(&repo_path).unwrap();
+
+        // Create and commit a file first
+        let file_path = repo_path.join("initial.txt");
+        fs::write(&file_path, "initial content").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("initial.txt")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = git2::Signature::now("Test", "test@test.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[])
+            .unwrap();
+
+        // Now modify the file to make the repo dirty
+        fs::write(&file_path, "modified content").unwrap();
+
+        let info = ProjectInfo::new(
+            "dirty-repo".to_string(),
+            repo_path,
+            "https://github.com/user/repo.git".to_string(),
+        );
+
+        assert!(info.has_uncommitted_changes());
+    }
+
+    #[test]
+    fn test_filter_clean_repos() {
+        let temp_dir = tempdir().unwrap();
+
+        // Create a clean repo
+        let clean_path = temp_dir.path().join("clean-repo");
+        Repository::init(&clean_path).unwrap();
+
+        // Create a dirty repo
+        let dirty_path = temp_dir.path().join("dirty-repo");
+        let repo = Repository::init(&dirty_path).unwrap();
+        let file_path = dirty_path.join("file.txt");
+        fs::write(&file_path, "content").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("file.txt")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = git2::Signature::now("Test", "test@test.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[])
+            .unwrap();
+        fs::write(&file_path, "modified").unwrap();
+
+        let mut config = MetaConfig::default();
+        use metarepo_core::ProjectEntry;
+        config.projects.insert(
+            "clean-repo".to_string(),
+            ProjectEntry::Url("https://github.com/user/clean.git".to_string()),
+        );
+        config.projects.insert(
+            "dirty-repo".to_string(),
+            ProjectEntry::Url("https://github.com/user/dirty.git".to_string()),
+        );
+
+        let iterator = ProjectIterator::new(&config, temp_dir.path())
+            .filter_existing()
+            .filter_git_repos();
+
+        let (iterator, skipped) = iterator.filter_clean_repos();
+        let projects: Vec<ProjectInfo> = iterator.collect();
+
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0], "dirty-repo");
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "clean-repo");
     }
 }

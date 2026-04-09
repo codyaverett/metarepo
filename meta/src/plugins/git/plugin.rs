@@ -170,6 +170,20 @@ fn handle_pull(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
         iterator = iterator.with_exclude_patterns(pattern_vec);
     }
 
+    // Filter out repos with uncommitted changes to avoid conflicts
+    let (iterator, skipped) = iterator.filter_clean_repos();
+
+    if !skipped.is_empty() {
+        println!(
+            "⚠️  Skipping {} repo(s) with uncommitted changes:",
+            skipped.len()
+        );
+        for name in &skipped {
+            println!("   - {}", name);
+        }
+        println!();
+    }
+
     execute_with_iterator(
         "git",
         &["pull"],
