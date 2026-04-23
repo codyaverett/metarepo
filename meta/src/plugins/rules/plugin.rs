@@ -333,11 +333,8 @@ fn handle_init(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     std::fs::write(&full_path, &yaml)?;
 
     println!("✅ Created rules configuration at: {}", full_path.display());
-    if project.is_some() {
-        println!(
-            "📝 Project {} now has specific rules",
-            project.unwrap().cyan()
-        );
+    if let Some(project_name) = project {
+        println!("📝 Project {} now has specific rules", project_name.cyan());
     }
     println!("\n{}", "Example configuration:".bold());
     println!("{}", yaml);

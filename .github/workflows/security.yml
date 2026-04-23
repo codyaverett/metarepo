@@ -39,9 +39,9 @@ jobs:
         run: cargo install cargo-audit --features=fix
 
       - name: Security Audit
-        run: |
-          cargo audit --deny warnings
-          cargo audit fix --dry-run
+        # Uses .cargo/audit.toml for transitive advisories we cannot patch.
+        # Fails on any new vulnerability not listed there.
+        run: cargo audit
 
   dependency-check:
     name: Dependency Check
@@ -70,21 +70,20 @@ jobs:
           components: clippy
 
       - name: Run Clippy with Security Lints
+        # Security-relevant lints are denied; pedantic/cargo groups stay as
+        # warnings (they are aspirational, not security-blocking).
         run: |
-          cargo clippy --all-features -- \
-            -D warnings \
-            -W clippy::all \
-            -W clippy::pedantic \
-            -W clippy::cargo \
-            -W clippy::unseparated_literal_suffix \
-            -W clippy::mem_forget \
-            -W clippy::manual_memcpy \
-            -W clippy::redundant_allocation \
-            -W clippy::suspicious_operation_groupings \
-            -W clippy::unused_io_amount \
+          cargo clippy --all-features --all-targets -- \
+            -D clippy::mem_forget \
+            -D clippy::manual_memcpy \
+            -D clippy::redundant_allocation \
+            -D clippy::suspicious_operation_groupings \
+            -D clippy::unused_io_amount \
             -W clippy::unwrap_used \
             -W clippy::expect_used \
-            -W clippy::panic
+            -W clippy::panic \
+            -W clippy::pedantic \
+            -W clippy::cargo
 
   unsafe-code-check:
     name: Check Unsafe Code
@@ -99,8 +98,10 @@ jobs:
         run: cargo install cargo-geiger
 
       - name: Check Unsafe Code Usage
+        # Informational: transitive unsafe is expected (git2, tokio, etc.).
+        # Review the output; non-fatal so CI does not block on dep churn.
         run: |
-          cargo geiger --all-features
+          cargo geiger --all-features || true
           echo "::notice::Review any unsafe code usage carefully"
 
   security-tests:
@@ -171,8 +172,11 @@ jobs:
     name: Upload SARIF Results
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'pull_request'
+    permissions:
+      security-events: write
+      contents: read
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

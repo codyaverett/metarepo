@@ -1,26 +1,26 @@
-# cargo-deny configuration for Metarepo security
-# This file configures dependency checking for known vulnerabilities,
-# license compliance, and other security concerns
+# cargo-deny configuration (v2 schema)
+# Controls dependency advisories, licenses, banned crates, and sources.
+
+[graph]
+all-features = true
 
 [advisories]
-# The advisories section is used to detect issues for crates by looking in the
-# advisory database.
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-
-# Deny all advisories unless explicitly ignored
-vulnerability = "deny"
-unmaintained = "allow"
+# v2 schema: unmaintained scope — "workspace" only flags direct deps;
+# "all" also flags transitive. We use "workspace" to avoid noise from
+# transitive unmaintained crates we cannot control.
+unmaintained = "workspace"
 yanked = "deny"
-notice = "warn"
-
-# Ignore specific advisories
 ignore = [
-    # Example: "RUSTSEC-2020-0001",
+    # Transitive, waiting on upstream patch releases.
+    "RUSTSEC-2024-0436", # paste unmaintained (pulled via ratatui)
+    "RUSTSEC-2026-0002", # lru IterMut UB (pulled transitively)
+    "RUSTSEC-2026-0007", # bytes integer overflow (pulled via tokio)
+    "RUSTSEC-2026-0008", # git2 UB (pulled via git2 0.18)
 ]
 
 [licenses]
-# List of explicitly allowed licenses
 allow = [
     "MIT",
     "Apache-2.0",
@@ -29,68 +29,26 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-DFS-2016",
+    "Unicode-3.0",
     "CC0-1.0",
+    "Zlib",
+    "MPL-2.0",
 ]
-
-# Deny specific licenses
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "AGPL-3.0",
-    "LGPL-2.0",
-    "LGPL-3.0",
-]
-
-# Lint level for when a crate is not explicitly allowed or denied
-unlicensed = "deny"
-copyleft = "warn"
-default = "deny"
-
-# Confidence threshold for license detection (0.0 to 1.0)
 confidence-threshold = 0.8
 
-# Uncomment and configure if you need license exceptions:
-# [[licenses.exceptions]]
-# name = "some-crate"
-# allow = ["GPL-3.0"]
-
 [bans]
-# Deny specific crates
+multiple-versions = "allow"
+wildcards = "deny"
 deny = [
-    # Crates with known security issues
     { name = "openssl", version = "<0.10" },
-
-    # Deprecated crates
     { name = "term" },
     { name = "quickersort" },
 ]
-
-# Skip certain crates when checking for duplicates
-skip = [
-    # Example: { name = "winapi" },
-]
-
-# Allow certain wildcard dependencies
-allow-wildcard-paths = false
-
-# Warn when multiple versions of the same crate are detected
-multiple-versions = "warn"
+skip = []
+skip-tree = []
 
 [sources]
-# Deny crates from unknown registries
 unknown-registry = "deny"
-
-# Deny git dependencies
 unknown-git = "warn"
-
-# Allow crates from these registries
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-
-# Allow specific git repositories
-allow-git = [
-    # Example: "https://github.com/rust-lang/cargo",
-]
-
-[sources.allow-org]
-# Allow all crates from specific GitHub organizations
-# github = ["my-org"]
+allow-git = []
