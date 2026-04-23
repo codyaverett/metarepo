@@ -1,0 +1,101 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            linker: aarch64-linux-gnu-gcc
+            apt_packages: gcc-aarch64-linux-gnu
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain (Linux aarch64)
+        if: matrix.apt_packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.apt_packages }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+        run: cargo build --release --locked --target ${{ matrix.target }} -p metarepo
+
+      - name: Package archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE="meta-${VERSION}-${{ matrix.target }}"
+          mkdir -p "dist/${STAGE}"
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cp "target/${{ matrix.target }}/release/meta.exe" "dist/${STAGE}/"
+          else
+            cp "target/${{ matrix.target }}/release/meta" "dist/${STAGE}/"
+          fi
+          cp README.md LICENSE* "dist/${STAGE}/" 2>/dev/null || true
+          cd dist
+          if [[ "${{ matrix.archive }}" == "zip" ]]; then
+            7z a "${STAGE}.zip" "${STAGE}"
+          else
+            tar -czf "${STAGE}.tar.gz" "${STAGE}"
+          fi
+          ls -la
+
+      - name: Generate checksum
+        shell: bash
+        run: |
+          cd dist
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE="meta-${VERSION}-${{ matrix.target }}"
+          ASSET="${STAGE}.${{ matrix.archive }}"
+          if command -v shasum >/dev/null; then
+            shasum -a 256 "${ASSET}" > "${ASSET}.sha256"
+          else
+            sha256sum "${ASSET}" > "${ASSET}.sha256"
+          fi
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          fail_on_unmatched_files: false
