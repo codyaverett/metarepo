@@ -1,6 +1,11 @@
 - When recommending what a git commit should be always specify a description detailed and related to the files changed, output using commitizen formatting
 - After completing a set of work recommend the git commit, then afterwards update the Cargo.toml version number and create and push a git tag
 - include the package version numbers in the recommended commit message
+- Never commit on behalf of the user, present them with a commit message that they can commit themselves
+- DO NOT attribute claude in the commit messages
+- Use commitizen standards for commit message formatting
+- Do not include any double quotes in the commit message
+- After completing a task or phase of work give the user a commit message covering the changes made
 
 ## GitHub Issue Creation
 
