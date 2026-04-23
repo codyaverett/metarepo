@@ -1,15 +1,10 @@
 [workspace]
-# Update dependent path-deps when a crate is bumped
 dependencies_update = true
-# Generate changelogs from conventional commits
 changelog_update = true
-# Run `cargo semver-checks` to detect accidental breaking changes
 semver_check = true
-# Group all workspace bumps into a single release PR
 release_always = false
 
 [changelog]
-# Keep a Changelog style with conventional commit sections
 header = """# Changelog
 
 All notable changes to this project are documented in this file.
@@ -18,10 +13,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 """
 
+# metarepo-core ships alongside metarepo but does not drive its own tag or
+# GitHub Release. The workspace ships under a single unified `v{{ version }}`
+# tag created by the metarepo package below, which the release-binaries
+# workflow watches.
 [[package]]
 name = "metarepo-core"
 publish = true
+git_tag_enable = false
+git_release_enable = false
 
 [[package]]
 name = "metarepo"
 publish = true
+git_tag_name = "v{{ version }}"
+git_release_name = "v{{ version }}"
