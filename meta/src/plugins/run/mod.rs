@@ -175,7 +175,7 @@ pub fn run_script(
                 Ok(()) => {
                     if let Some(output) = output_manager.get_project_output(&project_name) {
                         match output.status {
-                            crate::plugins::shared::JobStatus::Completed => success_count += 1,
+                            crate::plugins::shared::JobStatus::Completed => {}
                             _ => failed.push(project_name),
                         }
                     }
