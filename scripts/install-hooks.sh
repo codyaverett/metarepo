@@ -287,15 +287,21 @@ yaml_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(yml|y
 if [ -n "$yaml_files" ]; then
     echo -ne "${BLUE}▶${NC} Validating YAML syntax... "
     yaml_valid=true
-    for file in $yaml_files; do
-        if ! python3 -c "import yaml, sys; yaml.safe_load(open('$file'))" 2>/dev/null; then
-            yaml_valid=false
-            echo -e "${CROSS}"
-            echo -e "  ${RED}Invalid YAML in: $file${NC}"
-            FAILED=$((FAILED + 1))
-            break
-        fi
-    done
+    # Check if pyyaml is available; skip validation gracefully if not
+    if python3 -c "import yaml" 2>/dev/null; then
+        for file in $yaml_files; do
+            if ! python3 -c "import yaml, sys; yaml.safe_load(open('$file'))" 2>/dev/null; then
+                yaml_valid=false
+                echo -e "${CROSS}"
+                echo -e "  ${RED}Invalid YAML in: $file${NC}"
+                FAILED=$((FAILED + 1))
+                break
+            fi
+        done
+    else
+        echo -e "${CHECK} ${YELLOW}(pyyaml not installed, skipped)${NC}"
+        yaml_valid=true
+    fi
     if $yaml_valid; then
         echo -e "${CHECK}"
     fi
