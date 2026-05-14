@@ -164,6 +164,7 @@ pub fn add_worktrees(
     create_branch: bool,
     starting_point: Option<&str>,
     no_hooks: bool,
+    allow_hooks: bool,
     current_project: Option<&str>,
     config: &MetaConfig,
 ) -> Result<()> {
@@ -241,6 +242,12 @@ pub fn add_worktrees(
         // Determine worktree path based on whether this is a bare repo
         let is_bare = config.is_bare_repo(project_name);
         let worktree_dir = path_suffix.unwrap_or(branch);
+        // Reject path-traversal in branch / path_suffix before joining.
+        if let Err(e) = metarepo_core::validate_path_segment("worktree name", worktree_dir) {
+            eprintln!("  {} {}", "✗".red(), e);
+            failed.push(project_name.clone());
+            continue;
+        }
         let worktree_path = if is_bare {
             // For bare repos: <project>/<branch>/
             project_path.join(worktree_dir)
@@ -248,6 +255,12 @@ pub fn add_worktrees(
             // For normal repos: <project>/.worktrees/<branch>/
             project_path.join(".worktrees").join(worktree_dir)
         };
+        // Defense in depth: confirm the canonical path stays inside the project.
+        if let Err(e) = metarepo_core::ensure_within_base(&project_path, &worktree_path) {
+            eprintln!("  {} {}", "✗".red(), e);
+            failed.push(project_name.clone());
+            continue;
+        }
 
         // Check if worktree already exists
         if worktree_path.exists() {
@@ -341,9 +354,43 @@ pub fn add_worktrees(
             println!("  {} Complete", "✓".green());
             success_count += 1;
 
-            // Execute post-create command if configured and not skipped
+            // Execute post-create command if configured and not skipped.
+            // worktree_init is shell code from .meta — typically committed by
+            // collaborators, so we surface the command and require explicit
+            // opt-in (either --allow-hooks or an interactive confirmation).
             if !no_hooks {
                 if let Some(worktree_init) = config.get_worktree_init(project_name) {
+                    let proceed = if allow_hooks {
+                        true
+                    } else if metarepo_core::is_interactive() {
+                        println!(
+                            "  {} worktree_init hook for {}:",
+                            "🪝".yellow(),
+                            project_name.bold()
+                        );
+                        println!("     {}", worktree_init.bright_white());
+                        match metarepo_core::prompt_confirm(
+                            "  Run this hook?",
+                            false,
+                            metarepo_core::NonInteractiveMode::Defaults,
+                        ) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                eprintln!("  {} Skipping hook: {}", "✗".yellow(), e);
+                                false
+                            }
+                        }
+                    } else {
+                        eprintln!(
+                            "  {} Skipping worktree_init hook (non-interactive; pass --allow-hooks to opt in)",
+                            "⚠".yellow()
+                        );
+                        false
+                    };
+
+                    if !proceed {
+                        continue;
+                    }
                     println!("  Running worktree_init...");
 
                     let mut cmd = Command::new("sh");

@@ -147,6 +147,13 @@ pub fn import_project_with_options(
     init_git: bool,
     bare: bool,
 ) -> Result<()> {
+    // Reject path-traversal / absolute / null-byte project names before they
+    // flow into base_path.join(...) or filesystem operations below.
+    metarepo_core::validate_path_segment("project name", project_path)?;
+    if let Some(src) = source {
+        metarepo_core::validate_project_url(src).ok(); // tolerate local paths
+    }
+
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -166,10 +173,13 @@ pub fn import_project_with_options(
     }
 
     let local_project_path = base_path.join(project_path);
+    // Defense in depth: even though we validated project_path above, confirm
+    // the canonical join stays inside base_path.
+    metarepo_core::ensure_within_base(base_path, &local_project_path)?;
 
     // Determine what the source is and how to handle it
     let (final_repo_url, is_external) = if let Some(src) = source {
-        if !src.starts_with("http") && !src.starts_with("git@") && !src.starts_with("ssh://") {
+        if !metarepo_core::is_supported_git_url(src) {
             // This is a local path (relative or absolute)
             let external_path = if src.starts_with('/') {
                 PathBuf::from(src)
@@ -266,6 +276,13 @@ pub fn import_project_with_options(
             }
         } else {
             // Regular git URL
+            if metarepo_core::is_unencrypted_git_scheme(src) {
+                eprintln!(
+                    "  {} Source uses an unencrypted scheme ({}): traffic is unauthenticated",
+                    "⚠".yellow(),
+                    src.split("://").next().unwrap_or(src)
+                );
+            }
             (src.to_string(), false)
         }
     } else {

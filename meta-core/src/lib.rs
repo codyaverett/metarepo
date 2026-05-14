@@ -9,6 +9,7 @@ pub mod interactive;
 mod plugin_base;
 mod plugin_builder;
 mod plugin_manifest;
+pub mod security;
 pub mod tui;
 
 pub use interactive::{
@@ -25,6 +26,10 @@ pub use plugin_builder::{
 pub use plugin_manifest::{
     ArgValueType, Dependency, Example, ExecutionConfig, ManifestArg, ManifestCommand, PluginConfig,
     PluginInfo, PluginManifest,
+};
+pub use security::{
+    canonicalize_creatable, ensure_within_base, is_dangerous_env_var, is_supported_git_url,
+    is_unencrypted_git_scheme, validate_path_segment, validate_project_url, DANGEROUS_ENV_VARS,
 };
 
 /// Trait that all meta plugins must implement
@@ -260,8 +265,48 @@ impl Default for MetaConfig {
 impl MetaConfig {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        let config: MetaConfig = serde_json::from_str(&content)?;
+        let mut config: MetaConfig = serde_json::from_str(&content)?;
+        config.sanitize_after_load();
         Ok(config)
+    }
+
+    /// Apply security-driven sanitization after deserialization:
+    /// - drop project entries whose key contains path traversal / null bytes / absolute paths
+    /// - drop dangerous env vars from each ProjectMetadata
+    ///
+    /// Emits warnings to stderr for any sanitized entries so committers see them.
+    fn sanitize_after_load(&mut self) {
+        let bad_keys: Vec<String> = self
+            .projects
+            .keys()
+            .filter(|k| security::validate_path_segment("project key", k).is_err())
+            .cloned()
+            .collect();
+        for k in bad_keys {
+            eprintln!(
+                "warning: dropping project '{}' from config (invalid path segment: traversal, null, or absolute path)",
+                k
+            );
+            self.projects.remove(&k);
+        }
+
+        for (project, entry) in self.projects.iter_mut() {
+            if let ProjectEntry::Metadata(metadata) = entry {
+                let dangerous: Vec<String> = metadata
+                    .env
+                    .keys()
+                    .filter(|k| security::is_dangerous_env_var(k))
+                    .cloned()
+                    .collect();
+                for k in dangerous {
+                    eprintln!(
+                        "warning: ignoring env var '{}' for project '{}' (known to subvert subprocesses)",
+                        k, project
+                    );
+                    metadata.env.remove(&k);
+                }
+            }
+        }
     }
 
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {

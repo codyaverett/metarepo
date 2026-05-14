@@ -253,13 +253,20 @@ fn execute_script_in_project(
 
     println!("     {} {}", "►".bright_black(), script_cmd.bright_white());
 
-    // Parse the command (simple split by spaces - could be improved)
-    let parts: Vec<&str> = script_cmd.split_whitespace().collect();
+    // Parse the script command with shell-style tokenization so quoted args
+    // with spaces survive intact. shlex returns None for unbalanced quotes —
+    // surface that to the caller instead of silently mis-splitting.
+    let parts = shlex::split(script_cmd).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Failed to parse script command (unbalanced quotes?): {}",
+            script_cmd
+        )
+    })?;
     if parts.is_empty() {
         return Err(anyhow::anyhow!("Empty script command"));
     }
 
-    let mut cmd = Command::new(parts[0]);
+    let mut cmd = Command::new(&parts[0]);
     if parts.len() > 1 {
         cmd.args(&parts[1..]);
     }
@@ -327,13 +334,20 @@ fn execute_script_in_project_buffered(
         )
     })?;
 
-    // Parse the command (simple split by spaces - could be improved)
-    let parts: Vec<&str> = script_cmd.split_whitespace().collect();
+    // Parse the script command with shell-style tokenization so quoted args
+    // with spaces survive intact. shlex returns None for unbalanced quotes —
+    // surface that to the caller instead of silently mis-splitting.
+    let parts = shlex::split(script_cmd).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Failed to parse script command (unbalanced quotes?): {}",
+            script_cmd
+        )
+    })?;
     if parts.is_empty() {
         return Err(anyhow::anyhow!("Empty script command"));
     }
 
-    let mut cmd = Command::new(parts[0]);
+    let mut cmd = Command::new(&parts[0]);
     if parts.len() > 1 {
         cmd.args(&parts[1..]);
     }
