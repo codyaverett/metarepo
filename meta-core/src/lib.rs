@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 // New plugin system modules
+pub mod config_format;
 pub mod interactive;
 mod plugin_base;
 mod plugin_builder;
@@ -12,6 +13,7 @@ mod plugin_manifest;
 pub mod security;
 pub mod tui;
 
+pub use config_format::{ConfigFormat, CANONICAL_FILENAME, KNOWN_FILENAMES, LEGACY_FILENAME};
 pub use interactive::{
     is_interactive, prompt_confirm, prompt_multiselect, prompt_select, prompt_text, prompt_url,
     NonInteractiveMode,
@@ -262,10 +264,80 @@ impl Default for MetaConfig {
     }
 }
 
+/// A located metarepo config file along with its detected format. Returned by
+/// [`MetaConfig::discover`] and consumable directly by [`MetaConfig::load_from_file`].
+#[derive(Debug, Clone)]
+pub struct DiscoveredConfig {
+    pub path: PathBuf,
+    pub format: ConfigFormat,
+}
+
+/// Errors surfaced by [`MetaConfig::discover`]. Separated out as its own enum
+/// so the CLI can render a tailored message for the multi-file case.
+#[derive(Debug)]
+pub enum ConfigDiscoveryError {
+    /// Two or more recognized config files coexist in the same directory.
+    /// Returned with the directory and the conflicting paths so the caller
+    /// can print all of them.
+    Multiple { dir: PathBuf, files: Vec<PathBuf> },
+    /// Anything else that went wrong while walking up the tree.
+    Io(std::io::Error),
+}
+
+impl std::fmt::Display for ConfigDiscoveryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigDiscoveryError::Multiple { dir, files } => {
+                writeln!(
+                    f,
+                    "multiple metarepo config files found in {}:",
+                    dir.display()
+                )?;
+                for p in files {
+                    writeln!(f, "  - {}", p.display())?;
+                }
+                write!(
+                    f,
+                    "Pick one of: pass --config <path>, run `meta config migrate` to consolidate, or remove the unwanted file(s)."
+                )
+            }
+            ConfigDiscoveryError::Io(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl std::error::Error for ConfigDiscoveryError {}
+
+impl From<std::io::Error> for ConfigDiscoveryError {
+    fn from(e: std::io::Error) -> Self {
+        ConfigDiscoveryError::Io(e)
+    }
+}
+
 impl MetaConfig {
+    /// Read a config file from disk. Format is detected from the path's
+    /// filename/extension; unrecognized names are rejected so callers don't
+    /// accidentally try to parse, say, `package.json` as a metarepo config.
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let mut config: MetaConfig = serde_json::from_str(&content)?;
+        let path = path.as_ref();
+        let format = ConfigFormat::from_path(path).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unrecognized config filename: {}. Expected one of: {}",
+                path.display(),
+                KNOWN_FILENAMES.join(", ")
+            )
+        })?;
+        Self::load_from_file_with_format(path, format)
+    }
+
+    /// Read a config file when the caller already knows the format (e.g., the
+    /// path was supplied via `--config` and is non-standard).
+    pub fn load_from_file_with_format<P: AsRef<Path>>(
+        path: P,
+        format: ConfigFormat,
+    ) -> Result<Self> {
+        let content = std::fs::read_to_string(path.as_ref())?;
+        let mut config: MetaConfig = config_format::deserialize_from_str(&content, format)?;
         config.sanitize_after_load();
         Ok(config)
     }
@@ -309,34 +381,87 @@ impl MetaConfig {
         }
     }
 
+    /// Write the config to disk, choosing the on-wire format from the path's
+    /// filename/extension. Unrecognized paths default to JSON so that legacy
+    /// callers that pass arbitrary paths still get a sensible serialization.
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, content)?;
+        let path = path.as_ref();
+        let format = ConfigFormat::from_path(path).unwrap_or(ConfigFormat::Json);
+        self.save_to_file_with_format(path, format)
+    }
+
+    /// Write the config to disk in an explicit format.
+    pub fn save_to_file_with_format<P: AsRef<Path>>(
+        &self,
+        path: P,
+        format: ConfigFormat,
+    ) -> Result<()> {
+        let content = config_format::serialize_to_string(self, format)?;
+        std::fs::write(path.as_ref(), content)?;
         Ok(())
     }
 
-    pub fn find_meta_file() -> Option<PathBuf> {
-        let mut current = std::env::current_dir().ok()?;
-
+    /// Walk up from `start` looking for any recognized metarepo config file.
+    ///
+    /// Returns:
+    /// - `Ok(Some(_))` when exactly one is found at the closest level.
+    /// - `Ok(None)` when no config exists in any ancestor.
+    /// - `Err(ConfigDiscoveryError::Multiple { .. })` when two or more
+    ///   recognized files coexist in the same directory — we never silently
+    ///   pick one. The CLI surfaces this with a tailored message and points
+    ///   the user at `--config` or `meta config migrate`.
+    pub fn discover_from(
+        start: &Path,
+    ) -> std::result::Result<Option<DiscoveredConfig>, ConfigDiscoveryError> {
+        let mut current = start.to_path_buf();
         loop {
-            let meta_file = current.join(".meta");
-            if meta_file.exists() {
-                return Some(meta_file);
+            let mut found: Vec<PathBuf> = Vec::new();
+            for name in KNOWN_FILENAMES {
+                let candidate = current.join(name);
+                if candidate.exists() {
+                    found.push(candidate);
+                }
             }
-
-            if !current.pop() {
-                break;
+            match found.len() {
+                0 => {
+                    if !current.pop() {
+                        return Ok(None);
+                    }
+                }
+                1 => {
+                    let path = found.into_iter().next().unwrap();
+                    let format = ConfigFormat::from_path(&path).unwrap_or(ConfigFormat::Json);
+                    return Ok(Some(DiscoveredConfig { path, format }));
+                }
+                _ => {
+                    return Err(ConfigDiscoveryError::Multiple {
+                        dir: current,
+                        files: found,
+                    });
+                }
             }
         }
+    }
 
-        None
+    /// Convenience wrapper around `discover_from` that starts at the current
+    /// working directory. Returns just the path to keep older call sites that
+    /// only need the location backwards-compatible.
+    pub fn find_meta_file() -> Option<PathBuf> {
+        let cwd = std::env::current_dir().ok()?;
+        // Multi-file errors are flattened to None here — callers that need
+        // structured handling should call discover_from directly.
+        Self::discover_from(&cwd).ok().flatten().map(|d| d.path)
     }
 
     pub fn load() -> Result<Self> {
-        if let Some(meta_file) = Self::find_meta_file() {
-            Self::load_from_file(meta_file)
-        } else {
-            Err(anyhow::anyhow!("No .meta file found"))
+        let cwd = std::env::current_dir()?;
+        match Self::discover_from(&cwd) {
+            Ok(Some(found)) => Self::load_from_file_with_format(&found.path, found.format),
+            Ok(None) => Err(anyhow::anyhow!(
+                "No metarepo config found (looked for: {})",
+                KNOWN_FILENAMES.join(", ")
+            )),
+            Err(e) => Err(anyhow::anyhow!("{}", e)),
         }
     }
 
@@ -584,6 +709,84 @@ mod tests {
         };
 
         assert_eq!(config.meta_root(), Some(temp_dir.path().join("subdir")));
+    }
+
+    #[test]
+    fn roundtrip_each_format_preserves_projects() {
+        for (filename, format) in [
+            (".metarepo", ConfigFormat::Json),
+            (".metarepo.yaml", ConfigFormat::Yaml),
+            (".metarepo.toml", ConfigFormat::Toml),
+        ] {
+            let tmp = tempdir().unwrap();
+            let path = tmp.path().join(filename);
+
+            let mut config = MetaConfig::default();
+            config.projects.insert(
+                "alpha".to_string(),
+                ProjectEntry::Url("https://example.com/alpha.git".to_string()),
+            );
+
+            // save_to_file dispatches by extension/filename; we also verify
+            // the explicit-format API matches.
+            config
+                .save_to_file_with_format(&path, format)
+                .unwrap_or_else(|e| panic!("save {:?} failed: {}", filename, e));
+
+            let loaded = MetaConfig::load_from_file(&path).unwrap();
+            assert!(
+                loaded.projects.contains_key("alpha"),
+                "{} roundtrip lost projects",
+                filename
+            );
+        }
+    }
+
+    #[test]
+    fn discover_finds_canonical_in_cwd() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(tmp.path().join(".metarepo"), "{}").unwrap();
+        let found = MetaConfig::discover_from(tmp.path()).unwrap().unwrap();
+        assert_eq!(found.format, ConfigFormat::Json);
+        assert_eq!(found.path.file_name().unwrap(), ".metarepo");
+    }
+
+    #[test]
+    fn discover_walks_up_ancestors() {
+        let tmp = tempdir().unwrap();
+        let nested = tmp.path().join("a").join("b").join("c");
+        fs::create_dir_all(&nested).unwrap();
+        std::fs::write(tmp.path().join(".metarepo.yaml"), "ignore: []\n").unwrap();
+        let found = MetaConfig::discover_from(&nested).unwrap().unwrap();
+        assert_eq!(found.format, ConfigFormat::Yaml);
+    }
+
+    #[test]
+    fn discover_errors_on_multi_file_conflict() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(tmp.path().join(".meta"), "{}").unwrap();
+        std::fs::write(tmp.path().join(".metarepo.yaml"), "ignore: []\n").unwrap();
+        let err = MetaConfig::discover_from(tmp.path()).expect_err("should error on conflict");
+        match err {
+            ConfigDiscoveryError::Multiple { ref files, .. } => {
+                assert_eq!(files.len(), 2);
+            }
+            other => panic!("expected Multiple variant, got {:?}", other),
+        }
+        // Display impl must enumerate the conflicting files so users know
+        // which ones to clean up.
+        let msg = err.to_string();
+        assert!(msg.contains(".meta"));
+        assert!(msg.contains(".metarepo.yaml"));
+        assert!(msg.contains("--config") || msg.contains("config migrate"));
+    }
+
+    #[test]
+    fn discover_returns_none_when_no_config_anywhere() {
+        let tmp = tempdir().unwrap();
+        let nested = tmp.path().join("deep").join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        assert!(MetaConfig::discover_from(&nested).unwrap().is_none());
     }
 
     #[test]

@@ -50,10 +50,17 @@ These flags are available on most commands that operate on projects:
 Initialize a new meta repository in the current directory.
 
 ```bash
-meta init
+meta init                  # writes .metarepo (JSON, idempotent)
+meta init --format yaml    # writes .metarepo.yaml
+meta init --format toml    # writes .metarepo.toml
+meta init --with-skill     # also installs the bundled Claude Code skill
+meta init --repair         # restore missing artifacts without rewriting config
+meta init --force          # overwrite existing config with defaults
 ```
 
-Creates a `.meta` configuration file and updates `.gitignore` patterns.
+Idempotent by default: an existing recognized config file (`.metarepo`,
+`.meta`, `.metarepo.{json,yaml,yml,toml}`) is left alone; only missing
+artifacts (`.gitignore` patterns, optional skill) are added.
 
 ---
 
@@ -670,7 +677,29 @@ meta exec --all --no-progress --parallel npm run build
 
 ## Configuration Reference
 
-### `.meta` File Format
+### Config filenames and formats
+
+The workspace config can live under any of the following names; format is
+detected from the filename:
+
+| Filename | Format |
+|----------|--------|
+| `.metarepo` | JSON (new canonical name) |
+| `.metarepo.json` | JSON |
+| `.metarepo.yaml` / `.metarepo.yml` | YAML |
+| `.metarepo.toml` | TOML |
+| `.meta` | JSON (legacy, fully supported) |
+
+If two or more recognized files coexist in the same directory, every command
+errors out — pick one via `--config <path>`, run `meta config migrate`, or
+remove the duplicate. The global `--config` flag (or `METAREPO_CONFIG` env
+var) bypasses discovery entirely.
+
+Convert between formats with `meta config migrate <json|yaml|toml>` —
+`--replace` deletes the original, `--force` overwrites an existing
+destination, `--to <path>` chooses a non-default destination.
+
+### Config File Format
 
 ```json
 {

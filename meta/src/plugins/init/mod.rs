@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
-use metarepo_core::MetaConfig;
+use metarepo_core::{ConfigFormat, MetaConfig, KNOWN_FILENAMES};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,25 +20,50 @@ const SKILL_CHANGELOG: &str =
 
 /// User-selected options for `meta init`.
 ///
-/// - `force`: overwrite the existing `.meta` with fresh defaults.
-/// - `repair`: never write `.meta`; only restore missing artifacts (gitignore,
-///   skill if requested). Useful after a partial setup.
+/// - `force`: overwrite the existing config with fresh defaults.
+/// - `repair`: never write the config file; only restore missing artifacts
+///   (gitignore, skill if requested). Useful after a partial setup.
 /// - `with_skill`: install the bundled Claude Code skill under
 ///   `.claude/skills/meta-tool/`.
 /// - `all`: shorthand that implies `with_skill` (and any future optional
 ///   artifacts).
-#[derive(Debug, Default, Clone, Copy)]
+/// - `format`: on-disk format used when creating a fresh config. Defaults to
+///   JSON (writing `.metarepo`). Existing configs in any format are detected
+///   automatically — `format` only affects the new-file path.
+#[derive(Debug, Clone, Copy)]
 pub struct InitOptions {
     pub force: bool,
     pub repair: bool,
     pub with_skill: bool,
     pub all: bool,
+    pub format: ConfigFormat,
+}
+
+impl Default for InitOptions {
+    fn default() -> Self {
+        Self {
+            force: false,
+            repair: false,
+            with_skill: false,
+            all: false,
+            format: ConfigFormat::Json,
+        }
+    }
 }
 
 impl InitOptions {
     fn want_skill(&self) -> bool {
         self.with_skill || self.all
     }
+}
+
+/// Locate any pre-existing recognized config file in `root`. Returns the
+/// matching path so reporting and overwrite logic can name it specifically.
+fn find_existing_config(root: &Path) -> Option<PathBuf> {
+    KNOWN_FILENAMES
+        .iter()
+        .map(|name| root.join(name))
+        .find(|p| p.exists())
 }
 
 /// Per-artifact outcome from running init.
@@ -50,6 +75,10 @@ pub struct InitReport {
     pub gitignore_updated: bool,
     pub skill_installed: bool,
     pub skill_already_present: bool,
+    /// Path of the config file we created, overwrote, or detected. None when
+    /// no .meta-style file exists and we didn't create one (e.g. `--repair`
+    /// against an empty dir, which errors before reaching the report).
+    pub config_path: Option<PathBuf>,
 }
 
 fn create_default_config() -> MetaConfig {
@@ -80,37 +109,47 @@ pub fn initialize_meta_repo<P: AsRef<Path>>(path: P) -> Result<()> {
 
 /// Idempotent init with explicit options. Returns a report so callers (and
 /// tests) can assert which artifacts were created vs skipped.
+///
+/// Existing config files in any recognized format (`.metarepo`, `.meta`,
+/// `.metarepo.yaml`, etc.) are detected so repeated runs don't fight each
+/// other. Fresh inits use `options.format` to choose the new filename.
 pub fn initialize_meta_repo_with_options<P: AsRef<Path>>(
     path: P,
     options: InitOptions,
 ) -> Result<InitReport> {
     let root = path.as_ref();
-    let meta_file_path = root.join(".meta");
+    let existing = find_existing_config(root);
     let mut report = InitReport::default();
 
-    let meta_exists = meta_file_path.exists();
-
-    // --- .meta ---
     if options.repair {
-        // Repair mode never rewrites .meta — it only ensures sibling artifacts.
-        if !meta_exists {
-            return Err(anyhow::anyhow!(
-                "Cannot repair: no .meta file present. Run 'meta init' first."
-            ));
+        let existing = existing.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Cannot repair: no metarepo config file present in {}. Run 'meta init' first.",
+                root.display()
+            )
+        })?;
+        report.meta_skipped_existing = true;
+        report.config_path = Some(existing);
+    } else if let Some(existing_path) = existing {
+        if options.force {
+            // Overwrite the existing file in place, preserving its format so
+            // we don't accidentally migrate the user without asking.
+            let format = ConfigFormat::from_path(&existing_path).unwrap_or(ConfigFormat::Json);
+            let config = create_default_config();
+            config.save_to_file_with_format(&existing_path, format)?;
+            report.meta_overwritten = true;
+            report.config_path = Some(existing_path);
+        } else {
+            report.meta_skipped_existing = true;
+            report.config_path = Some(existing_path);
         }
-        report.meta_skipped_existing = true;
-    } else if !meta_exists {
-        let config = create_default_config();
-        let content = serde_json::to_string_pretty(&config)?;
-        fs::write(&meta_file_path, content)?;
-        report.meta_created = true;
-    } else if options.force {
-        let config = create_default_config();
-        let content = serde_json::to_string_pretty(&config)?;
-        fs::write(&meta_file_path, content)?;
-        report.meta_overwritten = true;
     } else {
-        report.meta_skipped_existing = true;
+        // Fresh init: create a new file in the requested format.
+        let new_path = root.join(options.format.canonical_filename());
+        let config = create_default_config();
+        config.save_to_file_with_format(&new_path, options.format)?;
+        report.meta_created = true;
+        report.config_path = Some(new_path);
     }
 
     // --- .gitignore ---
@@ -131,17 +170,30 @@ pub fn initialize_meta_repo_with_options<P: AsRef<Path>>(
 }
 
 fn print_report(report: &InitReport) {
+    let path_label = report
+        .config_path
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or(".metarepo");
+
     if report.meta_created {
-        println!("  {} Created .meta with default configuration", "✓".green());
+        println!(
+            "  {} Created {} with default configuration",
+            "✓".green(),
+            path_label
+        );
     } else if report.meta_overwritten {
         println!(
-            "  {} Overwrote .meta with default configuration (--force)",
-            "✓".yellow()
+            "  {} Overwrote {} with default configuration (--force)",
+            "✓".yellow(),
+            path_label
         );
     } else if report.meta_skipped_existing {
         println!(
-            "  {} .meta already present (use --force to overwrite)",
-            "·".bright_black()
+            "  {} {} already present (use --force to overwrite)",
+            "·".bright_black(),
+            path_label
         );
     }
 
@@ -218,13 +270,42 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn fresh_init_creates_meta_and_gitignore() {
+    fn fresh_init_creates_metarepo_and_gitignore() {
         let tmp = tempdir().unwrap();
         let report = initialize_meta_repo_with_options(tmp.path(), InitOptions::default()).unwrap();
         assert!(report.meta_created);
         assert!(report.gitignore_updated);
-        assert!(tmp.path().join(".meta").exists());
+        // Fresh inits write the new canonical filename, not the legacy one.
+        assert!(tmp.path().join(".metarepo").exists());
+        assert!(!tmp.path().join(".meta").exists());
         assert!(tmp.path().join(".gitignore").exists());
+    }
+
+    #[test]
+    fn fresh_init_legacy_meta_is_detected_and_preserved() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path();
+        std::fs::write(path.join(".meta"), "{}").unwrap();
+        let report = initialize_meta_repo_with_options(path, InitOptions::default()).unwrap();
+        assert!(report.meta_skipped_existing);
+        // Did not silently create a parallel .metarepo file.
+        assert!(!path.join(".metarepo").exists());
+        assert!(path.join(".meta").exists());
+    }
+
+    #[test]
+    fn fresh_init_with_yaml_format_writes_yaml_file() {
+        let tmp = tempdir().unwrap();
+        let options = InitOptions {
+            format: ConfigFormat::Yaml,
+            ..InitOptions::default()
+        };
+        let report = initialize_meta_repo_with_options(tmp.path(), options).unwrap();
+        assert!(report.meta_created);
+        let written = report.config_path.unwrap();
+        assert_eq!(written.file_name().unwrap(), ".metarepo.yaml");
+        let raw = fs::read_to_string(&written).unwrap();
+        assert!(raw.contains("ignore"), "yaml output should include keys");
     }
 
     #[test]

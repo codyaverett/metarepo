@@ -1,8 +1,9 @@
 //! Config plugin for managing .meta configuration
 
 use anyhow::{anyhow, Result};
-use clap::{Arg, ArgMatches, Command};
-use metarepo_core::{BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use colored::Colorize;
+use metarepo_core::{BasePlugin, ConfigFormat, MetaConfig, MetaPlugin, RuntimeConfig};
 use std::path::PathBuf;
 
 use super::tui_editor::ConfigEditor;
@@ -18,6 +19,83 @@ impl Default for ConfigPlugin {
 impl ConfigPlugin {
     pub fn new() -> Self {
         Self
+    }
+
+    fn handle_migrate(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+        let target_format = ConfigFormat::parse(
+            matches
+                .get_one::<String>("format")
+                .map(|s| s.as_str())
+                .unwrap_or("json"),
+        )?;
+        let replace = matches.get_flag("replace");
+        let force = matches.get_flag("force");
+
+        // Source: the currently-active config file. Required — we can't
+        // migrate something that hasn't been initialized.
+        let source = config.meta_file_path.clone().ok_or_else(|| {
+            anyhow!(
+                "No metarepo config found to migrate. Run 'meta init' first or pass --config <path>."
+            )
+        })?;
+        let source_format = ConfigFormat::from_path(&source).unwrap_or(ConfigFormat::Json);
+
+        // Destination: explicit --to, else canonical filename for the target
+        // format alongside the source.
+        let destination: PathBuf = match matches.get_one::<String>("to") {
+            Some(s) => PathBuf::from(s),
+            None => {
+                let parent = source.parent().unwrap_or_else(|| std::path::Path::new("."));
+                parent.join(target_format.canonical_filename())
+            }
+        };
+
+        if source_format == target_format && source == destination {
+            println!(
+                "  {} Source is already in {} at {} — nothing to do.",
+                "·".bright_black(),
+                target_format.label(),
+                source.display()
+            );
+            return Ok(());
+        }
+
+        if destination.exists() && !force {
+            return Err(anyhow!(
+                "Destination {} already exists. Pass --force to overwrite.",
+                destination.display()
+            ));
+        }
+
+        // We already have the parsed config in RuntimeConfig.meta_config, so
+        // write it out in the new format.
+        config
+            .meta_config
+            .save_to_file_with_format(&destination, target_format)?;
+
+        println!(
+            "  {} Wrote {} ({})",
+            "✓".green(),
+            destination.display(),
+            target_format.label()
+        );
+
+        if replace && source != destination {
+            std::fs::remove_file(&source)?;
+            println!(
+                "  {} Removed original {} (--replace)",
+                "✓".yellow(),
+                source.display()
+            );
+        } else if source != destination {
+            println!(
+                "  {} Kept original {} (pass --replace to remove it)",
+                "·".bright_black(),
+                source.display()
+            );
+        }
+
+        Ok(())
     }
 
     fn handle_edit(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
@@ -225,6 +303,47 @@ impl MetaPlugin for ConfigPlugin {
                                 .value_name("FILE")
                                 .help("Path to .meta file to validate"),
                         ),
+                )
+                .subcommand(
+                    Command::new("migrate")
+                        .about("Convert the workspace config between supported formats (json|yaml|toml)")
+                        .long_about(
+                            "Convert the workspace config to a different format.\n\n\
+                             Reads the active config (auto-discovered or supplied via --config /\n\
+                             METAREPO_CONFIG) and writes it back in the chosen format.\n\n\
+                             By default the original file is kept; pass --replace to delete it\n\
+                             after the new file is written. Refuses to overwrite an existing\n\
+                             destination unless --force is given.\n\n\
+                             Examples:\n  \
+                               meta config migrate yaml                  Write .metarepo.yaml next to current\n  \
+                               meta config migrate toml --replace        Migrate and remove the old file\n  \
+                               meta config migrate json --to .metarepo   Migrate to an explicit path",
+                        )
+                        .arg(
+                            Arg::new("format")
+                                .required(true)
+                                .value_name("FORMAT")
+                                .value_parser(["json", "yaml", "yml", "toml"])
+                                .help("Target format"),
+                        )
+                        .arg(
+                            Arg::new("to")
+                                .long("to")
+                                .value_name("PATH")
+                                .help("Explicit destination path (defaults to the canonical filename for the target format alongside the source)"),
+                        )
+                        .arg(
+                            Arg::new("replace")
+                                .long("replace")
+                                .action(ArgAction::SetTrue)
+                                .help("Delete the original config file after the new one is written"),
+                        )
+                        .arg(
+                            Arg::new("force")
+                                .long("force")
+                                .action(ArgAction::SetTrue)
+                                .help("Overwrite the destination if it already exists"),
+                        ),
                 ),
         )
     }
@@ -236,6 +355,7 @@ impl MetaPlugin for ConfigPlugin {
             Some(("get", sub_matches)) => self.handle_get(sub_matches, config),
             Some(("set", sub_matches)) => self.handle_set(sub_matches, config),
             Some(("validate", sub_matches)) => self.handle_validate(sub_matches, config),
+            Some(("migrate", sub_matches)) => self.handle_migrate(sub_matches, config),
             _ => {
                 // Default to edit if no subcommand provided
                 self.handle_edit(matches, config)

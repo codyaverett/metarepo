@@ -2,7 +2,7 @@ use super::{initialize_meta_repo_with_options, InitOptions};
 use anyhow::Result;
 use clap::ArgMatches;
 use colored::Colorize;
-use metarepo_core::{plugin, BasePlugin, MetaPlugin, RuntimeConfig};
+use metarepo_core::{plugin, BasePlugin, ConfigFormat, MetaPlugin, RuntimeConfig};
 
 /// InitPlugin using the new simplified plugin architecture
 pub struct InitPlugin;
@@ -71,16 +71,28 @@ impl MetaPlugin for InitPlugin {
                         .long("all")
                         .action(clap::ArgAction::SetTrue)
                         .help("Install every optional component (currently: --with-skill)"),
+                )
+                .arg(
+                    clap::Arg::new("format")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .value_parser(["json", "yaml", "yml", "toml"])
+                        .help("Format of the new config file (json|yaml|toml). Only applies on fresh init; existing configs keep their current format."),
                 ),
         )
     }
 
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+        let format = match matches.get_one::<String>("format") {
+            Some(s) => ConfigFormat::parse(s)?,
+            None => ConfigFormat::Json,
+        };
         let options = InitOptions {
             force: matches.get_flag("force"),
             repair: matches.get_flag("repair"),
             with_skill: matches.get_flag("with-skill"),
             all: matches.get_flag("all"),
+            format,
         };
 
         println!(
@@ -93,17 +105,29 @@ impl MetaPlugin for InitPlugin {
         // Re-use the module-internal printer via a small inline summary so the
         // CLI gets a polished status output. We intentionally don't re-export
         // print_report to keep the public surface small.
+        let path_label = report
+            .config_path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or(".metarepo");
         if report.meta_created {
-            println!("  {} Created .meta with default configuration", "✓".green());
+            println!(
+                "  {} Created {} with default configuration",
+                "✓".green(),
+                path_label
+            );
         } else if report.meta_overwritten {
             println!(
-                "  {} Overwrote .meta with default configuration (--force)",
-                "✓".yellow()
+                "  {} Overwrote {} with default configuration (--force)",
+                "✓".yellow(),
+                path_label
             );
         } else if report.meta_skipped_existing {
             println!(
-                "  {} .meta already present (use --force to overwrite)",
-                "·".bright_black()
+                "  {} {} already present (use --force to overwrite)",
+                "·".bright_black(),
+                path_label
             );
         }
         if report.gitignore_updated {

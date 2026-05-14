@@ -57,6 +57,17 @@ meta init
 meta project add frontend https://github.com/user/frontend.git
 meta project add backend https://github.com/user/backend.git
 
+# Pick a config format on init (default: .metarepo / JSON)
+meta init --format yaml      # writes .metarepo.yaml
+meta init --format toml      # writes .metarepo.toml
+
+# Use an explicit config file (overrides discovery)
+meta --config ./tools/.metarepo.yaml git status
+
+# Convert between formats
+meta config migrate yaml             # writes .metarepo.yaml; keeps original
+meta config migrate toml --replace   # writes .metarepo.toml; removes original
+
 # Check status across all repositories
 meta git status
 

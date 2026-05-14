@@ -4,7 +4,9 @@ pub mod plugin;
 pub mod plugins;
 
 pub use cli::MetarepoCli;
-pub use config::{create_runtime_config, create_runtime_config_with_flags};
+pub use config::{
+    create_runtime_config, create_runtime_config_full, create_runtime_config_with_flags,
+};
 pub use metarepo_core::{MetaConfig, MetaPlugin, NonInteractiveMode, RuntimeConfig};
 pub use plugin::PluginRegistry;
 

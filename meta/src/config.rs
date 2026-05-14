@@ -1,5 +1,6 @@
 use anyhow::Result;
-use metarepo_core::{MetaConfig, NonInteractiveMode, RuntimeConfig};
+use metarepo_core::{ConfigFormat, MetaConfig, NonInteractiveMode, RuntimeConfig};
+use std::path::PathBuf;
 
 pub fn create_runtime_config(experimental: bool) -> Result<RuntimeConfig> {
     create_runtime_config_with_flags(experimental, None)
@@ -9,13 +10,37 @@ pub fn create_runtime_config_with_flags(
     experimental: bool,
     non_interactive: Option<NonInteractiveMode>,
 ) -> Result<RuntimeConfig> {
-    let working_dir = std::env::current_dir()?;
-    let meta_file_path = MetaConfig::find_meta_file();
+    create_runtime_config_full(experimental, non_interactive, None)
+}
 
-    let meta_config = if meta_file_path.is_some() {
-        MetaConfig::load()?
+/// Build the runtime config, allowing the caller to override config discovery
+/// with an explicit file path (typically from `--config` or `METAREPO_CONFIG`).
+pub fn create_runtime_config_full(
+    experimental: bool,
+    non_interactive: Option<NonInteractiveMode>,
+    config_override: Option<PathBuf>,
+) -> Result<RuntimeConfig> {
+    let working_dir = std::env::current_dir()?;
+
+    let (meta_config, meta_file_path) = if let Some(path) = config_override {
+        // Explicit override: load from this path verbatim. Format detection is
+        // best-effort; an unrecognized extension falls back to JSON.
+        let format = ConfigFormat::from_path(&path).unwrap_or(ConfigFormat::Json);
+        let config = MetaConfig::load_from_file_with_format(&path, format)?;
+        (config, Some(path))
     } else {
-        MetaConfig::default()
+        match MetaConfig::discover_from(&working_dir) {
+            Ok(Some(found)) => {
+                let config = MetaConfig::load_from_file_with_format(&found.path, found.format)?;
+                (config, Some(found.path))
+            }
+            Ok(None) => (MetaConfig::default(), None),
+            Err(e) => {
+                // Surface the structured error verbatim — its Display impl
+                // already prints the list of conflicting files and the fix.
+                return Err(anyhow::anyhow!("{}", e));
+            }
+        }
     };
 
     Ok(RuntimeConfig {

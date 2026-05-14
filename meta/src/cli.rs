@@ -1,8 +1,9 @@
-use crate::{create_runtime_config_with_flags, PluginRegistry};
+use crate::{create_runtime_config_full, PluginRegistry};
 use anyhow::Result;
 use clap::{Arg, ColorChoice, Command};
 use metarepo_core::NonInteractiveMode;
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 pub struct MetarepoCli {
@@ -92,6 +93,14 @@ impl MetarepoCli {
                     .value_parser(["fail", "defaults"])
                     .help("Non-interactive mode: 'fail' exits on missing input, 'defaults' uses sensible defaults")
                     .global(true)
+            )
+            .arg(
+                Arg::new("config")
+                    .long("config")
+                    .short('c')
+                    .value_name("PATH")
+                    .help("Path to a metarepo config file (overrides auto-discovery). Format is detected from the file extension.")
+                    .global(true)
             );
 
         app
@@ -121,8 +130,10 @@ impl MetarepoCli {
             .get_one::<String>("non-interactive")
             .and_then(|s| NonInteractiveMode::from_str(s).ok());
 
+        let config_override = resolve_config_override(matches.get_one::<String>("config"));
+
         // Load runtime configuration
-        let config = create_runtime_config_with_flags(false, non_interactive)?;
+        let config = create_runtime_config_full(false, non_interactive, config_override)?;
 
         // Route to appropriate plugin
         match matches.subcommand() {
@@ -159,8 +170,10 @@ impl MetarepoCli {
             .get_one::<String>("non-interactive")
             .and_then(|s| NonInteractiveMode::from_str(s).ok());
 
+        let config_override = resolve_config_override(matches.get_one::<String>("config"));
+
         // Load runtime configuration with experimental flag
-        let config = create_runtime_config_with_flags(true, non_interactive)?;
+        let config = create_runtime_config_full(true, non_interactive, config_override)?;
 
         tracing::debug!("Experimental features enabled");
 
@@ -206,6 +219,15 @@ impl Default for MetarepoCli {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Resolve the effective `--config` override: explicit flag wins, then the
+/// `METAREPO_CONFIG` env var, otherwise None (let discovery run).
+fn resolve_config_override(flag: Option<&String>) -> Option<PathBuf> {
+    if let Some(path) = flag {
+        return Some(PathBuf::from(path));
+    }
+    std::env::var_os("METAREPO_CONFIG").map(PathBuf::from)
 }
 
 #[cfg(test)]
