@@ -1,4 +1,6 @@
-use super::{add_worktrees, list_all_worktrees, prune_worktrees, remove_worktrees};
+use super::{
+    add_worktrees, list_all_worktrees, prune_worktrees, remove_worktrees, repair_worktrees,
+};
 use anyhow::Result;
 use clap::ArgMatches;
 use colored::Colorize;
@@ -183,10 +185,44 @@ impl WorktreePlugin {
                             .help("Prune worktrees across all projects, ignoring the current project directory context")
                     )
             )
+            .command(
+                command("repair")
+                    .about("Repair worktree administrative paths after worktrees have been moved")
+                    .long_about("Runs 'git worktree repair' for each project to update the\n\
+                                 administrative links between a repository and its worktrees.\n\
+                                 Useful when worktree directories were moved on disk and git\n\
+                                 has lost track of their new locations.\n\n\
+                                 Examples:\n\
+                                   meta worktree repair                 # Repair the current project\n\
+                                   meta worktree repair --global        # Repair every project in the workspace\n\
+                                   meta worktree repair --project foo   # Repair a specific project\n\
+                                   meta worktree repair --dry-run       # Show what would be repaired")
+                    .with_help_formatting()
+                    .arg(
+                        arg("project")
+                            .long("project")
+                            .short('p')
+                            .help("Single project to repair worktrees for")
+                            .takes_value(true)
+                    )
+                    .arg(
+                        arg("dry-run")
+                            .long("dry-run")
+                            .short('n')
+                            .help("Show which projects would be repaired without running git")
+                    )
+                    .arg(
+                        arg("global")
+                            .long("global")
+                            .short('g')
+                            .help("Repair worktrees across all projects, ignoring the current project directory context")
+                    )
+            )
             .handler("add", handle_add)
             .handler("remove", handle_remove)
             .handler("list", handle_list)
             .handler("prune", handle_prune)
+            .handler("repair", handle_repair)
             .build()
     }
 }
@@ -393,6 +429,27 @@ fn handle_prune(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     };
 
     prune_worktrees(&base_path, dry_run, scope.as_deref())?;
+    Ok(())
+}
+
+/// Handler for the repair command
+fn handle_repair(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
+    let dry_run = matches.get_flag("dry-run");
+
+    // Explicit --project wins; otherwise --global clears the scope; otherwise
+    // fall back to whatever project the cwd is inside.
+    let scope: Option<String> = if let Some(project) = matches.get_one::<String>("project") {
+        config
+            .resolve_project(project)
+            .or_else(|| Some(project.clone()))
+    } else if matches.get_flag("global") {
+        None
+    } else {
+        config.current_project()
+    };
+
+    repair_worktrees(&base_path, scope.as_deref(), dry_run)?;
     Ok(())
 }
 

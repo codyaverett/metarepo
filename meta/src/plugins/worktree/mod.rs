@@ -661,12 +661,14 @@ pub fn list_all_worktrees(base_path: &Path, scope_to_project: Option<&str>) -> R
         println!("{}", "Use 'meta worktree add' to create worktrees".dimmed());
     } else {
         // Display worktrees grouped by branch
+        let mut missing_count = 0;
         for (branch, projects) in worktree_map.iter() {
             println!("{}", branch.bold().white());
             for (project, path) in projects {
                 let status = if path.exists() {
                     "active".green()
                 } else {
+                    missing_count += 1;
                     "missing".red()
                 };
 
@@ -688,6 +690,19 @@ pub fn list_all_worktrees(base_path: &Path, scope_to_project: Option<&str>) -> R
             total_worktrees.to_string().cyan(),
             projects_with_worktrees.to_string().cyan()
         );
+
+        if missing_count > 0 {
+            println!(
+                "\n{} {} worktree path{} appear missing — they may have been moved.",
+                "⚠".yellow(),
+                missing_count.to_string().yellow(),
+                if missing_count == 1 { "" } else { "s" }
+            );
+            println!(
+                "  Try {} to update git's administrative paths.",
+                "meta worktree repair".bright_white()
+            );
+        }
     }
 
     println!();
@@ -766,6 +781,132 @@ pub fn prune_worktrees(
     } else {
         println!("\n{}", "Prune complete".green());
     }
+
+    Ok(())
+}
+
+/// Repair worktree administrative paths after worktrees have been moved on
+/// disk. Wraps `git worktree repair` for each project in the (optionally
+/// scoped) workspace, mirroring [`prune_worktrees`] in shape so the two can be
+/// composed into a future maintenance command.
+pub fn repair_worktrees(
+    base_path: &Path,
+    scope_to_project: Option<&str>,
+    dry_run: bool,
+) -> Result<()> {
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
+    }
+
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    let project_iter: Vec<&String> = match scope_to_project {
+        Some(name) if config.projects.contains_key(name) => {
+            vec![config.projects.keys().find(|k| k.as_str() == name).unwrap()]
+        }
+        Some(name) => {
+            return Err(anyhow::anyhow!(
+                "Project '{}' is not in the workspace .meta file",
+                name
+            ));
+        }
+        None => config.projects.keys().collect(),
+    };
+
+    if dry_run {
+        println!("\nChecking worktree repair (dry run)\n");
+    } else {
+        println!("\nRepairing worktrees\n");
+    }
+
+    let mut repaired = 0;
+    let mut healthy = 0;
+    let mut skipped = 0;
+    let mut failed: Vec<String> = Vec::new();
+
+    for project_name in project_iter {
+        let project_path = base_path.join(project_name);
+
+        if !project_path.exists() || !project_path.join(".git").exists() {
+            skipped += 1;
+            continue;
+        }
+
+        println!("{}", project_name.bold());
+
+        if dry_run {
+            println!(
+                "  {} Would run: git -C {} worktree repair",
+                "→".bright_black(),
+                project_path.display()
+            );
+            continue;
+        }
+
+        // Capture output: `git worktree repair` exits 0 even when nothing was
+        // wrong, and only writes to stdout/stderr when it actually rewrites
+        // administrative paths. Use that signal to label "Repaired" vs
+        // "Nothing to repair" — otherwise every run looks like a fix.
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&project_path)
+            .arg("worktree")
+            .arg("repair")
+            .output()
+            .context(format!(
+                "Failed to run git worktree repair for {}",
+                project_name
+            ));
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let made_changes = !stdout.trim().is_empty() || !stderr.trim().is_empty();
+                if made_changes {
+                    for line in stdout.lines().chain(stderr.lines()) {
+                        if !line.trim().is_empty() {
+                            println!("  {}", line);
+                        }
+                    }
+                    println!("  {} Repaired", "✓".green());
+                    repaired += 1;
+                } else {
+                    println!("  {} Nothing to repair", "·".bright_black());
+                    healthy += 1;
+                }
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                eprintln!(
+                    "  {} Repair failed (exit {}): {}",
+                    "✗".red(),
+                    out.status.code().unwrap_or(-1),
+                    stderr.trim()
+                );
+                failed.push(project_name.clone());
+            }
+            Err(e) => {
+                eprintln!("  {} {}", "✗".red(), e);
+                failed.push(project_name.clone());
+            }
+        }
+    }
+
+    println!(
+        "\nSummary: {} repaired, {} healthy, {} skipped, {} failed",
+        repaired.to_string().green(),
+        healthy.to_string().bright_black(),
+        skipped.to_string().bright_black(),
+        if failed.is_empty() {
+            "0".bright_black()
+        } else {
+            failed.len().to_string().red()
+        }
+    );
 
     Ok(())
 }
