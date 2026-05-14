@@ -94,6 +94,11 @@ impl WorktreePlugin {
                             .long("no-hooks")
                             .help("Skip running post-create worktree_init command")
                     )
+                    .arg(
+                        arg("allow-hooks")
+                            .long("allow-hooks")
+                            .help("Run worktree_init hooks without an interactive confirmation prompt (otherwise the hook command is displayed and confirmed before each run)")
+                    )
             )
             .command(
                 command("remove")
@@ -188,6 +193,7 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let create_branch = matches.get_flag("create-branch");
     let path_suffix = matches.get_one::<String>("path").map(|s| s.as_str());
     let no_hooks = matches.get_flag("no-hooks");
+    let allow_hooks = matches.get_flag("allow-hooks");
 
     // Prefer --from over positional commit arg
     let starting_point = from_ref.or(commit).map(|s| s.as_str());
@@ -239,6 +245,7 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         create_branch,
         starting_point,
         no_hooks,
+        allow_hooks,
         current_project.as_deref(),
         &config.meta_config,
     )?;

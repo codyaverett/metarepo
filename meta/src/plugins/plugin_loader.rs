@@ -89,7 +89,63 @@ impl ExternalPlugin {
     pub fn version(&self) -> &str {
         &self.version
     }
+
+    /// Reject plugin paths that we wouldn't normally trust to spawn:
+    /// - paths containing `..` components (traversal)
+    /// - paths not located inside one of the allowed plugin directories
+    ///
+    /// Allowed roots:
+    ///   - `$HOME/.config/metarepo/plugins`
+    ///   - `$HOME/.cargo/bin` (where `cargo install metarepo-plugin-*` lands)
+    ///   - `<workspace>/.metarepo/plugins` (per-repo plugins, if used)
+    ///
+    /// The `METAREPO_PLUGIN_ALLOW_ANY_PATH=1` env var lets developers opt out
+    /// of the restriction for local plugin development.
+    pub fn validate_plugin_path(path: &Path) -> Result<()> {
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(anyhow::anyhow!(
+                "Plugin path must not contain '..' segments: {:?}",
+                path
+            ));
+        }
+
+        if std::env::var_os("METAREPO_PLUGIN_ALLOW_ANY_PATH").is_some() {
+            return Ok(());
+        }
+
+        let canon = path.canonicalize().context(format!(
+            "Plugin path does not exist or is not accessible: {:?}",
+            path
+        ))?;
+
+        let mut allowed: Vec<PathBuf> = Vec::new();
+        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            allowed.push(PathBuf::from(&home).join(".config/metarepo/plugins"));
+            allowed.push(PathBuf::from(&home).join(".cargo/bin"));
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            allowed.push(cwd.join(".metarepo/plugins"));
+        }
+
+        for root in &allowed {
+            if let Ok(canon_root) = root.canonicalize() {
+                if canon.starts_with(&canon_root) {
+                    return Ok(());
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Plugin path {:?} is not in an allowed plugins directory. Allowed roots: {:?}. Set METAREPO_PLUGIN_ALLOW_ANY_PATH=1 to override.",
+            path,
+            allowed
+        ))
+    }
     pub fn load(path: &Path) -> Result<Box<dyn MetaPlugin>> {
+        Self::validate_plugin_path(path)?;
         // Start the plugin process
         let mut child = Command::new(path)
             .env("METAREPO_PLUGIN_MODE", "1")
