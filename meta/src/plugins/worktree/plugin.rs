@@ -99,6 +99,12 @@ impl WorktreePlugin {
                             .long("allow-hooks")
                             .help("Run worktree_init hooks without an interactive confirmation prompt (otherwise the hook command is displayed and confirmed before each run)")
                     )
+                    .arg(
+                        arg("global")
+                            .long("global")
+                            .short('g')
+                            .help("Operate across all workspace projects, ignoring the current project directory context")
+                    )
             )
             .command(
                 command("remove")
@@ -136,6 +142,12 @@ impl WorktreePlugin {
                             .short('f')
                             .help("Force removal even if worktree has uncommitted changes")
                     )
+                    .arg(
+                        arg("global")
+                            .long("global")
+                            .short('g')
+                            .help("Operate across all workspace projects, ignoring the current project directory context")
+                    )
             )
             .command(
                 command("list")
@@ -147,6 +159,12 @@ impl WorktreePlugin {
                             .long("verbose")
                             .help("Show detailed information about each worktree")
                     )
+                    .arg(
+                        arg("global")
+                            .long("global")
+                            .short('g')
+                            .help("List worktrees across all projects, ignoring the current project directory context")
+                    )
             )
             .command(
                 command("prune")
@@ -157,6 +175,12 @@ impl WorktreePlugin {
                             .long("dry-run")
                             .short('n')
                             .help("Show what would be pruned without actually removing")
+                    )
+                    .arg(
+                        arg("global")
+                            .long("global")
+                            .short('g')
+                            .help("Prune worktrees across all projects, ignoring the current project directory context")
                     )
             )
             .handler("add", handle_add)
@@ -200,13 +224,18 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
     let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
 
-    // Get current project context
-    let current_project = config.current_project();
+    // Get current project context, unless --global was passed to force workspace-wide scope.
+    let global = matches.get_flag("global");
+    let current_project = if global {
+        None
+    } else {
+        config.current_project()
+    };
 
     // Collect selected projects
     let mut projects = Vec::new();
 
-    if matches.get_flag("all") {
+    if matches.get_flag("all") || global {
         projects.push("--all".to_string());
     } else if let Some(project) = matches.get_one::<String>("project") {
         // Use resolve_project to handle aliases
@@ -279,16 +308,21 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     };
 
     let force = matches.get_flag("force");
+    let global = matches.get_flag("global");
 
     let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
 
-    // Get current project context
-    let current_project = config.current_project();
+    // Get current project context unless --global was passed.
+    let current_project = if global {
+        None
+    } else {
+        config.current_project()
+    };
 
     // Collect selected projects
     let mut projects = Vec::new();
 
-    if matches.get_flag("all") {
+    if matches.get_flag("all") || global {
         projects.push("--all".to_string());
     } else if let Some(project) = matches.get_one::<String>("project") {
         // Use resolve_project to handle aliases
@@ -330,10 +364,19 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 }
 
 /// Handler for the list command
-fn handle_list(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
 
-    list_all_worktrees(&base_path)?;
+    // When run from inside a project directory, scope to that project unless
+    // --global was passed. When run from outside any project, default to
+    // workspace-wide regardless of the flag.
+    let scope = if matches.get_flag("global") {
+        None
+    } else {
+        config.current_project()
+    };
+
+    list_all_worktrees(&base_path, scope.as_deref())?;
     Ok(())
 }
 
@@ -343,7 +386,13 @@ fn handle_prune(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
     let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
 
-    prune_worktrees(&base_path, dry_run)?;
+    let scope = if matches.get_flag("global") {
+        None
+    } else {
+        config.current_project()
+    };
+
+    prune_worktrees(&base_path, dry_run, scope.as_deref())?;
     Ok(())
 }
 

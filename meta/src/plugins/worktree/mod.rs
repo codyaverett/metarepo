@@ -582,8 +582,12 @@ pub fn remove_worktrees(
     Ok(())
 }
 
-/// List all worktrees across the workspace
-pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
+/// List worktrees across the workspace, optionally scoped to a single project.
+///
+/// When `scope_to_project` is `Some(name)`, only that project's worktrees are
+/// listed — this lets callers honor "context-aware" behavior where running
+/// `meta worktree list` inside a project directory shows just that project.
+pub fn list_all_worktrees(base_path: &Path, scope_to_project: Option<&str>) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
         return Err(anyhow::anyhow!(
@@ -593,14 +597,31 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
 
-    println!("\n{}\n", "Workspace Worktrees".bold());
+    let project_iter: Vec<&String> = match scope_to_project {
+        Some(name) if config.projects.contains_key(name) => {
+            vec![config.projects.keys().find(|k| k.as_str() == name).unwrap()]
+        }
+        Some(name) => {
+            return Err(anyhow::anyhow!(
+                "Current project '{}' is not in the workspace .meta file",
+                name
+            ));
+        }
+        None => config.projects.keys().collect(),
+    };
+
+    let header = match scope_to_project {
+        Some(name) => format!("Worktrees for {}", name),
+        None => "Workspace Worktrees".to_string(),
+    };
+    println!("\n{}\n", header.bold());
 
     let mut total_worktrees = 0;
     let mut projects_with_worktrees = 0;
     let mut worktree_map: HashMap<String, Vec<(String, PathBuf)>> = HashMap::new();
 
     // Collect all worktrees grouped by branch name
-    for project_name in config.projects.keys() {
+    for project_name in project_iter {
         let project_path = base_path.join(project_name);
 
         if !project_path.exists() || !project_path.join(".git").exists() {
@@ -673,8 +694,12 @@ pub fn list_all_worktrees(base_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Prune worktrees for all projects
-pub fn prune_worktrees(base_path: &Path, dry_run: bool) -> Result<()> {
+/// Prune stale worktrees, optionally scoped to a single project.
+pub fn prune_worktrees(
+    base_path: &Path,
+    dry_run: bool,
+    scope_to_project: Option<&str>,
+) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
         return Err(anyhow::anyhow!(
@@ -684,13 +709,26 @@ pub fn prune_worktrees(base_path: &Path, dry_run: bool) -> Result<()> {
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
 
+    let project_iter: Vec<&String> = match scope_to_project {
+        Some(name) if config.projects.contains_key(name) => {
+            vec![config.projects.keys().find(|k| k.as_str() == name).unwrap()]
+        }
+        Some(name) => {
+            return Err(anyhow::anyhow!(
+                "Current project '{}' is not in the workspace .meta file",
+                name
+            ));
+        }
+        None => config.projects.keys().collect(),
+    };
+
     if dry_run {
         println!("\nChecking for stale worktrees (dry run)\n");
     } else {
         println!("\nPruning stale worktrees\n");
     }
 
-    for project_name in config.projects.keys() {
+    for project_name in project_iter {
         let project_path = base_path.join(project_name);
 
         if !project_path.exists() || !project_path.join(".git").exists() {
