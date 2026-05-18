@@ -7,6 +7,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+/// Wire-format protocol version this build of metarepo speaks. Plugins must
+/// report a matching major version in their `Info` response or we refuse to
+/// load them. See `docs/PLUGIN_PROTOCOL_V1.md` for the full specification.
+pub const PLUGIN_PROTOCOL_VERSION: &str = "1.0";
+
 // Protocol messages for plugin communication
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -27,6 +32,11 @@ pub enum PluginResponse {
         name: String,
         version: String,
         experimental: bool,
+        /// Wire-protocol version the plugin implements (e.g. "1.0"). Optional
+        /// in the deserialized form so we can detect legacy plugins that
+        /// predate v1 and surface a useful error instead of a parse failure.
+        #[serde(default)]
+        protocol_version: Option<String>,
     },
     Commands {
         commands: Vec<CommandInfo>,
@@ -37,6 +47,43 @@ pub enum PluginResponse {
     Error {
         message: String,
     },
+}
+
+/// Verify that a plugin's reported `protocol_version` is compatible with this
+/// metarepo build. Same major version = compatible (additive minor changes
+/// remain backwards-compatible). Missing or mismatched major = rejected.
+pub fn check_protocol_version(reported: Option<&str>) -> Result<()> {
+    let reported = reported.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Plugin does not declare a protocol_version. This metarepo speaks v{}; rebuild the plugin against the latest metarepo-plugin-sdk.",
+            PLUGIN_PROTOCOL_VERSION
+        )
+    })?;
+
+    let (their_major, _) = split_major_minor(reported).map_err(|_| {
+        anyhow::anyhow!(
+            "Plugin reported an unparseable protocol_version '{}'. Expected something like '{}'.",
+            reported,
+            PLUGIN_PROTOCOL_VERSION
+        )
+    })?;
+    let (our_major, _) = split_major_minor(PLUGIN_PROTOCOL_VERSION).unwrap();
+
+    if their_major != our_major {
+        return Err(anyhow::anyhow!(
+            "Plugin reports protocol v{} but this metarepo supports v{}. Rebuild the plugin against a compatible metarepo-plugin-sdk.",
+            reported,
+            PLUGIN_PROTOCOL_VERSION
+        ));
+    }
+    Ok(())
+}
+
+fn split_major_minor(s: &str) -> std::result::Result<(u32, u32), std::num::ParseIntError> {
+    let mut parts = s.splitn(2, '.');
+    let major: u32 = parts.next().unwrap_or("").parse()?;
+    let minor: u32 = parts.next().unwrap_or("0").parse()?;
+    Ok((major, minor))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,7 +210,14 @@ impl ExternalPlugin {
                 name,
                 version,
                 experimental,
-            } => (name, version, experimental),
+                protocol_version,
+            } => {
+                // Enforce protocol compatibility before doing anything else.
+                check_protocol_version(protocol_version.as_deref()).map_err(|e| {
+                    anyhow::anyhow!("Plugin {:?} failed protocol check: {}", path, e)
+                })?;
+                (name, version, experimental)
+            }
             PluginResponse::Error { message } => {
                 return Err(anyhow::anyhow!("Plugin returned error: {}", message));
             }
@@ -460,10 +514,59 @@ mod tests {
     }
 
     #[test]
-    fn test_plugin_response_deserialization() {
+    fn test_plugin_response_deserialization_legacy_missing_protocol_version() {
+        // Legacy plugins predate the protocol_version field; deserialization
+        // must still succeed (the loader rejects them at the protocol check,
+        // not at parse time, so users get a helpful error).
         let json = r#"{"type":"Info","name":"test","version":"1.0.0","experimental":false}"#;
         let response: PluginResponse = serde_json::from_str(json).unwrap();
-        matches!(response, PluginResponse::Info { .. });
+        match response {
+            PluginResponse::Info {
+                protocol_version, ..
+            } => assert!(protocol_version.is_none()),
+            _ => panic!("expected Info variant"),
+        }
+    }
+
+    #[test]
+    fn test_plugin_response_deserialization_with_protocol_version() {
+        let json = r#"{"type":"Info","name":"test","version":"1.0.0","experimental":false,"protocol_version":"1.0"}"#;
+        let response: PluginResponse = serde_json::from_str(json).unwrap();
+        match response {
+            PluginResponse::Info {
+                protocol_version, ..
+            } => assert_eq!(protocol_version.as_deref(), Some("1.0")),
+            _ => panic!("expected Info variant"),
+        }
+    }
+
+    #[test]
+    fn check_protocol_version_accepts_same_major() {
+        assert!(check_protocol_version(Some("1.0")).is_ok());
+        // Additive minor bumps stay compatible.
+        assert!(check_protocol_version(Some("1.5")).is_ok());
+    }
+
+    #[test]
+    fn check_protocol_version_rejects_missing() {
+        let err = check_protocol_version(None).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("does not declare"));
+        assert!(msg.contains(PLUGIN_PROTOCOL_VERSION));
+    }
+
+    #[test]
+    fn check_protocol_version_rejects_different_major() {
+        let err = check_protocol_version(Some("2.0")).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("v2.0"));
+        assert!(msg.contains(PLUGIN_PROTOCOL_VERSION));
+    }
+
+    #[test]
+    fn check_protocol_version_rejects_garbage() {
+        let err = check_protocol_version(Some("not-a-version")).unwrap_err();
+        assert!(err.to_string().contains("unparseable"));
     }
 
     #[test]

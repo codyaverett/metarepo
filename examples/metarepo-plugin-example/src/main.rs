@@ -20,6 +20,10 @@ enum PluginRequest {
     },
 }
 
+/// Wire-protocol version this plugin implements. Must share a major version
+/// with the metarepo build that loads it.
+const PLUGIN_PROTOCOL_VERSION: &str = "1.0";
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum PluginResponse {
@@ -27,6 +31,7 @@ enum PluginResponse {
         name: String,
         version: String,
         experimental: bool,
+        protocol_version: String,
     },
     Commands {
         commands: Vec<CommandInfo>,
@@ -109,7 +114,7 @@ fn run_subprocess_mode() -> Result<()> {
     // Read requests line by line
     for line in stdin.lock().lines() {
         let line = line?;
-        
+
         // Skip empty lines
         if line.trim().is_empty() {
             continue;
@@ -134,8 +139,9 @@ fn run_subprocess_mode() -> Result<()> {
                 name: plugin.name().to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 experimental: plugin.is_experimental(),
+                protocol_version: PLUGIN_PROTOCOL_VERSION.to_string(),
             },
-            
+
             PluginRequest::RegisterCommands => {
                 // Build command structure
                 // Note: In a real implementation, you'd extract this from clap
@@ -168,10 +174,10 @@ fn run_subprocess_mode() -> Result<()> {
                     ],
                     args: vec![],
                 }];
-                
+
                 PluginResponse::Commands { commands }
             }
-            
+
             PluginRequest::HandleCommand {
                 command,
                 args,
@@ -179,16 +185,16 @@ fn run_subprocess_mode() -> Result<()> {
             } => {
                 // Convert DTO to RuntimeConfig
                 let runtime_config: RuntimeConfig = config.into();
-                
+
                 // Create a minimal ArgMatches-like structure
                 // In a real implementation, you'd properly parse with clap
                 let app = clap::Command::new("plugin");
                 let app = plugin.register_commands(app);
-                
+
                 // Build the full argument list
                 let mut full_args = vec!["plugin".to_string(), command];
                 full_args.extend(args);
-                
+
                 // Parse and handle
                 match app.try_get_matches_from(&full_args) {
                     Ok(matches) => {
@@ -238,6 +244,7 @@ mod tests {
             name: "test".to_string(),
             version: "1.0.0".to_string(),
             experimental: false,
+            protocol_version: PLUGIN_PROTOCOL_VERSION.to_string(),
         };
         let json = serde_json::to_string(&response).unwrap();
         let parsed: PluginResponse = serde_json::from_str(&json).unwrap();
