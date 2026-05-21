@@ -2,6 +2,7 @@
 members = [
     "meta-core",
     "meta",
+    "metarepo-plugin-sdk",
 ]
 exclude = [
     "examples/metarepo-plugin-example",

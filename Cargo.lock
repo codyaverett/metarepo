@@ -752,6 +752,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "metarepo-plugin-sdk"
+version = "0.20.0"
+dependencies = [
+ "anyhow",
+ "metarepo-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mio"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

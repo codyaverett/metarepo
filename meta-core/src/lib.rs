@@ -10,6 +10,7 @@ pub mod interactive;
 mod plugin_base;
 mod plugin_builder;
 mod plugin_manifest;
+pub mod protocol;
 pub mod security;
 pub mod tui;
 

@@ -1,209 +1,183 @@
-use anyhow::Result;
-use clap::{Arg, ArgMatches, Command};
-use metarepo_core::{MetaPlugin, RuntimeConfig};
+//! Example external plugin for metarepo, built on `metarepo-plugin-sdk`.
+//!
+//! The entire wire protocol (stdin/stdout framing, JSON, the version handshake)
+//! is handled by the SDK. A plugin author only implements the [`Plugin`] trait
+//! and calls `metarepo_plugin_sdk::serve` from `main` (see `src/main.rs`).
 
-pub struct ExamplePlugin {
-    name: String,
-}
+use metarepo_plugin_sdk::{ArgInfo, CommandInfo, Plugin, RuntimeConfigDto};
+
+pub struct ExamplePlugin;
 
 impl ExamplePlugin {
     pub fn new() -> Self {
-        Self {
-            name: "example".to_string(),
-        }
+        Self
     }
 }
 
-impl MetaPlugin for ExamplePlugin {
+impl Default for ExamplePlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Plugin for ExamplePlugin {
     fn name(&self) -> &str {
-        &self.name
+        "example"
     }
 
-    fn register_commands(&self, app: Command) -> Command {
-        app.subcommand(
-            Command::new("example")
-                .about("Example plugin demonstrating external plugin development")
-                .long_about(
-                    "This is an example plugin that shows how to create external plugins \
-                     for metarepo. It demonstrates command registration, argument handling, \
-                     and accessing the meta repository configuration.",
-                )
-                .subcommand(
-                    Command::new("hello")
-                        .about("Print a greeting message")
-                        .arg(
-                            Arg::new("name")
-                                .help("Name to greet")
-                                .required(true)
-                                .index(1),
-                        ),
-                )
-                .subcommand(
-                    Command::new("info")
-                        .about("Display information about the current meta repository"),
-                )
-                .subcommand(
-                    Command::new("count")
-                        .about("Count the number of projects in the meta repository"),
-                ),
+    fn version(&self) -> &str {
+        env!("CARGO_PKG_VERSION")
+    }
+
+    fn commands(&self) -> Vec<CommandInfo> {
+        vec![CommandInfo::new(
+            "example",
+            "Example plugin demonstrating external plugin development",
         )
+        .subcommand(
+            CommandInfo::new("hello", "Print a greeting message")
+                .arg(ArgInfo::new("name", "Name to greet", true)),
+        )
+        .subcommand(CommandInfo::new(
+            "info",
+            "Display information about the current meta repository",
+        ))
+        .subcommand(CommandInfo::new(
+            "count",
+            "Count the number of projects in the meta repository",
+        ))]
     }
 
-    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        match matches.subcommand() {
-            Some(("hello", sub_matches)) => {
-                if let Some(name) = sub_matches.get_one::<String>("name") {
-                    eprintln!("Hello, {}! This is the example plugin.", name);
-                    eprintln!("Working from: {:?}", config.working_dir);
-                }
-                Ok(())
+    fn handle(
+        &self,
+        _command: &str,
+        args: &[String],
+        config: &RuntimeConfigDto,
+    ) -> anyhow::Result<Option<String>> {
+        // The host passes the nested subcommand name as the first arg, followed
+        // by that subcommand's positional values.
+        let (sub, rest) = match args.split_first() {
+            Some(parts) => parts,
+            None => {
+                return Ok(Some(
+                    "Example plugin - use 'meta example --help' for available commands".into(),
+                ))
             }
-            Some(("info", _)) => {
-                eprintln!("Meta Repository Information:");
-                eprintln!("============================");
-                eprintln!("Working directory: {:?}", config.working_dir);
+        };
 
-                if config.has_meta_file() {
-                    eprintln!("Meta file found: {:?}", config.meta_file_path);
-                    if let Some(root) = config.meta_root() {
-                        eprintln!("Repository root: {:?}", root);
-                    }
-
-                    if !config.meta_config.projects.is_empty() {
-                        eprintln!("\nProjects:");
-                        for (name, url) in &config.meta_config.projects {
-                            eprintln!("  - {}: {}", name, url);
-                        }
-                    } else {
-                        eprintln!("\nNo projects configured yet.");
-                    }
-
-                    if !config.meta_config.ignore.is_empty() {
-                        eprintln!("\nIgnored patterns:");
-                        for pattern in &config.meta_config.ignore {
-                            eprintln!("  - {}", pattern);
-                        }
-                    }
-
-                    if let Some(plugins) = &config.meta_config.plugins {
-                        if !plugins.is_empty() {
-                            eprintln!("\nConfigured plugins:");
-                            for (name, version) in plugins {
-                                eprintln!("  - {}: {}", name, version);
-                            }
-                        }
+        match sub.as_str() {
+            "hello" => {
+                let name = rest.first().map(String::as_str).unwrap_or("world");
+                Ok(Some(format!(
+                    "Hello, {name}! This is the example plugin.\nWorking from: {}",
+                    config.working_dir.display()
+                )))
+            }
+            "info" => Ok(Some(render_info(config))),
+            "count" => {
+                let msg = if config.meta_file_path.is_some() {
+                    match config.meta_config.projects.len() {
+                        0 => "No projects in this meta repository.".to_string(),
+                        1 => "1 project in this meta repository.".to_string(),
+                        n => format!("{n} projects in this meta repository."),
                     }
                 } else {
-                    eprintln!("No meta repository found in the current directory tree.");
-                    eprintln!("Run 'meta init' to create one.");
-                }
-
-                Ok(())
+                    "Not in a meta repository. Run 'meta init' first.".to_string()
+                };
+                Ok(Some(msg))
             }
-            Some(("count", _)) => {
-                if config.has_meta_file() {
-                    let count = config.meta_config.projects.len();
-                    match count {
-                        0 => eprintln!("No projects in this meta repository."),
-                        1 => eprintln!("1 project in this meta repository."),
-                        n => eprintln!("{} projects in this meta repository.", n),
-                    }
-                } else {
-                    eprintln!("Not in a meta repository. Run 'meta init' first.");
-                }
-                Ok(())
-            }
-            _ => {
-                eprintln!("Example plugin - use 'meta example --help' for available commands");
-                Ok(())
-            }
+            other => Ok(Some(format!(
+                "Unknown subcommand '{other}'. Use 'meta example --help'."
+            ))),
         }
-    }
-
-    fn is_experimental(&self) -> bool {
-        false // This is a stable example plugin
     }
 }
 
-// Export function for dynamic loading (when compiled as cdylib)
-#[no_mangle]
-pub extern "C" fn create_plugin() -> *mut dyn MetaPlugin {
-    Box::into_raw(Box::new(ExamplePlugin::new()))
-}
+fn render_info(config: &RuntimeConfigDto) -> String {
+    let mut out = String::new();
+    out.push_str("Meta Repository Information:\n");
+    out.push_str("============================\n");
+    out.push_str(&format!("Working directory: {}\n", config.working_dir.display()));
 
-// Safety function for proper cleanup
-#[no_mangle]
-pub extern "C" fn destroy_plugin(plugin: *mut dyn MetaPlugin) {
-    if !plugin.is_null() {
-        unsafe {
-            let _ = Box::from_raw(plugin);
+    let Some(meta_file) = &config.meta_file_path else {
+        out.push_str("No meta repository found in the current directory tree.\n");
+        out.push_str("Run 'meta init' to create one.");
+        return out;
+    };
+
+    out.push_str(&format!("Meta file found: {}\n", meta_file.display()));
+
+    if config.meta_config.projects.is_empty() {
+        out.push_str("\nNo projects configured yet.");
+    } else {
+        out.push_str("\nProjects:\n");
+        let mut names: Vec<&String> = config.meta_config.projects.keys().collect();
+        names.sort();
+        for name in names {
+            out.push_str(&format!("  - {name}\n"));
         }
     }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use metarepo_core::MetaConfig;
+    use metarepo_plugin_sdk::RuntimeConfigDto;
     use std::path::PathBuf;
 
-    #[test]
-    fn test_plugin_name() {
-        let plugin = ExamplePlugin::new();
-        assert_eq!(plugin.name(), "example");
-    }
-
-    #[test]
-    fn test_plugin_not_experimental() {
-        let plugin = ExamplePlugin::new();
-        assert!(!plugin.is_experimental());
-    }
-
-    #[test]
-    fn test_handle_info_without_meta_file() {
-        let plugin = ExamplePlugin::new();
-        let config = RuntimeConfig {
-            meta_config: MetaConfig::default(),
+    fn dto(meta_file: Option<&str>) -> RuntimeConfigDto {
+        RuntimeConfigDto {
+            meta_config: Default::default(),
             working_dir: PathBuf::from("/tmp"),
-            meta_file_path: None,
+            meta_file_path: meta_file.map(PathBuf::from),
             experimental: false,
-        };
-
-        let app = Command::new("test");
-        let app = plugin.register_commands(app);
-        let matches = app.get_matches_from(vec!["test", "example", "info"]);
-
-        if let Some(("example", sub_matches)) = matches.subcommand() {
-            let result = plugin.handle_command(sub_matches, &config);
-            assert!(result.is_ok());
         }
     }
 
     #[test]
-    fn test_handle_count_with_projects() {
-        let plugin = ExamplePlugin::new();
-        let mut meta_config = MetaConfig::default();
-        meta_config
-            .projects
-            .insert("project1".to_string(), "https://example.com/p1".to_string());
-        meta_config
-            .projects
-            .insert("project2".to_string(), "https://example.com/p2".to_string());
+    fn name_and_version() {
+        let p = ExamplePlugin::new();
+        assert_eq!(p.name(), "example");
+        assert_eq!(p.version(), env!("CARGO_PKG_VERSION"));
+    }
 
-        let config = RuntimeConfig {
-            meta_config,
-            working_dir: PathBuf::from("/tmp"),
-            meta_file_path: Some(PathBuf::from("/tmp/.meta")),
-            experimental: false,
-        };
+    #[test]
+    fn commands_tree_is_declared() {
+        let cmds = ExamplePlugin::new().commands();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].name, "example");
+        let subs: Vec<&str> = cmds[0].subcommands.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(subs, ["hello", "info", "count"]);
+    }
 
-        let app = Command::new("test");
-        let app = plugin.register_commands(app);
-        let matches = app.get_matches_from(vec!["test", "example", "count"]);
+    #[test]
+    fn hello_greets_named_arg() {
+        let p = ExamplePlugin::new();
+        let out = p
+            .handle("example", &["hello".into(), "Ada".into()], &dto(None))
+            .unwrap()
+            .unwrap();
+        assert!(out.contains("Hello, Ada!"));
+    }
 
-        if let Some(("example", sub_matches)) = matches.subcommand() {
-            let result = plugin.handle_command(sub_matches, &config);
-            assert!(result.is_ok());
-        }
+    #[test]
+    fn count_without_meta_file() {
+        let p = ExamplePlugin::new();
+        let out = p
+            .handle("example", &["count".into()], &dto(None))
+            .unwrap()
+            .unwrap();
+        assert!(out.contains("Not in a meta repository"));
+    }
+
+    #[test]
+    fn info_without_meta_file() {
+        let p = ExamplePlugin::new();
+        let out = p
+            .handle("example", &["info".into()], &dto(None))
+            .unwrap()
+            .unwrap();
+        assert!(out.contains("No meta repository found"));
     }
 }

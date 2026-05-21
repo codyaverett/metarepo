@@ -45,6 +45,7 @@ help:
 	@echo "  $(GREEN)make publish-dry$(NC) - Dry run all package publishing"
 	@echo "  $(GREEN)make publish-all$(NC) - Publish all packages to crates.io"
 	@echo "  $(GREEN)make publish-core$(NC) - Publish metarepo-core only"
+	@echo "  $(GREEN)make publish-sdk$(NC) - Publish metarepo-plugin-sdk only"
 	@echo ""
 	@echo "$(YELLOW)Version Management:$(NC)"
 	@echo "  $(GREEN)make check-versions$(NC) - Check version consistency"
@@ -238,11 +239,16 @@ check-versions:
 	@VERSION=$$(grep "^version" meta-core/Cargo.toml | head -1 | cut -d'"' -f2); \
 	echo "Core version: $$VERSION"; \
 	META_VERSION=$$(grep "^version" meta/Cargo.toml | head -1 | cut -d'"' -f2); \
+	SDK_VERSION=$$(grep "^version" metarepo-plugin-sdk/Cargo.toml | head -1 | cut -d'"' -f2); \
 	if [ "$$META_VERSION" != "$$VERSION" ]; then \
 		echo "$(RED)❌ Version mismatch in meta: $$META_VERSION != $$VERSION$(NC)"; \
 		exit 1; \
 	fi; \
-	echo "$(GREEN)✅ Both packages have version $$VERSION$(NC)"
+	if [ "$$SDK_VERSION" != "$$VERSION" ]; then \
+		echo "$(RED)❌ Version mismatch in metarepo-plugin-sdk: $$SDK_VERSION != $$VERSION$(NC)"; \
+		exit 1; \
+	fi; \
+	echo "$(GREEN)✅ All packages have version $$VERSION$(NC)"
 
 # Bump version for all packages
 .PHONY: bump-version
@@ -255,13 +261,20 @@ bump-version:
 	@sed -i '' 's/^version = ".*"/version = "$(V)"/' meta-core/Cargo.toml
 	@sed -i '' 's/^version = ".*"/version = "$(V)"/' meta/Cargo.toml
 	@sed -i '' 's/metarepo-core = { version = "[^"]*"/metarepo-core = { version = "$(V)"/' meta/Cargo.toml
-	@echo "$(GREEN)✅ Both packages updated to version $(V)$(NC)"
+	@sed -i '' 's/^version = ".*"/version = "$(V)"/' metarepo-plugin-sdk/Cargo.toml
+	@sed -i '' 's/metarepo-core = { version = "[^"]*"/metarepo-core = { version = "$(V)"/' metarepo-plugin-sdk/Cargo.toml
+	@echo "$(GREEN)✅ All packages updated to version $(V)$(NC)"
 
-# Publishing commands (only 2 packages now!)
+# Publishing commands (dependency order: core -> sdk -> meta)
 .PHONY: publish-core
 publish-core:
 	@echo "$(CYAN)📦 Publishing metarepo-core...$(NC)"
 	@cd meta-core && cargo publish && echo "$(GREEN)✅ Published metarepo-core$(NC)" || echo "$(YELLOW)⚠️  metarepo-core publish failed (see error above)$(NC)"
+
+.PHONY: publish-sdk
+publish-sdk:
+	@echo "$(CYAN)📦 Publishing metarepo-plugin-sdk...$(NC)"
+	@cd metarepo-plugin-sdk && cargo publish && echo "$(GREEN)✅ Published metarepo-plugin-sdk$(NC)" || echo "$(YELLOW)⚠️  metarepo-plugin-sdk publish failed (see error above)$(NC)"
 
 .PHONY: publish-main
 publish-main:
@@ -273,17 +286,26 @@ publish-main:
 publish: check-versions
 	@echo "$(CYAN)🔍 Checking which packages need publishing...$(NC)"
 	@CORE_VERSION=$$(grep '^version' meta-core/Cargo.toml | head -1 | cut -d'"' -f2); \
+	SDK_VERSION=$$(grep '^version' metarepo-plugin-sdk/Cargo.toml | head -1 | cut -d'"' -f2); \
 	META_VERSION=$$(grep '^version' meta/Cargo.toml | head -1 | cut -d'"' -f2); \
 	CORE_PUBLISHED=$$(cargo search metarepo-core --limit 1 2>/dev/null | grep "^metarepo-core = " | cut -d'"' -f2); \
+	SDK_PUBLISHED=$$(cargo search metarepo-plugin-sdk --limit 1 2>/dev/null | grep "^metarepo-plugin-sdk = " | cut -d'"' -f2); \
 	META_PUBLISHED=$$(cargo search metarepo --limit 1 2>/dev/null | grep "^metarepo = " | cut -d'"' -f2); \
-	echo "Local versions: metarepo-core=$$CORE_VERSION, metarepo=$$META_VERSION"; \
-	echo "Published versions: metarepo-core=$$CORE_PUBLISHED, metarepo=$$META_PUBLISHED"; \
+	echo "Local versions: metarepo-core=$$CORE_VERSION, metarepo-plugin-sdk=$$SDK_VERSION, metarepo=$$META_VERSION"; \
+	echo "Published versions: metarepo-core=$$CORE_PUBLISHED, metarepo-plugin-sdk=$$SDK_PUBLISHED, metarepo=$$META_PUBLISHED"; \
 	if [ "$$CORE_VERSION" != "$$CORE_PUBLISHED" ]; then \
 		echo "$(CYAN)Publishing metarepo-core $$CORE_VERSION...$(NC)"; \
 		cd meta-core && cargo publish && echo "$(GREEN)✅ Published metarepo-core $$CORE_VERSION$(NC)" || echo "$(RED)❌ Failed to publish metarepo-core$(NC)"; \
 		sleep 10; \
 	else \
 		echo "$(YELLOW)metarepo-core $$CORE_VERSION already published$(NC)"; \
+	fi; \
+	if [ "$$SDK_VERSION" != "$$SDK_PUBLISHED" ]; then \
+		echo "$(CYAN)Publishing metarepo-plugin-sdk $$SDK_VERSION...$(NC)"; \
+		cd metarepo-plugin-sdk && cargo publish && echo "$(GREEN)✅ Published metarepo-plugin-sdk $$SDK_VERSION$(NC)" || echo "$(RED)❌ Failed to publish metarepo-plugin-sdk$(NC)"; \
+		sleep 10; \
+	else \
+		echo "$(YELLOW)metarepo-plugin-sdk $$SDK_VERSION already published$(NC)"; \
 	fi; \
 	if [ "$$META_VERSION" != "$$META_PUBLISHED" ]; then \
 		echo "$(CYAN)Publishing metarepo $$META_VERSION...$(NC)"; \
@@ -296,11 +318,17 @@ publish: check-versions
 .PHONY: publish-dry
 publish-dry:
 	@echo "$(CYAN)🧪 Dry run: Testing package publishing...$(NC)"
+	@# --no-verify: these crates depend on each other at the new version, which
+	@# is not on crates.io until `make publish` runs in order. The verify step
+	@# would resolve those deps from the registry and fail spuriously. Compile
+	@# correctness is already covered by `make test` against the path deps.
 	@echo "$(YELLOW)Testing metarepo-core...$(NC)"
-	@cd meta-core && cargo publish --dry-run
+	@cd meta-core && cargo publish --dry-run --no-verify
+	@echo "$(YELLOW)Testing metarepo-plugin-sdk...$(NC)"
+	@cd metarepo-plugin-sdk && cargo publish --dry-run --no-verify
 	@echo "$(YELLOW)Testing metarepo (main with built-in plugins)...$(NC)"
-	@cd meta && cargo publish --dry-run
-	@echo "$(GREEN)✅ Both packages passed dry run$(NC)"
+	@cd meta && cargo publish --dry-run --no-verify
+	@echo "$(GREEN)✅ All packages passed dry run$(NC)"
 
 # Publish all packages in dependency order (with error handling)
 .PHONY: publish-all
@@ -308,19 +336,28 @@ publish-all: check-versions
 	@echo "$(CYAN)🚀 Publishing packages to crates.io...$(NC)"
 	@echo "$(YELLOW)⚠️  This will publish the following packages:$(NC)"
 	@echo "  1. metarepo-core (plugin API)"
-	@echo "  2. metarepo (main CLI with built-in plugins)"
+	@echo "  2. metarepo-plugin-sdk (plugin author SDK)"
+	@echo "  3. metarepo (main CLI with built-in plugins)"
 	@echo ""
 	@printf "$(YELLOW)Continue? (y/N): $(NC)" && read confirm && [ "$$confirm" = "y" ] || exit 1
 	@echo "$(CYAN)Starting publish sequence...$(NC)"
-	@echo "$(BLUE)[1/2] Publishing metarepo-core...$(NC)"
+	@echo "$(BLUE)[1/3] Publishing metarepo-core...$(NC)"
 	@if cd meta-core && cargo publish; then \
 		echo "$(GREEN)✅ Published metarepo-core$(NC)"; \
 		sleep 10; \
 	else \
 		echo "$(YELLOW)⚠️  metarepo-core v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) publish failed (see error above)$(NC)"; \
+		echo "$(CYAN)Continuing with metarepo-plugin-sdk...$(NC)"; \
+	fi
+	@echo "$(BLUE)[2/3] Publishing metarepo-plugin-sdk...$(NC)"
+	@if cd metarepo-plugin-sdk && cargo publish; then \
+		echo "$(GREEN)✅ Published metarepo-plugin-sdk$(NC)"; \
+		sleep 10; \
+	else \
+		echo "$(YELLOW)⚠️  metarepo-plugin-sdk v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) publish failed (see error above)$(NC)"; \
 		echo "$(CYAN)Continuing with metarepo...$(NC)"; \
 	fi
-	@echo "$(BLUE)[2/2] Publishing metarepo (main package with built-in plugins)...$(NC)"
+	@echo "$(BLUE)[3/3] Publishing metarepo (main package with built-in plugins)...$(NC)"
 	@if cd meta && cargo publish; then \
 		echo "$(GREEN)✅ Published metarepo$(NC)"; \
 		echo ""; \
