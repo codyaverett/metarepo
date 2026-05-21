@@ -28,7 +28,7 @@ pub use plugin_builder::{
 };
 pub use plugin_manifest::{
     ArgValueType, Dependency, Example, ExecutionConfig, ManifestArg, ManifestCommand, PluginConfig,
-    PluginInfo, PluginManifest,
+    PluginInfo, PluginManifest, MANIFEST_FILENAMES,
 };
 pub use security::{
     canonicalize_creatable, ensure_within_base, is_dangerous_env_var, is_supported_git_url,

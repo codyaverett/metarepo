@@ -1,6 +1,14 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Manifest filenames the loader recognizes, in priority order.
+pub const MANIFEST_FILENAMES: &[&str] = &[
+    "plugin.manifest.toml",
+    "plugin.manifest.yaml",
+    "plugin.manifest.yml",
+    "plugin.manifest.json",
+];
 
 /// Plugin manifest structure (plugin.toml)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,11 +159,63 @@ impl PluginManifest {
         Self::from_toml_str(&content)
     }
 
+    /// Load a manifest, choosing the parser by file extension
+    /// (`.toml`, `.yaml`/`.yml`, `.json`). Defaults to TOML for unknown
+    /// extensions.
+    pub fn from_file_auto(path: &Path) -> Result<Self> {
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read manifest {}", path.display()))?;
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let manifest: PluginManifest = match ext.as_str() {
+            "json" => serde_json::from_str(&content)
+                .with_context(|| format!("Invalid JSON manifest {}", path.display()))?,
+            "yaml" | "yml" => serde_yaml::from_str(&content)
+                .with_context(|| format!("Invalid YAML manifest {}", path.display()))?,
+            _ => toml::from_str(&content)
+                .with_context(|| format!("Invalid TOML manifest {}", path.display()))?,
+        };
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    /// Find a `plugin.manifest.*` file directly inside `dir`, if one exists.
+    pub fn find_in_dir(dir: &Path) -> Option<PathBuf> {
+        MANIFEST_FILENAMES
+            .iter()
+            .map(|name| dir.join(name))
+            .find(|p| p.is_file())
+    }
+
+    /// Whether a path is a recognized manifest filename.
+    pub fn is_manifest_path(path: &Path) -> bool {
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| MANIFEST_FILENAMES.contains(&n))
+            .unwrap_or(false)
+    }
+
     /// Parse manifest from TOML string
     pub fn from_toml_str(content: &str) -> Result<Self> {
         let manifest: PluginManifest = toml::from_str(content)?;
         manifest.validate()?;
         Ok(manifest)
+    }
+
+    /// Resolve the plugin's executable path relative to the manifest's location.
+    /// Uses `config.execution.binary` when set, falling back to a sibling file
+    /// named after the plugin.
+    pub fn resolve_binary(&self, manifest_path: &Path) -> Result<PathBuf> {
+        let dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+        let rel = self
+            .config
+            .as_ref()
+            .and_then(|c| c.execution.binary.as_deref())
+            .unwrap_or(self.plugin.name.as_str());
+        Ok(dir.join(rel))
     }
 
     /// Validate the manifest
@@ -310,5 +370,113 @@ impl PluginManifest {
         let content = toml::to_string_pretty(&manifest)?;
         std::fs::write(path, content)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    const TOML_SRC: &str = r#"
+[plugin]
+name = "foo"
+version = "0.1.0"
+description = "A foo plugin"
+
+[[commands]]
+name = "greet"
+description = "Greet someone"
+
+[[commands.args]]
+name = "name"
+help = "Who to greet"
+required = true
+takes_value = true
+
+[config.execution]
+binary = "./foo.sh"
+"#;
+
+    const YAML_SRC: &str = r#"
+plugin:
+  name: foo
+  version: 0.1.0
+  description: A foo plugin
+commands:
+  - name: greet
+    description: Greet someone
+    args:
+      - name: name
+        help: Who to greet
+        required: true
+        takes_value: true
+config:
+  execution:
+    binary: ./foo.sh
+"#;
+
+    const JSON_SRC: &str = r#"
+{
+  "plugin": { "name": "foo", "version": "0.1.0", "description": "A foo plugin" },
+  "commands": [
+    { "name": "greet", "description": "Greet someone",
+      "args": [ { "name": "name", "help": "Who to greet", "required": true, "takes_value": true } ] }
+  ],
+  "config": { "execution": { "binary": "./foo.sh" } }
+}
+"#;
+
+    fn write(dir: &Path, name: &str, content: &str) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, content).unwrap();
+        p
+    }
+
+    #[test]
+    fn loads_all_three_formats_equivalently() {
+        let dir = tempdir().unwrap();
+        for (file, src) in [
+            ("plugin.manifest.toml", TOML_SRC),
+            ("plugin.manifest.yaml", YAML_SRC),
+            ("plugin.manifest.json", JSON_SRC),
+        ] {
+            let path = write(dir.path(), file, src);
+            let m = PluginManifest::from_file_auto(&path).unwrap();
+            assert_eq!(m.plugin.name, "foo");
+            assert_eq!(m.commands.len(), 1);
+            assert_eq!(m.commands[0].name, "greet");
+            assert_eq!(m.commands[0].args[0].name, "name");
+        }
+    }
+
+    #[test]
+    fn find_in_dir_prefers_toml_then_yaml_then_json() {
+        let dir = tempdir().unwrap();
+        write(dir.path(), "plugin.manifest.json", JSON_SRC);
+        assert!(PluginManifest::find_in_dir(dir.path())
+            .unwrap()
+            .ends_with("plugin.manifest.json"));
+        write(dir.path(), "plugin.manifest.toml", TOML_SRC);
+        assert!(PluginManifest::find_in_dir(dir.path())
+            .unwrap()
+            .ends_with("plugin.manifest.toml"));
+    }
+
+    #[test]
+    fn resolve_binary_is_relative_to_manifest() {
+        let dir = tempdir().unwrap();
+        let path = write(dir.path(), "plugin.manifest.toml", TOML_SRC);
+        let m = PluginManifest::from_file_auto(&path).unwrap();
+        let bin = m.resolve_binary(&path).unwrap();
+        assert_eq!(bin, dir.path().join("foo.sh"));
+    }
+
+    #[test]
+    fn is_manifest_path_matches_known_names() {
+        assert!(PluginManifest::is_manifest_path(Path::new(
+            "/x/plugin.manifest.yaml"
+        )));
+        assert!(!PluginManifest::is_manifest_path(Path::new("/x/foo.sh")));
     }
 }

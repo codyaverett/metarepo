@@ -262,9 +262,11 @@ Done:
   `Plugin` trait and a `serve()` helper. Shipped in v0.20.0.
 - `meta plugin install/list/remove/update` (#24) — manages plugins
   (crates.io / `file:` / `git+`) and registers them in `.metarepo`.
+- Manifest-based plugins for shell/Python/argv-only use cases (#26) — argv
+  dispatch via `plugin.manifest.*`, no protocol required. See
+  `PLUGIN_DEVELOPMENT.md`.
 
 Planned:
 
 - Version pinning + checksum integrity (#25).
-- Manifest-based plugins for shell/Python/argv-only use cases (#26).
 - Cross-language templates (Node, Python, Go) (#27).

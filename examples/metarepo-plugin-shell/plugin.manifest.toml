@@ -1,0 +1,22 @@
+[plugin]
+name = "greet"
+version = "0.1.0"
+description = "Example manifest plugin (shell script, no protocol)"
+
+[[commands]]
+name = "hello"
+description = "Print a greeting"
+
+[[commands.args]]
+name = "name"
+help = "Who to greet"
+required = true
+takes_value = true
+
+[[commands.args]]
+name = "loud"
+long = "loud"
+help = "Shout the greeting"
+
+[config.execution]
+binary = "./greet.sh"

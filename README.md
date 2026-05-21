@@ -16,7 +16,8 @@ metarepo/
 │       └── protocol.rs     # v1 external-plugin wire protocol (shared)
 ├── metarepo-plugin-sdk/    # SDK for authoring external plugins (Plugin trait + serve())
 ├── examples/
-│   └── metarepo-plugin-example/  # Reference external plugin built on the SDK
+│   ├── metarepo-plugin-example/  # Reference protocol plugin built on the SDK
+│   └── metarepo-plugin-shell/    # Reference manifest plugin (shell script + manifest)
 ├── meta/                   # Core binary crate with built-in plugins
 │   ├── src/
 │   │   ├── lib.rs          # Main library

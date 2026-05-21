@@ -2,6 +2,7 @@
 //! binary on disk.
 
 use anyhow::{anyhow, bail, Context, Result};
+use metarepo_core::PluginManifest;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -40,8 +41,8 @@ fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-/// The on-disk binary path a spec resolves to once installed. Used by `list`
-/// (to report installed/missing) and `update`/`remove`.
+/// The on-disk path a spec resolves to once installed (used by `list`/`remove`).
+/// For manifest plugins this is the manifest file; otherwise the binary.
 pub fn resolved_binary_path(plugin_name: &str, spec: &PluginSpec) -> Result<PathBuf> {
     match spec {
         PluginSpec::Crates { crate_name, .. } => Ok(cargo_bin_dir()?.join(crate_name)),
@@ -51,9 +52,14 @@ pub fn resolved_binary_path(plugin_name: &str, spec: &PluginSpec) -> Result<Path
     }
 }
 
+/// Per-plugin directory for manifest plugins: `~/.config/metarepo/plugins/<name>`.
+pub fn manifest_plugin_dir(plugin_name: &str) -> Result<PathBuf> {
+    Ok(plugin_dir()?.join(plugin_name))
+}
+
 /// Install a plugin from its spec. Returns the canonical spec to persist in
 /// `.metarepo` (which may be more specific than what the user typed — e.g. a
-/// `file:` source is rewritten to point at the copied binary).
+/// `file:` source is rewritten to point at the installed manifest or binary).
 pub fn install_from_spec(plugin_name: &str, spec: &PluginSpec) -> Result<PluginSpec> {
     match spec {
         PluginSpec::Crates {
@@ -64,16 +70,69 @@ pub fn install_from_spec(plugin_name: &str, spec: &PluginSpec) -> Result<PluginS
             Ok(spec.clone())
         }
         PluginSpec::File { path } => {
-            let dest = install_file(plugin_name, &expand_tilde(path))?;
+            let source = expand_tilde(path);
+            // A manifest source (a plugin.manifest.* file or a directory
+            // containing one) installs as a manifest plugin.
+            if let Some(manifest_path) = locate_manifest(&source) {
+                let dest = install_manifest_files(plugin_name, &manifest_path)?;
+                return Ok(PluginSpec::File {
+                    path: dest.to_string_lossy().into_owned(),
+                });
+            }
+            let dest = install_file(plugin_name, &source)?;
             Ok(PluginSpec::File {
                 path: dest.to_string_lossy().into_owned(),
             })
         }
-        PluginSpec::Git { url } => {
-            install_git(plugin_name, url)?;
-            Ok(spec.clone())
-        }
+        PluginSpec::Git { url } => install_git(plugin_name, url),
     }
+}
+
+/// Locate a manifest given a `file:` source that is either a manifest file or a
+/// directory containing one.
+fn locate_manifest(source: &Path) -> Option<PathBuf> {
+    if source.is_file() && PluginManifest::is_manifest_path(source) {
+        Some(source.to_path_buf())
+    } else if source.is_dir() {
+        PluginManifest::find_in_dir(source)
+    } else {
+        None
+    }
+}
+
+/// Copy a manifest and its referenced binary into a per-plugin directory under
+/// the plugins dir, preserving the relative binary path so the loader resolves
+/// it. Returns the installed manifest path.
+fn install_manifest_files(plugin_name: &str, manifest_path: &Path) -> Result<PathBuf> {
+    let manifest = PluginManifest::from_file_auto(manifest_path)?;
+    let binary_src = manifest.resolve_binary(manifest_path)?;
+    if !binary_src.exists() {
+        bail!(
+            "manifest references a binary that does not exist: {}",
+            binary_src.display()
+        );
+    }
+
+    let dest_dir = manifest_plugin_dir(plugin_name)?;
+    fs::create_dir_all(&dest_dir)?;
+
+    // Copy the manifest, keeping its filename (preserves the format extension).
+    let manifest_name = manifest_path
+        .file_name()
+        .ok_or_else(|| anyhow!("invalid manifest path"))?;
+    let manifest_dest = dest_dir.join(manifest_name);
+    fs::copy(manifest_path, &manifest_dest)?;
+
+    // Copy the binary to the same relative location the manifest declares.
+    let binary_dest = manifest.resolve_binary(&manifest_dest)?;
+    if let Some(parent) = binary_dest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(&binary_src, &binary_dest)?;
+    make_executable(&binary_dest)?;
+
+    println!("  Installed manifest plugin to {}", dest_dir.display());
+    Ok(manifest_dest)
 }
 
 fn install_crates(crate_name: &str, version: Option<&str>) -> Result<()> {
@@ -102,7 +161,7 @@ fn install_file(plugin_name: &str, source: &Path) -> Result<PathBuf> {
     Ok(dest)
 }
 
-fn install_git(plugin_name: &str, url: &str) -> Result<()> {
+fn install_git(plugin_name: &str, url: &str) -> Result<PluginSpec> {
     let work = std::env::temp_dir().join(format!(
         "metarepo-plugin-build-{}-{}",
         std::process::id(),
@@ -124,6 +183,30 @@ fn install_git(plugin_name: &str, url: &str) -> Result<()> {
         bail!("git clone {url} failed");
     }
 
+    // Manifest plugin: a manifest at the repo root means no protocol build is
+    // required (the binary may be a checked-in script). Build only if the
+    // referenced binary is missing and the repo is a cargo project.
+    if let Some(manifest_path) = PluginManifest::find_in_dir(&work) {
+        let manifest = PluginManifest::from_file_auto(&manifest_path)?;
+        let binary = manifest.resolve_binary(&manifest_path)?;
+        if !binary.exists() && work.join("Cargo.toml").exists() {
+            println!("  Building (cargo build --release)...");
+            let status = Command::new("cargo")
+                .args(["build", "--release"])
+                .current_dir(&work)
+                .status()
+                .context("Failed to run cargo build")?;
+            if !status.success() {
+                bail!("cargo build failed for {url}");
+            }
+        }
+        let dest = install_manifest_files(plugin_name, &manifest_path)?;
+        return Ok(PluginSpec::File {
+            path: dest.to_string_lossy().into_owned(),
+        });
+    }
+
+    // Protocol plugin: build and copy the binary into the plugin dir.
     println!("  Building (cargo build --release)...");
     let status = Command::new("cargo")
         .args(["build", "--release"])
@@ -140,7 +223,9 @@ fn install_git(plugin_name: &str, url: &str) -> Result<()> {
         .with_context(|| format!("Failed to copy built binary to {}", dest.display()))?;
     make_executable(&dest)?;
     println!("  Installed to {}", dest.display());
-    Ok(())
+    Ok(PluginSpec::Git {
+        url: url.to_string(),
+    })
 }
 
 /// Find the plugin executable in a `target/release` directory. Prefer the

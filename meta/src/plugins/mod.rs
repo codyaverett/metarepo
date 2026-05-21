@@ -5,6 +5,7 @@ pub mod config;
 pub mod exec;
 pub mod git;
 pub mod init;
+pub mod manifest_plugin;
 pub mod mcp;
 pub mod plugin_loader;
 pub mod plugin_manager;

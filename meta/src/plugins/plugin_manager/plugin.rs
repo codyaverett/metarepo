@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Context, Result};
 use clap::ArgMatches;
 use colored::Colorize;
-use metarepo_core::{arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
+use metarepo_core::{
+    arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, PluginManifest, RuntimeConfig,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -208,6 +210,21 @@ fn print_plugin_status(name: &str, spec: &PluginSpec) {
         return;
     }
 
+    // Manifest plugins: read the version from the manifest instead of probing
+    // (the binary may be a script that doesn't speak the protocol).
+    if PluginManifest::is_manifest_path(&path) {
+        let version = PluginManifest::from_file_auto(&path)
+            .map(|m| m.plugin.version)
+            .unwrap_or_else(|_| "?".to_string());
+        println!(
+            "  {} {}  [manifest]  installed (v{})",
+            "✓".green(),
+            name.bold(),
+            version
+        );
+        return;
+    }
+
     // Installed: try to probe the reported version for a mismatch check.
     let declared = spec.declared_version();
     match ExternalPlugin::probe(&path) {
@@ -281,7 +298,16 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     if purge {
         if let Ok(spec) = PluginSpec::parse(name, &spec_str) {
             if let Ok(path) = resolved_binary_path(name, &spec) {
-                if path.exists() {
+                if PluginManifest::is_manifest_path(&path) {
+                    // Manifest plugins live in a per-plugin directory; remove it.
+                    if let Some(dir) = path.parent() {
+                        if dir.exists() {
+                            std::fs::remove_dir_all(dir)
+                                .with_context(|| format!("Failed to delete {}", dir.display()))?;
+                            println!("  {} Deleted {}", "✓".yellow(), dir.display());
+                        }
+                    }
+                } else if path.exists() {
                     std::fs::remove_file(&path)
                         .with_context(|| format!("Failed to delete {}", path.display()))?;
                     println!("  {} Deleted binary {}", "✓".yellow(), path.display());

@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{ArgMatches, Command as ClapCommand};
 use metarepo_core::protocol::{check_protocol_version, CommandInfo, PluginRequest, PluginResponse};
-use metarepo_core::{MetaConfig, MetaPlugin, RuntimeConfig};
+use metarepo_core::{MetaConfig, MetaPlugin, PluginManifest, RuntimeConfig};
+
+use crate::plugins::manifest_plugin::ManifestPlugin;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -317,10 +319,16 @@ impl Drop for ExternalPlugin {
 pub struct PluginLoader;
 
 impl PluginLoader {
-    /// Load an external plugin from a file path
+    /// Load an external plugin from a file path. A `plugin.manifest.*` file
+    /// loads as a manifest plugin (argv dispatch); any other path is treated as
+    /// a protocol plugin (JSON over stdio).
     pub fn load_from_path(path: &Path) -> Result<Box<dyn MetaPlugin>> {
         if !path.exists() {
             return Err(anyhow::anyhow!("Plugin path does not exist: {:?}", path));
+        }
+
+        if PluginManifest::is_manifest_path(path) {
+            return Self::load_manifest_plugin(path);
         }
 
         // Check if it's an executable
@@ -335,6 +343,27 @@ impl PluginLoader {
         }
 
         ExternalPlugin::load(path)
+    }
+
+    /// Load a manifest plugin from its `plugin.manifest.*` file. The referenced
+    /// binary must satisfy the same path policy as a protocol plugin.
+    fn load_manifest_plugin(manifest_path: &Path) -> Result<Box<dyn MetaPlugin>> {
+        let manifest = PluginManifest::from_file_auto(manifest_path)?;
+        let binary = manifest.resolve_binary(manifest_path)?;
+        ExternalPlugin::validate_plugin_path(&binary)
+            .context("manifest plugin binary failed the path policy check")?;
+        if !binary.exists() {
+            return Err(anyhow::anyhow!(
+                "manifest plugin binary not found: {:?}",
+                binary
+            ));
+        }
+        tracing::debug!(
+            "Loaded manifest plugin '{}' from {:?}",
+            manifest.plugin.name,
+            manifest_path
+        );
+        Ok(Box::new(ManifestPlugin::new(manifest, binary)))
     }
 
     /// Load all plugins specified in the meta config
@@ -356,17 +385,29 @@ impl PluginLoader {
     fn load_plugin_spec(name: &str, spec: &str) -> Result<Box<dyn MetaPlugin>> {
         // Handle different spec formats
         if let Some(stripped) = spec.strip_prefix("file:") {
-            // Local file path
-            let path = PathBuf::from(stripped);
+            // Local file path (may point at a binary or a plugin.manifest.*).
+            let path = expand_tilde(stripped);
             Self::load_from_path(&path)
         } else if spec.starts_with("git+") {
-            // Git repository - would need to clone and build
-            Err(anyhow::anyhow!("Git plugin loading not yet implemented"))
+            // git+ plugins are built and copied into the plugin dir at install
+            // time under the conventional name; load that binary.
+            let binary = Self::plugin_dir()?.join(format!("metarepo-plugin-{}", name));
+            Self::load_from_path(&binary)
         } else {
-            // Assume it's a version spec from crates.io
-            // Would need to check if installed via cargo install
+            // Assume it's a crates.io plugin installed via cargo install.
             Self::load_from_installed(name)
         }
+    }
+
+    /// `~/.config/metarepo/plugins`.
+    fn plugin_dir() -> Result<PathBuf> {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .context("Could not determine home directory")?;
+        Ok(PathBuf::from(home)
+            .join(".config")
+            .join("metarepo")
+            .join("plugins"))
     }
 
     fn load_from_installed(name: &str) -> Result<Box<dyn MetaPlugin>> {
@@ -389,31 +430,57 @@ impl PluginLoader {
         }
     }
 
-    /// Discover plugins in standard locations
+    /// Discover plugins in the user's plugin directory.
+    ///
+    /// - Top-level executable files load as protocol plugins (existing behavior).
+    /// - A top-level `plugin.manifest.*`, or one inside a per-plugin subdirectory
+    ///   (how `meta plugin install` lays out manifest plugins), loads as a
+    ///   manifest plugin.
     pub fn discover_plugins() -> Vec<Box<dyn MetaPlugin>> {
         let mut plugins = Vec::new();
 
-        // Check user's plugin directory
-        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-            let plugin_dir = PathBuf::from(home)
-                .join(".config")
-                .join("metarepo")
-                .join("plugins");
+        let Ok(plugin_dir) = Self::plugin_dir() else {
+            return plugins;
+        };
+        if !plugin_dir.exists() {
+            return plugins;
+        }
+        let Ok(entries) = std::fs::read_dir(&plugin_dir) else {
+            return plugins;
+        };
 
-            if plugin_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(plugin_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.is_file() {
-                            if let Ok(plugin) = Self::load_from_path(&path) {
-                                plugins.push(plugin);
-                            }
-                        }
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // Per-plugin subdirectory: load a manifest if present.
+                if let Some(manifest) = PluginManifest::find_in_dir(&path) {
+                    if let Ok(plugin) = Self::load_from_path(&manifest) {
+                        plugins.push(plugin);
                     }
+                }
+            } else if path.is_file() && !PluginManifest::is_manifest_path(&path) {
+                // Loose executable: protocol plugin.
+                if let Ok(plugin) = Self::load_from_path(&path) {
+                    plugins.push(plugin);
+                }
+            } else if PluginManifest::is_manifest_path(&path) {
+                // A manifest sitting directly in the plugins dir.
+                if let Ok(plugin) = Self::load_from_path(&path) {
+                    plugins.push(plugin);
                 }
             }
         }
 
         plugins
     }
+}
+
+/// Expand a leading `~/` to the user's home directory.
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    PathBuf::from(path)
 }

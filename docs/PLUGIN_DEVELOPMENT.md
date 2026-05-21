@@ -6,24 +6,26 @@ is planned.
 
 ## Plugin kinds
 
-Metarepo has two kinds of plugins:
+Metarepo has three kinds of plugins:
 
 1. **Built-in plugins** — compiled into the `meta` binary (`init`, `skill`,
    `git`, `project`, `config`, `exec`, `rules`, `worktree`, `run`, and the
    plugin manager). You don't install these; they ship with metarepo.
-2. **External plugins** — separate executables that metarepo runs as
+2. **Protocol plugins** — separate executables that metarepo runs as
    subprocesses, communicating over a newline-delimited JSON protocol on
-   stdin/stdout. This is what you build to add your own commands.
+   stdin/stdout. Best for richer integrations that want structured access to
+   workspace state. For Rust, the `metarepo-plugin-sdk` crate hides the
+   protocol entirely; other languages implement it directly (it's small — see
+   `docs/PLUGIN_PROTOCOL_V1.md`).
+3. **Manifest plugins** — any executable plus a `plugin.manifest.*` file that
+   declares its commands. metarepo execs the binary with parsed argv and
+   context env vars; the binary never speaks the protocol. Best for shell /
+   Python / Go scripts. See [Manifest plugins](#manifest-plugins).
 
-External plugins can be written in **any language** that can read stdin, write
-stdout, and parse JSON. For Rust, the `metarepo-plugin-sdk` crate hides the
-protocol entirely. For other languages you implement the protocol directly
-(it's small — see `docs/PLUGIN_PROTOCOL_V1.md`).
-
-> **Status note.** The `meta plugin install/list/remove/update` CLI is
-> available. Still in progress and called out as **Planned** below: version
-> pinning + checksum enforcement (#25), manifest (argv-only) plugins (#26), and
-> first-party cross-language templates (#27).
+> **Status note.** The `meta plugin install/list/remove/update` CLI and both
+> protocol and manifest plugins are available. Still **Planned**: version
+> pinning + checksum enforcement (#25) and first-party cross-language templates
+> (#27).
 
 ## Quick start (Rust, with the SDK)
 
@@ -123,17 +125,89 @@ A complete, tested reference lives in
 `.subcommand`). `RuntimeConfigDto` is a read-only snapshot of host state
 (`meta_config`, `working_dir`, `meta_file_path`, `experimental`).
 
-## Other languages
+## Manifest plugins
 
-Any executable that speaks the protocol works. Detect `METAREPO_PLUGIN_MODE=1`,
-then loop over stdin lines: parse each JSON request, dispatch on its `type`,
-write one JSON response line, and **flush stdout**. A ~30-line Python or
-~50-line Bash plugin is realistic. See `docs/PLUGIN_PROTOCOL_V1.md` for the
-exact messages and a transcript.
+For a shell script or any executable that just wants parsed arguments and an
+exit code, skip the protocol entirely: ship a `plugin.manifest.*` describing the
+commands. metarepo registers them without spawning the binary, and on
+invocation execs it with the resolved subcommand and parsed args as **argv**,
+plus context and per-argument **env vars**.
 
-> **Planned (#27):** first-party templates for Node, Python, and Go under
-> `examples/`. Until then, the protocol doc plus the Rust example are the
-> reference.
+A manifest (`plugin.manifest.toml`, `.yaml`, or `.json`) declares the plugin and
+its command tree, and points at the executable:
+
+```toml
+[plugin]
+name = "greet"
+version = "0.1.0"
+description = "Example manifest plugin"
+
+[[commands]]
+name = "hello"
+description = "Print a greeting"
+
+[[commands.args]]
+name = "name"
+help = "Who to greet"
+required = true
+takes_value = true       # positional (no long/short) — passed as argv
+
+[[commands.args]]
+name = "loud"
+long = "loud"            # a --loud boolean flag
+help = "Shout the greeting"
+
+[config.execution]
+binary = "./greet.sh"    # relative to the manifest
+```
+
+The script receives:
+
+- **argv** — the subcommand chain and args, e.g. `meta greet hello Ada --loud`
+  runs the binary with `hello Ada --loud`.
+- **`METAREPO_ARG_<NAME>`** — each parsed argument (`METAREPO_ARG_NAME=Ada`,
+  `METAREPO_ARG_LOUD=1`).
+- **context** — `METAREPO_ROOT`, `METAREPO_CONFIG_PATH`, `METAREPO_PROJECT`
+  (when invoked inside a project), so it need not rediscover the workspace.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  hello)
+    name="${METAREPO_ARG_NAME:-world}"
+    echo "Hello, ${name}!"
+    ;;
+  *) echo "usage: meta greet hello <name>" >&2; exit 1 ;;
+esac
+```
+
+Exit `0` is success; a non-zero exit surfaces as a plugin error. A complete
+example is in
+[`examples/metarepo-plugin-shell`](../examples/metarepo-plugin-shell).
+
+Install it the same way as any plugin — `install` detects the manifest, copies
+it and the binary into `~/.config/metarepo/plugins/<name>/`, and registers it:
+
+```bash
+meta plugin install greet --from file:./examples/metarepo-plugin-shell
+meta greet hello Ada --loud
+```
+
+`--from git+<url>` also works: if the repo root has a `plugin.manifest.*`, the
+checked-in binary is used as-is (a cargo build runs only if the referenced
+binary is missing and the repo is a cargo project).
+
+## Other languages (protocol)
+
+Any executable that speaks the protocol works without the SDK. Detect
+`METAREPO_PLUGIN_MODE=1`, then loop over stdin lines: parse each JSON request,
+dispatch on its `type`, write one JSON response line, and **flush stdout**. See
+`docs/PLUGIN_PROTOCOL_V1.md` for the exact messages and a transcript. (For the
+common argv-only case, prefer a manifest plugin above.)
+
+> **Planned (#27):** first-party protocol templates for Node, Python, and Go
+> under `examples/`.
 
 ## Installing a plugin
 
