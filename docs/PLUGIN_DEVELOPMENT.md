@@ -1,456 +1,271 @@
 # Metarepo Plugin Development Guide
 
-This guide explains how to create custom plugins for the metarepo CLI tool.
+How to extend the `meta` CLI with new commands. This is the single source of
+truth for plugin development; it describes what works **today** and flags what
+is planned.
 
-## Overview
+## Plugin kinds
 
-Metarepo supports two types of plugins:
-1. **Built-in plugins**: Compiled directly into the main binary (init, git, project, exec, rules, mcp)
-2. **External plugins**: Developed as separate crates and loaded dynamically
+Metarepo has two kinds of plugins:
 
-## Creating an External Plugin
+1. **Built-in plugins** — compiled into the `meta` binary (`init`, `skill`,
+   `git`, `project`, `config`, `exec`, `rules`, `worktree`, `run`, and the
+   plugin manager). You don't install these; they ship with metarepo.
+2. **External plugins** — separate executables that metarepo runs as
+   subprocesses, communicating over a newline-delimited JSON protocol on
+   stdin/stdout. This is what you build to add your own commands.
 
-### Step 1: Set Up Your Plugin Crate
+External plugins can be written in **any language** that can read stdin, write
+stdout, and parse JSON. For Rust, the `metarepo-plugin-sdk` crate hides the
+protocol entirely. For other languages you implement the protocol directly
+(it's small — see `docs/PLUGIN_PROTOCOL_V1.md`).
 
-Create a new Rust project for your plugin:
+> **Status note.** Some management ergonomics are still in progress and are
+> called out as **Planned** below: the `meta plugin install/list/remove/update`
+> CLI (#24), version pinning + checksums (#25), manifest (argv-only) plugins
+> (#26), and first-party cross-language templates (#27). Until those land,
+> external plugins are installed by placing a binary in an allowed directory
+> and referencing it from `.metarepo`.
+
+## Quick start (Rust, with the SDK)
+
+The recommended path. Authoring a plugin is implementing one trait and calling
+`serve()`.
+
+### 1. Create the crate
 
 ```bash
-cargo new --lib metarepo-plugin-example
-cd metarepo-plugin-example
+cargo new --bin metarepo-plugin-hello
+cd metarepo-plugin-hello
 ```
 
-### Step 2: Add Dependencies
-
-Update your `Cargo.toml`:
+### 2. Depend on the SDK
 
 ```toml
+# Cargo.toml
 [package]
-name = "metarepo-plugin-example"
+name = "metarepo-plugin-hello"
 version = "0.1.0"
 edition = "2021"
-description = "Example plugin for metarepo"
-license = "MIT"
 
 [dependencies]
-metarepo-core = "0.2.1"  # Use the latest version
+metarepo-plugin-sdk = "0.20"
 anyhow = "1.0"
-clap = "4.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
 ```
 
-### Step 3: Implement the MetaPlugin Trait
-
-Create your plugin implementation in `src/lib.rs`:
+### 3. Implement `Plugin` and call `serve`
 
 ```rust
-use anyhow::Result;
-use clap::{ArgMatches, Command, Arg};
-use metarepo_core::{MetaPlugin, RuntimeConfig};
+use metarepo_plugin_sdk::{serve, ArgInfo, CommandInfo, Plugin, RuntimeConfigDto};
 
-pub struct ExamplePlugin {
-    name: String,
-}
+struct Hello;
 
-impl ExamplePlugin {
-    pub fn new() -> Self {
-        Self {
-            name: "example".to_string(),
-        }
-    }
-}
-
-impl MetaPlugin for ExamplePlugin {
+impl Plugin for Hello {
     fn name(&self) -> &str {
-        &self.name
+        "hello"
     }
-    
-    fn register_commands(&self, app: Command) -> Command {
-        app.subcommand(
-            Command::new("example")
-                .about("Example plugin command")
-                .arg(
-                    Arg::new("message")
-                        .help("Message to display")
-                        .required(true)
-                        .index(1)
-                )
-        )
+
+    fn version(&self) -> &str {
+        env!("CARGO_PKG_VERSION")
     }
-    
-    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        if let Some(message) = matches.get_one::<String>("message") {
-            println!("Example plugin says: {}", message);
-            println!("Working directory: {:?}", config.working_dir);
-            
-            if config.has_meta_file() {
-                println!("Meta repository detected!");
-                println!("Projects: {:?}", config.meta_config.projects);
+
+    // Declarative command tree. The host rebuilds clap commands from this for
+    // `meta --help` and argument routing.
+    fn commands(&self) -> Vec<CommandInfo> {
+        vec![CommandInfo::new("hello", "Greeting commands").subcommand(
+            CommandInfo::new("greet", "Print a greeting")
+                .arg(ArgInfo::new("name", "Name to greet", true)),
+        )]
+    }
+
+    // `command` is the top-level name ("hello"); `args` is the parsed argv that
+    // followed it (e.g. ["greet", "Ada"]). Return an optional message to print,
+    // or an error to report failure.
+    fn handle(
+        &self,
+        _command: &str,
+        args: &[String],
+        config: &RuntimeConfigDto,
+    ) -> anyhow::Result<Option<String>> {
+        match args.split_first() {
+            Some((sub, rest)) if sub == "greet" => {
+                let name = rest.first().map(String::as_str).unwrap_or("world");
+                Ok(Some(format!(
+                    "Hello, {name}! (cwd: {})",
+                    config.working_dir.display()
+                )))
             }
+            _ => Ok(Some("usage: meta hello greet <name>".into())),
         }
-        
-        Ok(())
-    }
-    
-    fn is_experimental(&self) -> bool {
-        false  // Set to true if your plugin is experimental
     }
 }
 
-// Export the plugin constructor
-#[no_mangle]
-pub extern "C" fn create_plugin() -> Box<dyn MetaPlugin> {
-    Box::new(ExamplePlugin::new())
+fn main() -> anyhow::Result<()> {
+    serve(Hello)
 }
 ```
 
-### Step 4: Create a Binary Wrapper (For Subprocess-based Loading)
+That's the whole plugin. `serve` runs the request loop, handles framing and
+parse errors, and answers the protocol-version handshake for you.
 
-For subprocess-based external plugins, create `src/main.rs`:
+A complete, tested reference lives in
+[`examples/metarepo-plugin-example`](../examples/metarepo-plugin-example).
+
+### The `Plugin` trait
+
+| Method | Required | Purpose |
+| --- | --- | --- |
+| `name(&self) -> &str` | yes | Top-level command namespace (`meta <name> ...`). |
+| `version(&self) -> &str` | yes | Plugin semver, reported in `Info`. |
+| `is_experimental(&self) -> bool` | no (default `false`) | If true, only loaded under `--experimental`. |
+| `commands(&self) -> Vec<CommandInfo>` | yes | Declarative command tree. |
+| `handle(&self, command, args, config) -> Result<Option<String>>` | yes | Execute a command; `Ok(Some(msg))` prints `msg`, `Err(e)` reports failure. |
+
+`CommandInfo` and `ArgInfo` have builder helpers (`new`, `.arg`,
+`.subcommand`). `RuntimeConfigDto` is a read-only snapshot of host state
+(`meta_config`, `working_dir`, `meta_file_path`, `experimental`).
+
+## Other languages
+
+Any executable that speaks the protocol works. Detect `METAREPO_PLUGIN_MODE=1`,
+then loop over stdin lines: parse each JSON request, dispatch on its `type`,
+write one JSON response line, and **flush stdout**. A ~30-line Python or
+~50-line Bash plugin is realistic. See `docs/PLUGIN_PROTOCOL_V1.md` for the
+exact messages and a transcript.
+
+> **Planned (#27):** first-party templates for Node, Python, and Go under
+> `examples/`. Until then, the protocol doc plus the Rust example are the
+> reference.
+
+## Installing a plugin
+
+External plugins are loaded as subprocesses. The host enforces a path policy
+(see Security) and reads the plugin list from your workspace config.
+
+1. Build a release binary and place it in an **allowed directory**:
+
+   ```bash
+   cargo build --release
+   mkdir -p ~/.config/metarepo/plugins
+   cp target/release/metarepo-plugin-hello ~/.config/metarepo/plugins/
+   ```
+
+2. Reference it from `.metarepo` under `plugins`:
+
+   ```jsonc
+   {
+     "projects": {},
+     "plugins": {
+       "hello": "file:~/.config/metarepo/plugins/metarepo-plugin-hello"
+     }
+   }
+   ```
+
+3. Run it:
+
+   ```bash
+   meta hello greet Ada
+   ```
+
+Plugin spec forms in `.metarepo`:
+
+- `file:<path>` — a local executable (supported today).
+- `git+<url>` — **Planned (#24)**: clone + build. Not yet implemented.
+- bare version string (e.g. `"1.2.0"`) — resolves to
+  `~/.cargo/bin/metarepo-plugin-<name>` if present; full registry resolution is
+  **Planned (#24/#25)**.
+
+> **Planned (#24):** `meta plugin install / list / remove / update` to manage
+> all of the above without hand-editing `.metarepo`. See issue #24.
+
+## Security policy (v0.14+)
+
+Metarepo will only spawn a plugin binary whose path passes these checks:
+
+- The path must not contain `..` segments (traversal guard).
+- The canonical path must live inside one of:
+  - `~/.config/metarepo/plugins/`
+  - `~/.cargo/bin/` (where `cargo install metarepo-plugin-*` lands)
+  - `<workspace>/.metarepo/plugins/`
+- `METAREPO_PLUGIN_ALLOW_ANY_PATH=1` skips the **location** check (never the
+  `..` check). Use it only for local development.
+
+The `config` snapshot handed to plugins is sanitized first: dangerous env vars
+and traversal-prone project keys are stripped before serialization.
+
+> **Planned (#25):** version pinning and optional checksum integrity so a
+> pinned plugin can be verified before it runs.
+
+## Testing
+
+Because the SDK separates your logic (the trait) from the transport (`serve`),
+you can unit-test the trait directly:
 
 ```rust
-use anyhow::Result;
-use clap::Command;
-use metarepo_core::{MetaPlugin, RuntimeConfig, MetaConfig};
-use serde::{Deserialize, Serialize};
-use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
-
-mod lib;
-use lib::ExamplePlugin;
-
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
-enum PluginMessage {
-    GetInfo,
-    RegisterCommands,
-    HandleCommand { args: Vec<String>, config: RuntimeConfig },
-    InfoResponse { name: String, experimental: bool },
-    CommandsResponse { commands: String },
-    Success,
-    Error { message: String },
-}
-
-fn main() -> Result<()> {
-    let plugin = ExamplePlugin::new();
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-    
-    for line in stdin.lock().lines() {
-        let line = line?;
-        let message: PluginMessage = serde_json::from_str(&line)?;
-        
-        let response = match message {
-            PluginMessage::GetInfo => {
-                PluginMessage::InfoResponse {
-                    name: plugin.name().to_string(),
-                    experimental: plugin.is_experimental(),
-                }
-            }
-            PluginMessage::RegisterCommands => {
-                let app = Command::new("dummy");
-                let app = plugin.register_commands(app);
-                // Serialize command structure
-                PluginMessage::CommandsResponse {
-                    commands: format!("{:?}", app),
-                }
-            }
-            PluginMessage::HandleCommand { args, config } => {
-                // Parse args and handle command
-                match plugin.handle_command(&Default::default(), &config) {
-                    Ok(_) => PluginMessage::Success,
-                    Err(e) => PluginMessage::Error { message: e.to_string() },
-                }
-            }
-            _ => PluginMessage::Error { message: "Unknown message type".to_string() },
-        };
-        
-        writeln!(stdout, "{}", serde_json::to_string(&response)?)?;
-        stdout.flush()?;
-    }
-    
-    Ok(())
+#[test]
+fn greets() {
+    let out = Hello
+        .handle("hello", &["greet".into(), "Ada".into()], &dto())
+        .unwrap()
+        .unwrap();
+    assert!(out.contains("Hello, Ada!"));
 }
 ```
 
-## Plugin Configuration
+To test the wire loop end to end, the SDK exposes `serve_io(plugin, reader,
+writer)` so you can drive it with in-memory buffers (see the SDK's own tests).
+You can also exercise the built binary directly:
 
-### Declaring Plugins in .meta File
-
-External plugins can be declared in your `.meta` file:
-
-```json
-{
-  "projects": {
-    "project1": "https://github.com/user/project1.git"
-  },
-  "plugins": {
-    "example": "0.1.0",
-    "local-plugin": "file:../my-local-plugin",
-    "git-plugin": "git+https://github.com/user/plugin.git"
-  }
-}
-```
-
-### Plugin Resolution Order
-
-1. Built-in plugins (highest priority)
-2. Local file paths
-3. Installed crates from crates.io
-4. Git repositories
-
-## Testing Your Plugin
-
-### Local Testing
-
-1. Build your plugin:
 ```bash
-cargo build --release
+METAREPO_PLUGIN_MODE=1 ./target/release/metarepo-plugin-hello <<'EOF'
+{"type":"GetInfo"}
+{"type":"RegisterCommands"}
+EOF
 ```
 
-2. Test with a local metarepo installation:
-```bash
-# In your metarepo directory
-meta plugin add ../metarepo-plugin-example/target/release/libmetarepo_plugin_example.so
-```
+## Publishing
 
-3. Use your plugin:
-```bash
-meta example "Hello from my plugin!"
-```
+Rust plugins publish to crates.io like any crate:
 
-### Integration Testing
-
-Create integration tests in `tests/integration.rs`:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use metarepo_core::{MetaPlugin, RuntimeConfig, MetaConfig};
-    use std::path::PathBuf;
-    
-    #[test]
-    fn test_plugin_creation() {
-        let plugin = super::super::ExamplePlugin::new();
-        assert_eq!(plugin.name(), "example");
-    }
-    
-    #[test]
-    fn test_command_handling() {
-        let plugin = super::super::ExamplePlugin::new();
-        let config = RuntimeConfig {
-            meta_config: MetaConfig::default(),
-            working_dir: PathBuf::from("."),
-            meta_file_path: None,
-            experimental: false,
-        };
-        
-        // Test your command handling
-        let result = plugin.handle_command(&Default::default(), &config);
-        assert!(result.is_ok());
-    }
-}
-```
-
-## Publishing Your Plugin
-
-### To crates.io
-
-1. Ensure your `Cargo.toml` has all required fields:
 ```toml
 [package]
 name = "metarepo-plugin-yourname"
 version = "0.1.0"
-authors = ["Your Name <email@example.com>"]
-edition = "2021"
-description = "Your plugin description"
-documentation = "https://docs.rs/metarepo-plugin-yourname"
-homepage = "https://github.com/yourusername/metarepo-plugin-yourname"
-repository = "https://github.com/yourusername/metarepo-plugin-yourname"
 license = "MIT OR Apache-2.0"
-keywords = ["metarepo", "plugin", "meta", "monorepo"]
-categories = ["development-tools"]
+description = "..."
+repository = "https://github.com/you/metarepo-plugin-yourname"
+
+[dependencies]
+metarepo-plugin-sdk = "0.20"
+anyhow = "1.0"
 ```
 
-2. Publish:
 ```bash
 cargo publish
 ```
 
-### Installation by Users
-
-Users can install your plugin using:
-
-```bash
-# From crates.io
-meta plugin install metarepo-plugin-yourname
-
-# From local path
-meta plugin add /path/to/plugin
-
-# From git
-meta plugin add git+https://github.com/user/plugin.git
-```
-
-## Best Practices
-
-1. **Error Handling**: Use `anyhow::Result` for consistent error handling
-2. **Configuration**: Respect the `RuntimeConfig` provided by metarepo
-3. **Documentation**: Document all public APIs and commands
-4. **Testing**: Include comprehensive unit and integration tests
-5. **Versioning**: Follow semantic versioning for your plugin
-6. **Dependencies**: Keep dependencies minimal to avoid conflicts
-7. **Performance**: Lazy-load heavy dependencies when possible
-8. **Security**: Validate all user input and file paths
-
-## Advanced Topics
-
-### Accessing Meta Repository State
-
-```rust
-fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    // Check if we're in a meta repository
-    if let Some(meta_root) = config.meta_root() {
-        println!("Meta repository root: {:?}", meta_root);
-        
-        // Access projects
-        for (name, url) in &config.meta_config.projects {
-            println!("Project {}: {}", name, url);
-        }
-    }
-    
-    Ok(())
-}
-```
-
-### Working with Experimental Features
-
-```rust
-impl MetaPlugin for MyPlugin {
-    fn is_experimental(&self) -> bool {
-        true  // Mark as experimental
-    }
-    
-    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        if !config.is_experimental() {
-            return Err(anyhow::anyhow!(
-                "This plugin requires the --experimental flag"
-            ));
-        }
-        
-        // Experimental functionality here
-        Ok(())
-    }
-}
-```
-
-### Plugin Communication
-
-For complex plugins that need to communicate with other plugins:
-
-```rust
-use metarepo_core::{MetaPlugin, RuntimeConfig};
-
-pub trait PluginCommunication {
-    fn send_message(&self, target_plugin: &str, message: &str) -> Result<String>;
-    fn receive_message(&mut self) -> Result<Option<String>>;
-}
-```
-
-## Examples
-
-### File System Plugin
-
-```rust
-use std::fs;
-use std::path::Path;
-
-impl MetaPlugin for FsPlugin {
-    fn register_commands(&self, app: Command) -> Command {
-        app.subcommand(
-            Command::new("fs")
-                .about("File system operations")
-                .subcommand(
-                    Command::new("clean")
-                        .about("Clean build artifacts")
-                        .arg(Arg::new("pattern")
-                            .help("Pattern to match")
-                            .default_value("target"))
-                )
-        )
-    }
-    
-    fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        if let Some(("clean", sub_matches)) = matches.subcommand() {
-            let pattern = sub_matches.get_one::<String>("pattern").unwrap();
-            
-            for (project, _) in &config.meta_config.projects {
-                let project_path = config.working_dir.join(project);
-                let target_path = project_path.join(pattern);
-                
-                if target_path.exists() {
-                    fs::remove_dir_all(&target_path)?;
-                    println!("Cleaned: {:?}", target_path);
-                }
-            }
-        }
-        
-        Ok(())
-    }
-}
-```
-
-### HTTP API Plugin
-
-```rust
-use reqwest;
-
-impl MetaPlugin for ApiPlugin {
-    fn register_commands(&self, app: Command) -> Command {
-        app.subcommand(
-            Command::new("api")
-                .about("API operations")
-                .arg(Arg::new("endpoint")
-                    .help("API endpoint")
-                    .required(true))
-        )
-    }
-    
-    async fn handle_command(&self, matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-        let endpoint = matches.get_one::<String>("endpoint").unwrap();
-        let response = reqwest::get(endpoint).await?;
-        println!("Response: {}", response.text().await?);
-        Ok(())
-    }
-}
-```
+Users install with `cargo install metarepo-plugin-yourname` (lands in
+`~/.cargo/bin`, an allowed directory) and reference it from `.metarepo`.
 
 ## Troubleshooting
 
-### Common Issues
+| Symptom | Likely cause |
+| --- | --- |
+| `Plugin path ... is not in an allowed plugins directory` | Binary is outside the allowed roots. Move it, or set `METAREPO_PLUGIN_ALLOW_ANY_PATH=1` for dev. |
+| `Plugin path must not contain '..' segments` | Resolve the path; the traversal guard never relaxes. |
+| `Plugin does not declare a protocol_version` / `failed protocol check` | Plugin predates v1 or speaks a different major. Rebuild against the current SDK. |
+| Host hangs after spawning | Plugin isn't flushing stdout after each response. |
+| Command doesn't appear in `meta --help` | `commands()` returned an empty tree, or the plugin isn't listed/loadable from `.metarepo`. |
 
-1. **Plugin not loading**: Ensure the plugin binary is in the correct location
-2. **Version conflicts**: Check that metarepo-core version matches
-3. **Command conflicts**: Ensure plugin names don't conflict with built-in commands
-4. **Permission errors**: Check file permissions on plugin binaries
+Enable debug logging:
 
-### Debug Mode
-
-Enable debug output:
 ```bash
-RUST_LOG=debug meta example "test"
+RUST_LOG=debug meta hello greet Ada
 ```
 
-## Support
+## References
 
-- Report issues: https://github.com/metarepo/metarepo/issues
-- Documentation: https://docs.rs/metarepo-core
-- Examples: https://github.com/metarepo/plugin-examples
-
-## License
-
-Plugins can use any license, but should be compatible with metarepo's MIT license for distribution.
+- Wire protocol: [`PLUGIN_PROTOCOL_V1.md`](./PLUGIN_PROTOCOL_V1.md)
+- Reference plugin: [`examples/metarepo-plugin-example`](../examples/metarepo-plugin-example)
+- SDK source: [`metarepo-plugin-sdk`](../metarepo-plugin-sdk)
+- Plugin epic and roadmap: GitHub issue #21

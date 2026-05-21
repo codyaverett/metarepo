@@ -6,9 +6,12 @@ CLI with new subcommands, regardless of implementation language.
 
 Status: **stable** as of metarepo v0.19.0.
 
-A high-level Rust SDK is being shipped separately (#23). This document is the
-source of truth for everything else (Node, Python, Go, hand-written
-implementations) and for the protocol itself.
+A high-level Rust SDK, [`metarepo-plugin-sdk`](../metarepo-plugin-sdk), ships
+as of v0.20.0 (#23): it implements this protocol as a `Plugin` trait plus a
+`serve()` helper, so Rust authors never touch the wire format. This document is
+the source of truth for the protocol itself and for everything else (Node,
+Python, Go, hand-written implementations). For a task-oriented guide see
+[`PLUGIN_DEVELOPMENT.md`](./PLUGIN_DEVELOPMENT.md).
 
 > **Looking for a simpler option?** If your plugin is a shell script or any
 > binary that just wants parsed argv and an exit code, see the
@@ -195,7 +198,9 @@ experience.
 
 ## RuntimeConfigDto
 
-A snapshot of host state sent with each `HandleCommand`. Fields:
+A snapshot of host state sent with each `HandleCommand`. The canonical
+definition lives in `metarepo_core::protocol` (re-exported by
+`metarepo-plugin-sdk`). Fields:
 
 - `meta_config` — the entire deserialized `.metarepo` (after sanitization, so
   dangerous env vars and traversal project keys are already stripped). See
@@ -249,13 +254,17 @@ canonical reference is `examples/metarepo-plugin-example/` (Rust).
 Plugin authors should pin to the highest minor they support; the host's
 major-version check does the rest.
 
-## Future work tracked in #21
+## Roadmap tracked in #21
+
+Done:
 
 - `metarepo-plugin-sdk` Rust crate (#23) — implements this protocol as a
-  trait and a `serve()` helper.
+  `Plugin` trait and a `serve()` helper. Shipped in v0.20.0.
+
+Planned:
+
 - `meta plugin install/list/remove/update` (#24) — moves install/management
   out of `cargo install` + hand-edited config.
 - Version pinning + checksum integrity (#25).
 - Manifest-based plugins for shell/Python/argv-only use cases (#26).
 - Cross-language templates (Node, Python, Go) (#27).
-- End-user-facing plugin development guide (#28).

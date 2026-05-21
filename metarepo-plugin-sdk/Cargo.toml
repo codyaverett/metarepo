@@ -10,6 +10,7 @@ homepage = "https://github.com/codyaverett/metarepo"
 documentation = "https://docs.rs/metarepo-plugin-sdk"
 keywords = ["metarepo", "plugin", "meta", "monorepo", "sdk"]
 categories = ["development-tools", "command-line-utilities"]
+readme = "README.md"
 
 [dependencies]
 metarepo-core = { version = "0.20", path = "../meta-core" }

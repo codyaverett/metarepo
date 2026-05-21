@@ -11,7 +11,12 @@ metarepo/
 │   ├── IMPLEMENTATION_PLAN.md
 │   └── ARCHITECTURE.md
 ├── meta-core/              # Shared plugin interfaces
-│   └── src/lib.rs          # Plugin traits and data types
+│   └── src/
+│       ├── lib.rs          # Plugin traits and data types
+│       └── protocol.rs     # v1 external-plugin wire protocol (shared)
+├── metarepo-plugin-sdk/    # SDK for authoring external plugins (Plugin trait + serve())
+├── examples/
+│   └── metarepo-plugin-example/  # Reference external plugin built on the SDK
 ├── meta/                   # Core binary crate with built-in plugins
 │   ├── src/
 │   │   ├── lib.rs          # Main library
@@ -21,6 +26,7 @@ metarepo/
 │   │   ├── main.rs         # Binary entry point
 │   │   └── plugins/        # Built-in plugins
 │   │       ├── init/       # Initialize new meta repositories
+│   │       ├── skill/      # Manage the bundled Claude Code skill
 │   │       ├── git/        # Git operations across repositories
 │   │       ├── project/    # Project management
 │   │       ├── config/     # Configuration management
@@ -231,8 +237,8 @@ For security vulnerabilities, please follow our [Security Policy](SECURITY.md). 
 - [CLI Reference](.claude/skills/meta-tool/SKILL.md) - Full command reference (source of truth)
 - [Architecture](docs/ARCHITECTURE.md) - System design and structure
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md) - Development roadmap
-- [Plugin Development](docs/PLUGIN_DEVELOPMENT.md) - Guide for creating plugins
-- [Plugin Development v2](docs/PLUGIN_DEVELOPMENT_V2.md) - Updated plugin API guide
+- [Plugin Development](docs/PLUGIN_DEVELOPMENT.md) - Guide for creating external plugins (SDK quick start, install, security, testing)
+- [Plugin Protocol v1](docs/PLUGIN_PROTOCOL_V1.md) - External-plugin wire protocol specification
 - [Rules System](docs/RULES.md) - Defining project rules and metadata
 - [Worktree Configuration](docs/WORKTREE.md) - Advanced worktree features and configuration
 - [Testing Guidelines](docs/qa/) - QA and testing strategy

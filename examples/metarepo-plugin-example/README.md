@@ -1,127 +1,104 @@
 # Metarepo Example Plugin
 
-This is an example external plugin for the metarepo CLI tool, demonstrating how to create plugins that can be loaded dynamically.
+The canonical reference for writing a metarepo external plugin with
+[`metarepo-plugin-sdk`](../../metarepo-plugin-sdk). It implements the
+[`Plugin`] trait and calls `serve()` — the SDK handles the v1 stdio wire
+protocol (framing, JSON, the version handshake) so this crate contains no
+protocol boilerplate.
 
-## Features
+## Commands
 
-This example plugin provides three simple commands:
-- `meta example hello <name>` - Greets the user with a personalized message
-- `meta example info` - Displays information about the current meta repository
-- `meta example count` - Counts the number of projects in the repository
+- `meta example hello <name>` — greet someone
+- `meta example info` — show information about the current meta repository
+- `meta example count` — count projects in the repository
 
-## Building
+## How it works
 
-Build the plugin in release mode:
+- `src/lib.rs` implements the SDK `Plugin` trait: `name`, `version`,
+  `commands` (a declarative command tree), and `handle` (the dispatch).
+- `src/main.rs` is just `serve(ExamplePlugin::new())` in subprocess mode.
+
+There is no hand-written stdin loop, no JSON parsing, and no protocol type
+definitions — those all live in the SDK.
+
+## Build
 
 ```bash
 cargo build --release
 ```
 
-This will create:
-- A dynamic library (`target/release/libmetarepo_plugin_example.so` on Linux/Mac, `.dll` on Windows)
-- An executable binary (`target/release/metarepo-plugin-example`)
+This produces the executable `target/release/metarepo-plugin-example`. The host
+runs it as a subprocess; there is no dynamic-library mode.
 
-## Installation
+## Install
 
-### Method 1: Subprocess Mode (Recommended)
-
-The plugin can run as a subprocess, communicating with metarepo via JSON-RPC:
+Place the binary in one of metarepo's allowed plugin directories and reference
+it from `.metarepo`:
 
 ```bash
-# Add the plugin executable
-meta plugin add ./target/release/metarepo-plugin-example
-
-# Or install from the examples directory
-meta plugin add ./examples/metarepo-plugin-example/target/release/metarepo-plugin-example
+mkdir -p ~/.config/metarepo/plugins
+cp target/release/metarepo-plugin-example ~/.config/metarepo/plugins/
 ```
 
-### Method 2: Dynamic Library (Future)
-
-Once dynamic loading is implemented in metarepo:
-
-```bash
-meta plugin add ./target/release/libmetarepo_plugin_example.so
+```jsonc
+// .metarepo
+{
+  "projects": {},
+  "plugins": {
+    "example": "file:~/.config/metarepo/plugins/metarepo-plugin-example"
+  }
+}
 ```
 
-### Method 3: From crates.io (Future)
+Allowed locations (enforced by the host, see the security policy in
+`docs/PLUGIN_DEVELOPMENT.md`): `~/.config/metarepo/plugins/`, `~/.cargo/bin/`,
+and `<workspace>/.metarepo/plugins/`. For local iteration outside those, set
+`METAREPO_PLUGIN_ALLOW_ANY_PATH=1`.
 
-Once published:
-
-```bash
-meta plugin install metarepo-plugin-example
-```
-
-## Usage
-
-After installation, the plugin commands are available:
+Then the commands are available:
 
 ```bash
-# Greet someone
 meta example hello World
-
-# Show repository information
 meta example info
-
-# Count projects
 meta example count
 ```
 
-## Development
+## Develop and debug
 
-### Running Tests
+Run the unit tests (they exercise the trait directly):
 
 ```bash
 cargo test
 ```
 
-### Debugging
-
-Run the plugin standalone to see usage information:
+Run standalone to see the usage banner:
 
 ```bash
 cargo run
 ```
 
-Run in subprocess mode for testing:
+Drive the protocol by hand in subprocess mode:
 
 ```bash
-METAREPO_PLUGIN_MODE=1 cargo run
-```
-
-Then send JSON requests via stdin:
-
-```json
+METAREPO_PLUGIN_MODE=1 ./target/release/metarepo-plugin-example <<'EOF'
 {"type":"GetInfo"}
 {"type":"RegisterCommands"}
-{"type":"HandleCommand","command":"example","args":["hello","World"],"config":{"meta_config":{"ignore":[],"projects":{}},"working_dir":"/tmp","meta_file_path":null,"experimental":false}}
+{"type":"HandleCommand","command":"example","args":["hello","World"],"config":{"meta_config":{"projects":{}},"working_dir":"/tmp","meta_file_path":null,"experimental":false}}
+EOF
 ```
 
-## Plugin Protocol
+## Use as a template
 
-The plugin communicates with metarepo using JSON-RPC over stdio when in subprocess mode.
+1. Copy this directory.
+2. Update `Cargo.toml` (name `metarepo-plugin-<yours>`, your metadata).
+3. Rewrite the `Plugin` impl in `src/lib.rs`; leave `src/main.rs` as-is.
+4. `cargo test`, then build and install as above.
 
-### Request Types
-
-1. **GetInfo**: Returns plugin metadata
-2. **RegisterCommands**: Returns command structure
-3. **HandleCommand**: Executes a command with given arguments
-
-### Response Types
-
-1. **Info**: Plugin information response
-2. **Commands**: Available commands structure
-3. **Success**: Command executed successfully
-4. **Error**: Command execution failed
-
-## Creating Your Own Plugin
-
-1. Copy this example as a template
-2. Update the `Cargo.toml` with your plugin details
-3. Modify `src/lib.rs` to implement your plugin logic
-4. Keep `src/main.rs` for subprocess communication
-5. Build and test locally
-6. Publish to crates.io when ready
+See `docs/PLUGIN_DEVELOPMENT.md` for the full guide and
+`docs/PLUGIN_PROTOCOL_V1.md` for the wire protocol.
 
 ## License
 
-MIT - See the main metarepo project for details
+MIT — see the main metarepo project for details.
+
+[`Plugin`]: ../../metarepo-plugin-sdk/src/lib.rs
