@@ -77,6 +77,32 @@ impl ExternalPlugin {
             allowed
         ))
     }
+    /// Lightweight identity probe: spawn the plugin, send `GetInfo`, and return
+    /// its reported `(name, version)`. Used by `meta plugin list` to report
+    /// installed-vs-declared status without registering the plugin's commands.
+    /// Applies the same path policy as `load`.
+    pub fn probe(path: &Path) -> Result<(String, String)> {
+        Self::validate_plugin_path(path)?;
+        let mut child = Command::new(path)
+            .env("METAREPO_PLUGIN_MODE", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .context("Failed to start plugin process")?;
+
+        let response = Self::send_request(&mut child, PluginRequest::GetInfo);
+        let _ = child.kill();
+
+        match response? {
+            PluginResponse::Info { name, version, .. } => Ok((name, version)),
+            PluginResponse::Error { message } => {
+                Err(anyhow::anyhow!("Plugin returned error: {}", message))
+            }
+            _ => Err(anyhow::anyhow!("Unexpected response from plugin")),
+        }
+    }
+
     pub fn load(path: &Path) -> Result<Box<dyn MetaPlugin>> {
         Self::validate_plugin_path(path)?;
         // Start the plugin process
@@ -167,12 +193,15 @@ impl ExternalPlugin {
         Ok(response)
     }
 
-    fn build_command_from_info(info: &CommandInfo) -> ClapCommand {
+    fn build_command_from_info(info: &CommandInfo, version: &'static str) -> ClapCommand {
         // Store command info as leaked static strings to satisfy clap's lifetime requirements
         let name: &'static str = Box::leak(info.name.clone().into_boxed_str());
         let about: &'static str = Box::leak(info.about.clone().into_boxed_str());
 
-        let mut cmd = ClapCommand::new(name).about(about);
+        // Set a version on every command: the host injects a global `--version`
+        // (ArgAction::Version) that propagates into subcommands, and clap
+        // requires any command carrying that action to declare a version.
+        let mut cmd = ClapCommand::new(name).about(about).version(version);
 
         // Add arguments
         for arg in &info.args {
@@ -190,7 +219,7 @@ impl ExternalPlugin {
 
         // Add subcommands recursively
         for subcmd in &info.subcommands {
-            cmd = cmd.subcommand(Self::build_command_from_info(subcmd));
+            cmd = cmd.subcommand(Self::build_command_from_info(subcmd, version));
         }
 
         cmd
@@ -205,7 +234,8 @@ impl MetaPlugin for ExternalPlugin {
     fn register_commands(&self, app: ClapCommand) -> ClapCommand {
         // Build commands from stored command info
         if let Some(root_cmd) = self.commands.first() {
-            app.subcommand(Self::build_command_from_info(root_cmd))
+            let version: &'static str = Box::leak(self.version.clone().into_boxed_str());
+            app.subcommand(Self::build_command_from_info(root_cmd, version))
         } else {
             app
         }

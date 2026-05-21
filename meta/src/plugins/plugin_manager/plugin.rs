@@ -1,16 +1,15 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::ArgMatches;
 use colored::Colorize;
-use metarepo_core::{
-    arg, command, is_interactive, plugin, prompt_text, BasePlugin, MetaConfig, MetaPlugin,
-    NonInteractiveMode, RuntimeConfig,
-};
-use std::fs;
+use metarepo_core::{arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command as ProcessCommand;
-use tracing::{error, info};
 
-/// PluginManagerPlugin using the new simplified plugin architecture
+use super::install::{install_from_spec, resolved_binary_path};
+use super::spec::PluginSpec;
+use crate::plugins::plugin_loader::ExternalPlugin;
+
+/// Manages external metarepo plugins: install / list / remove / update.
 pub struct PluginManagerPlugin;
 
 impl PluginManagerPlugin {
@@ -18,377 +17,336 @@ impl PluginManagerPlugin {
         Self
     }
 
-    /// Create the plugin using the builder pattern
     pub fn create_plugin() -> impl MetaPlugin {
         plugin("plugin")
             .version(env!("CARGO_PKG_VERSION"))
             .description("Manage metarepo plugins")
             .author("Metarepo Contributors")
             .command(
-                command("add")
-                    .about("Add a plugin from a local path")
-                    .with_help_formatting()
-                    .arg(
-                        arg("path")
-                            .help("Path to the plugin executable")
-                            .required(false)
-                            .takes_value(true),
-                    ),
-            )
-            .command(
                 command("install")
-                    .about("Install a plugin from crates.io")
-                    .with_help_formatting()
+                    .about("Install a plugin and register it in .metarepo")
+                    .long_about(
+                        "Install an external plugin and record it under plugins.<name> in the\n\
+                         active .metarepo so it loads on the next run.\n\n\
+                         Sources (via --from):\n  \
+                           crates:<crate>    install from crates.io (default: metarepo-plugin-<name>)\n  \
+                           file:<path>       copy a local executable\n  \
+                           git+<url>         clone and cargo build --release\n\n\
+                         Examples:\n  \
+                           meta plugin install hello\n  \
+                           meta plugin install hello --version 0.2.0\n  \
+                           meta plugin install hello --from file:./target/release/metarepo-plugin-hello\n  \
+                           meta plugin install hello --from git+https://github.com/me/metarepo-plugin-hello.git",
+                    )
                     .arg(
                         arg("name")
-                            .help("Name of the plugin to install")
+                            .help("Plugin command name (e.g. hello for 'meta hello')")
                             .required(true)
                             .takes_value(true),
-                    ),
-            )
-            .command(
-                command("remove")
-                    .about("Remove an installed plugin")
-                    .with_help_formatting()
+                    )
                     .arg(
-                        arg("name")
-                            .help("Name of the plugin to remove")
-                            .required(true)
+                        arg("from")
+                            .long("from")
+                            .help("Source spec: crates:<crate>, file:<path>, or git+<url>")
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("version")
+                            .long("version")
+                            .help("Version to install (crates.io sources only)")
                             .takes_value(true),
                     ),
             )
             .command(
                 command("list")
-                    .about("List all installed plugins")
-                    .with_help_formatting(),
+                    .about("List registered plugins and their install status")
+                    .alias("ls"),
+            )
+            .command(
+                command("remove")
+                    .about("Remove a plugin from .metarepo (and optionally its binary)")
+                    .alias("rm")
+                    .arg(
+                        arg("name")
+                            .help("Plugin command name to remove")
+                            .required(true)
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("purge")
+                            .long("purge")
+                            .help("Also delete the installed binary"),
+                    ),
             )
             .command(
                 command("update")
-                    .about("Update all plugins to their latest versions")
-                    .with_help_formatting(),
+                    .about("Reinstall a plugin (or all) from its recorded spec")
+                    .arg(
+                        arg("name")
+                            .help("Plugin to update; omit to update all")
+                            .required(false)
+                            .takes_value(true),
+                    ),
             )
-            .handler("add", handle_add)
             .handler("install", handle_install)
-            .handler("remove", handle_remove)
             .handler("list", handle_list)
+            .handler("remove", handle_remove)
             .handler("update", handle_update)
             .build()
     }
 }
 
-/// Get plugin directory
-fn plugin_dir() -> Result<PathBuf> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .context("Could not determine home directory")?;
-
-    let plugin_dir = PathBuf::from(home)
-        .join(".config")
-        .join("metarepo")
-        .join("plugins");
-
-    if !plugin_dir.exists() {
-        fs::create_dir_all(&plugin_dir).context("Failed to create plugin directory")?;
-    }
-
-    Ok(plugin_dir)
+/// Resolve the active config file path, preferring the one the host already
+/// loaded (which honors --config), falling back to discovery.
+fn active_meta_file(config: &RuntimeConfig) -> Option<PathBuf> {
+    config
+        .meta_file_path
+        .clone()
+        .or_else(MetaConfig::find_meta_file)
 }
 
-/// Add plugin to .meta config
-fn add_to_meta_config(name: &str, spec: &str) -> Result<()> {
-    // Find and update .meta file
-    if let Some(meta_file) = MetaConfig::find_meta_file() {
-        let mut config = MetaConfig::load_from_file(&meta_file)?;
+fn require_meta_file(config: &RuntimeConfig) -> Result<PathBuf> {
+    active_meta_file(config).ok_or_else(|| {
+        anyhow!("No metarepo config found. Run 'meta init' first, or pass --config <path>.")
+    })
+}
 
-        if config.plugins.is_none() {
-            config.plugins = Some(std::collections::HashMap::new());
-        }
+fn load_plugins(meta_file: &PathBuf) -> Result<(MetaConfig, HashMap<String, String>)> {
+    let cfg = MetaConfig::load_from_file(meta_file)?;
+    let plugins = cfg.plugins.clone().unwrap_or_default();
+    Ok((cfg, plugins))
+}
 
-        if let Some(plugins) = &mut config.plugins {
-            plugins.insert(name.to_string(), spec.to_string());
-        }
+fn handle_install(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let name = matches
+        .get_one::<String>("name")
+        .ok_or_else(|| anyhow!("Plugin name is required"))?;
+    let from = matches.get_one::<String>("from").map(String::as_str);
+    let version = matches.get_one::<String>("version").map(String::as_str);
 
-        config.save_to_file(&meta_file)?;
-        println!("Added plugin '{}' to .meta configuration", name);
-    } else {
-        println!("Warning: No .meta file found. Plugin installed globally but not added to project configuration.");
-    }
+    // Require a config up front so we don't install something we can't register.
+    let meta_file = require_meta_file(config)?;
 
+    let spec = PluginSpec::from_args(name, from, version)?;
+    println!(
+        "\n  {} {} ({})",
+        "Installing".cyan().bold(),
+        name,
+        spec.source_label()
+    );
+
+    let stored = install_from_spec(name, &spec)?;
+
+    let mut cfg = MetaConfig::load_from_file(&meta_file)?;
+    cfg.plugins
+        .get_or_insert_with(HashMap::new)
+        .insert(name.clone(), stored.to_spec_string());
+    cfg.save_to_file(&meta_file)
+        .with_context(|| format!("Failed to update {}", meta_file.display()))?;
+
+    println!(
+        "  {} Registered '{}' in {} — available on next run",
+        "✓".green(),
+        name,
+        meta_file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| meta_file.display().to_string())
+    );
     Ok(())
 }
 
-/// Handler for the add command
-fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let non_interactive = config
-        .non_interactive
-        .unwrap_or(NonInteractiveMode::Defaults);
-
-    // Get or prompt for plugin path
-    let path = match matches.get_one::<String>("path") {
-        Some(p) => p.clone(),
+fn handle_list(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let meta_file = match active_meta_file(config) {
+        Some(p) => p,
         None => {
-            if is_interactive() {
-                println!("\n  🔌 {}", "Add a new plugin".cyan().bold());
-                prompt_text("Plugin path", None, false, non_interactive)?
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Plugin path is required. Use 'meta plugin add <path>' or run interactively in a terminal"
-                ));
-            }
+            println!("  {} No metarepo config found.", "·".bright_black());
+            return Ok(());
         }
     };
 
-    add_plugin_from_path(&path)
-}
-
-fn add_plugin_from_path(path: &str) -> Result<()> {
-    let source_path = PathBuf::from(path);
-
-    if !source_path.exists() {
-        return Err(anyhow::anyhow!("Plugin path does not exist: {}", path));
+    let (_, plugins) = load_plugins(&meta_file)?;
+    if plugins.is_empty() {
+        println!(
+            "  {} No plugins registered in {}",
+            "·".bright_black(),
+            meta_file.display()
+        );
+        return Ok(());
     }
 
-    let plugin_dir = plugin_dir()?;
-    let file_name = source_path
-        .file_name()
-        .ok_or_else(|| anyhow::anyhow!("Invalid plugin path"))?;
-
-    let dest_path = plugin_dir.join(file_name);
-
-    // Copy the plugin to the plugins directory
-    fs::copy(&source_path, &dest_path).context("Failed to copy plugin")?;
-
-    // Make it executable on Unix
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&dest_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&dest_path, perms)?;
+    println!("\n  {}", "Registered plugins".bold());
+    let mut names: Vec<&String> = plugins.keys().collect();
+    names.sort();
+    for name in names {
+        let spec_str = &plugins[name];
+        match PluginSpec::parse(name, spec_str) {
+            Ok(spec) => print_plugin_status(name, &spec),
+            Err(e) => println!("  {} {}  ({})", "✗".red(), name, e),
+        }
     }
-
-    info!("Plugin added successfully: {:?}", dest_path);
-    info!("The plugin will be available on next run of meta");
-
     Ok(())
 }
 
-/// Handler for the install command
-fn handle_install(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
+fn print_plugin_status(name: &str, spec: &PluginSpec) {
+    let path = match resolved_binary_path(name, spec) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("  {} {}  (cannot resolve: {})", "✗".red(), name, e);
+            return;
+        }
+    };
+
+    if !path.exists() {
+        println!(
+            "  {} {}  [{}]  missing — run 'meta plugin install {}'",
+            "✗".red(),
+            name.bold(),
+            spec.source_label(),
+            name
+        );
+        return;
+    }
+
+    // Installed: try to probe the reported version for a mismatch check.
+    let declared = spec.declared_version();
+    match ExternalPlugin::probe(&path) {
+        Ok((_, installed)) => {
+            if let Some(declared) = declared {
+                if declared != installed {
+                    println!(
+                        "  {} {}  [{}]  version mismatch (declared {}, installed {})",
+                        "⚠".yellow(),
+                        name.bold(),
+                        spec.source_label(),
+                        declared,
+                        installed
+                    );
+                    return;
+                }
+            }
+            println!(
+                "  {} {}  [{}]  installed (v{})",
+                "✓".green(),
+                name.bold(),
+                spec.source_label(),
+                installed
+            );
+        }
+        Err(_) => {
+            // Binary present but not probeable (e.g. outside the allowed path
+            // policy or not protocol-speaking). Report presence only.
+            println!(
+                "  {} {}  [{}]  installed at {}",
+                "✓".green(),
+                name.bold(),
+                spec.source_label(),
+                path.display()
+            );
+        }
+    }
+}
+
+fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let name = matches
         .get_one::<String>("name")
-        .ok_or_else(|| anyhow::anyhow!("Plugin name is required"))?;
-    install_plugin(name)
-}
+        .ok_or_else(|| anyhow!("Plugin name is required"))?;
+    let purge = matches.get_flag("purge");
 
-fn install_plugin(name: &str) -> Result<()> {
-    info!("Installing plugin from crates.io: {}", name);
+    let meta_file = require_meta_file(config)?;
+    let mut cfg = MetaConfig::load_from_file(&meta_file)?;
 
-    // Use cargo install to get the plugin
-    let plugin_crate = format!("metarepo-plugin-{}", name);
+    let removed_spec = cfg
+        .plugins
+        .as_mut()
+        .and_then(|plugins| plugins.remove(name));
 
-    let output = ProcessCommand::new("cargo")
-        .args(["install", &plugin_crate])
-        .output()
-        .context("Failed to run cargo install")?;
+    let Some(spec_str) = removed_spec else {
+        return Err(anyhow!(
+            "Plugin '{}' is not registered in {}",
+            name,
+            meta_file.display()
+        ));
+    };
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow::anyhow!("Failed to install plugin: {}", stderr));
-    }
+    cfg.save_to_file(&meta_file)
+        .with_context(|| format!("Failed to update {}", meta_file.display()))?;
+    println!(
+        "  {} Removed '{}' from {}",
+        "✓".green(),
+        name,
+        meta_file.display()
+    );
 
-    info!("Plugin '{}' installed successfully", name);
-
-    // Add to .meta config
-    add_to_meta_config(name, "^latest")?;
-
-    Ok(())
-}
-
-/// Handler for the remove command
-fn handle_remove(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    let name = matches
-        .get_one::<String>("name")
-        .ok_or_else(|| anyhow::anyhow!("Plugin name is required"))?;
-    remove_plugin(name)
-}
-
-fn remove_plugin(name: &str) -> Result<()> {
-    // Remove from plugins directory
-    let plugin_dir = plugin_dir()?;
-
-    // Look for plugin file
-    let entries = fs::read_dir(&plugin_dir)?;
-    let mut found = false;
-
-    for entry in entries {
-        let entry = entry?;
-        let file_name = entry.file_name();
-        let file_name_str = file_name.to_string_lossy();
-
-        if file_name_str.contains(name) {
-            fs::remove_file(entry.path())?;
-            println!("Removed plugin: {}", file_name_str);
-            found = true;
-        }
-    }
-
-    // Also try to uninstall from cargo
-    let plugin_crate = format!("metarepo-plugin-{}", name);
-    let _ = ProcessCommand::new("cargo")
-        .args(["uninstall", &plugin_crate])
-        .output();
-
-    // Remove from .meta config
-    if let Some(meta_file) = MetaConfig::find_meta_file() {
-        let mut config = MetaConfig::load_from_file(&meta_file)?;
-
-        if let Some(plugins) = &mut config.plugins {
-            if plugins.remove(name).is_some() {
-                config.save_to_file(&meta_file)?;
-                println!("Removed plugin '{}' from .meta configuration", name);
-            }
-        }
-    }
-
-    if !found {
-        return Err(anyhow::anyhow!("Plugin '{}' not found", name));
-    }
-
-    Ok(())
-}
-
-/// Handler for the list command
-fn handle_list(_matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    list_plugins()
-}
-
-fn list_plugins() -> Result<()> {
-    println!("Installed Plugins:");
-    println!("==================");
-
-    // List plugins in plugin directory
-    let plugin_dir = plugin_dir()?;
-    if plugin_dir.exists() {
-        println!("\nLocal plugins ({:?}):", plugin_dir);
-
-        let entries = fs::read_dir(&plugin_dir)?;
-        let mut count = 0;
-
-        for entry in entries {
-            let entry = entry?;
-            if entry.path().is_file() {
-                println!("  - {}", entry.file_name().to_string_lossy());
-                count += 1;
-            }
-        }
-
-        if count == 0 {
-            println!("  (none)");
-        }
-    }
-
-    // List plugins in .meta config
-    if let Some(meta_file) = MetaConfig::find_meta_file() {
-        let config = MetaConfig::load_from_file(&meta_file)?;
-
-        if let Some(plugins) = &config.plugins {
-            if !plugins.is_empty() {
-                println!("\nProject plugins (from .meta):");
-                for (name, spec) in plugins {
-                    println!("  - {}: {}", name, spec);
+    if purge {
+        if let Ok(spec) = PluginSpec::parse(name, &spec_str) {
+            if let Ok(path) = resolved_binary_path(name, &spec) {
+                if path.exists() {
+                    std::fs::remove_file(&path)
+                        .with_context(|| format!("Failed to delete {}", path.display()))?;
+                    println!("  {} Deleted binary {}", "✓".yellow(), path.display());
                 }
             }
         }
     }
-
-    // List plugins installed via cargo
-    println!("\nPlugins from crates.io:");
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .context("Could not determine home directory")?;
-
-    let cargo_bin = PathBuf::from(home).join(".cargo").join("bin");
-    if cargo_bin.exists() {
-        let entries = fs::read_dir(&cargo_bin)?;
-        let mut found = false;
-
-        for entry in entries {
-            let entry = entry?;
-            let file_name = entry.file_name();
-            let file_name_str = file_name.to_string_lossy();
-
-            if file_name_str.starts_with("metarepo-plugin-") {
-                println!("  - {}", file_name_str);
-                found = true;
-            }
-        }
-
-        if !found {
-            println!("  (none)");
-        }
-    }
-
     Ok(())
 }
 
-/// Handler for the update command
-fn handle_update(_matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    update_plugins()
-}
+fn handle_update(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let meta_file = require_meta_file(config)?;
+    let (_, plugins) = load_plugins(&meta_file)?;
 
-fn update_plugins() -> Result<()> {
-    println!("Updating plugins...");
-
-    // Update plugins from crates.io
-    if let Some(meta_file) = MetaConfig::find_meta_file() {
-        let config = MetaConfig::load_from_file(&meta_file)?;
-
-        if let Some(plugins) = &config.plugins {
-            for (name, spec) in plugins {
-                if !spec.starts_with("file:") && !spec.starts_with("git+") {
-                    println!("Updating {}", name);
-                    let plugin_crate = format!("metarepo-plugin-{}", name);
-
-                    let output = ProcessCommand::new("cargo")
-                        .args(["install", "--force", &plugin_crate])
-                        .output()
-                        .context("Failed to run cargo install")?;
-
-                    if output.status.success() {
-                        println!("  ✓ Updated {}", name);
-                    } else {
-                        error!("  ✗ Failed to update {}", name);
-                    }
-                }
-            }
-        }
+    if let Some(name) = matches.get_one::<String>("name") {
+        let spec_str = plugins
+            .get(name)
+            .ok_or_else(|| anyhow!("Plugin '{}' is not registered", name))?;
+        let spec = PluginSpec::parse(name, spec_str)?;
+        println!("\n  {} {}", "Updating".cyan().bold(), name);
+        install_from_spec(name, &spec)?;
+        println!("  {} Updated '{}'", "✓".green(), name);
+        return Ok(());
     }
 
-    println!("Plugin update complete");
+    if plugins.is_empty() {
+        println!("  {} No plugins to update.", "·".bright_black());
+        return Ok(());
+    }
+
+    let mut names: Vec<&String> = plugins.keys().collect();
+    names.sort();
+    for name in names {
+        let spec = match PluginSpec::parse(name, &plugins[name]) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("  {} {} skipped ({})", "✗".red(), name, e);
+                continue;
+            }
+        };
+        // file: sources have no upstream to pull from; skip in bulk update.
+        if matches!(spec, PluginSpec::File { .. }) {
+            println!("  {} {} skipped (file source)", "·".bright_black(), name);
+            continue;
+        }
+        println!("  {} {}", "Updating".cyan(), name);
+        match install_from_spec(name, &spec) {
+            Ok(_) => println!("  {} {}", "✓".green(), name),
+            Err(e) => println!("  {} {} failed: {}", "✗".red(), name, e),
+        }
+    }
     Ok(())
 }
 
-// Traditional implementation for backward compatibility
 impl MetaPlugin for PluginManagerPlugin {
     fn name(&self) -> &str {
         "plugin"
     }
 
-    fn is_experimental(&self) -> bool {
-        true
-    }
-
     fn register_commands(&self, app: clap::Command) -> clap::Command {
-        // Delegate to the builder-based plugin
-        let plugin = Self::create_plugin();
-        plugin.register_commands(app)
+        Self::create_plugin().register_commands(app)
     }
 
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-        // Delegate to the builder-based plugin
-        let plugin = Self::create_plugin();
-        plugin.handle_command(matches, config)
+        Self::create_plugin().handle_command(matches, config)
     }
 }
 

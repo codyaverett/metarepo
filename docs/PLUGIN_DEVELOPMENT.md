@@ -20,12 +20,10 @@ stdout, and parse JSON. For Rust, the `metarepo-plugin-sdk` crate hides the
 protocol entirely. For other languages you implement the protocol directly
 (it's small — see `docs/PLUGIN_PROTOCOL_V1.md`).
 
-> **Status note.** Some management ergonomics are still in progress and are
-> called out as **Planned** below: the `meta plugin install/list/remove/update`
-> CLI (#24), version pinning + checksums (#25), manifest (argv-only) plugins
-> (#26), and first-party cross-language templates (#27). Until those land,
-> external plugins are installed by placing a binary in an allowed directory
-> and referencing it from `.metarepo`.
+> **Status note.** The `meta plugin install/list/remove/update` CLI is
+> available. Still in progress and called out as **Planned** below: version
+> pinning + checksum enforcement (#25), manifest (argv-only) plugins (#26), and
+> first-party cross-language templates (#27).
 
 ## Quick start (Rust, with the SDK)
 
@@ -139,44 +137,53 @@ exact messages and a transcript.
 
 ## Installing a plugin
 
-External plugins are loaded as subprocesses. The host enforces a path policy
-(see Security) and reads the plugin list from your workspace config.
+Use `meta plugin install`, which installs the binary and registers it under
+`plugins.<name>` in the active `.metarepo` so it loads on the next run (and
+appears in `meta --help`). No hand-editing required.
 
-1. Build a release binary and place it in an **allowed directory**:
+```bash
+# From crates.io (default crate: metarepo-plugin-<name>)
+meta plugin install hello
+meta plugin install hello --version 0.2.0
 
-   ```bash
-   cargo build --release
-   mkdir -p ~/.config/metarepo/plugins
-   cp target/release/metarepo-plugin-hello ~/.config/metarepo/plugins/
-   ```
+# From a local build
+meta plugin install hello --from file:./target/release/metarepo-plugin-hello
 
-2. Reference it from `.metarepo` under `plugins`:
+# From a git repository (clones and runs cargo build --release)
+meta plugin install hello --from git+https://github.com/me/metarepo-plugin-hello.git
+```
 
-   ```jsonc
-   {
-     "projects": {},
-     "plugins": {
-       "hello": "file:~/.config/metarepo/plugins/metarepo-plugin-hello"
-     }
-   }
-   ```
+Then:
 
-3. Run it:
+```bash
+meta hello greet Ada
+```
 
-   ```bash
-   meta hello greet Ada
-   ```
+### Managing plugins
 
-Plugin spec forms in `.metarepo`:
+```bash
+meta plugin list              # status: installed (vX) / missing / version mismatch
+meta plugin update hello      # reinstall from the recorded spec
+meta plugin update            # update all (crates/git sources)
+meta plugin remove hello      # unregister from .metarepo
+meta plugin remove hello --purge   # also delete the installed binary
+```
 
-- `file:<path>` — a local executable (supported today).
-- `git+<url>` — **Planned (#24)**: clone + build. Not yet implemented.
-- bare version string (e.g. `"1.2.0"`) — resolves to
-  `~/.cargo/bin/metarepo-plugin-<name>` if present; full registry resolution is
-  **Planned (#24/#25)**.
+### Spec forms in `.metarepo`
 
-> **Planned (#24):** `meta plugin install / list / remove / update` to manage
-> all of the above without hand-editing `.metarepo`. See issue #24.
+`meta plugin install` writes one of these under `plugins.<name>`; you can also
+set them by hand:
+
+- `crates:<crate>` or `crates:<crate>@<version>` — install from crates.io
+  (default crate `metarepo-plugin-<name>`). A bare version string like `"1.2.0"`
+  is also accepted for back-compat.
+- `file:<path>` — a local executable. `install` copies it into the plugins
+  directory and records the destination path.
+- `git+<url>` — clone and `cargo build --release`; the built
+  `metarepo-plugin-*` binary is copied into the plugins directory.
+
+Binaries land in an **allowed directory** (see Security): crates.io installs go
+to `~/.cargo/bin`; `file:`/`git+` installs go to `~/.config/metarepo/plugins/`.
 
 ## Security policy (v0.14+)
 

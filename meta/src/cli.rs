@@ -132,7 +132,17 @@ impl MetarepoCli {
             return cli.run_with_experimental(args);
         }
 
-        // Normal execution without experimental features
+        // Normal execution without experimental features.
+        //
+        // Load external plugins (declared in .metarepo plus those discovered in
+        // the plugins directory) before building the app so their commands show
+        // up in --help and are recognized during argument parsing.
+        if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
+            self.registry
+                .borrow_mut()
+                .load_external_plugins(&meta_config);
+        }
+
         let app = self.build_app();
         let matches = app.try_get_matches_from(args)?;
 
@@ -149,14 +159,6 @@ impl MetarepoCli {
         // Route to appropriate plugin
         match matches.subcommand() {
             Some((command_name, sub_matches)) => {
-                // Load external plugins only when we have an actual command to run
-                // This prevents plugin output during --version or --help
-                if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
-                    self.registry
-                        .borrow_mut()
-                        .load_external_plugins(&meta_config);
-                }
-
                 self.registry
                     .borrow()
                     .handle_command(command_name, sub_matches, &config)
@@ -172,6 +174,14 @@ impl MetarepoCli {
     }
 
     fn run_with_experimental(&self, args: Vec<String>) -> Result<()> {
+        // Load external plugins before building the app so their commands show
+        // up in --help and are recognized during argument parsing.
+        if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
+            self.registry
+                .borrow_mut()
+                .load_external_plugins(&meta_config);
+        }
+
         // Parse with experimental plugins available
         let app = self.build_app_with_flags(true);
         let matches = app.try_get_matches_from(args)?;
@@ -191,13 +201,6 @@ impl MetarepoCli {
         // Route to appropriate plugin
         match matches.subcommand() {
             Some((command_name, sub_matches)) => {
-                // Load external plugins only when we have an actual command to run
-                if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
-                    self.registry
-                        .borrow_mut()
-                        .load_external_plugins(&meta_config);
-                }
-
                 self.registry
                     .borrow()
                     .handle_command(command_name, sub_matches, &config)
