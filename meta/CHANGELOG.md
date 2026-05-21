@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0](https://github.com/codyaverett/metarepo/compare/v0.20.1...v0.21.0) - 2026-05-21
+
+### Added
+
+- *(plugin)* first-class meta plugin install/list/remove/update
+
 ## [0.17.0](https://github.com/codyaverett/metarepo/compare/v0.13.0...v0.17.0) - 2026-05-14
 
 ### Added
