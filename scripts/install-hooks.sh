@@ -313,7 +313,7 @@ if [ -n "$toml_files" ]; then
     echo -ne "${BLUE}▶${NC} Validating TOML syntax... "
     toml_valid=true
     for file in $toml_files; do
-        if ! cargo read-manifest --manifest-path "$file" > /dev/null 2>&1 && [ "$(basename "$file")" = "Cargo.toml" ]; then
+        if [ "$(basename "$file")" = "Cargo.toml" ] && ! cargo verify-project --manifest-path "$file" > /dev/null 2>&1; then
             toml_valid=false
             echo -e "${CROSS}"
             echo -e "  ${RED}Invalid TOML in: $file${NC}"

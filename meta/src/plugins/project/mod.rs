@@ -1149,7 +1149,7 @@ pub fn show_project_tree(base_path: &Path) -> Result<()> {
         if node.is_meta && node.children.is_empty() {
             let project_path = base_path.join(&node.name);
             if let Ok(nested_config) = MetaConfig::load_from_file(project_path.join(".meta")) {
-                for (nested_name, _) in nested_config.projects.iter() {
+                for nested_name in nested_config.projects.keys() {
                     insert_path_into_subtree(
                         &mut node.children,
                         nested_name,
@@ -1217,7 +1217,7 @@ pub fn show_project_tree(base_path: &Path) -> Result<()> {
         if node.is_meta && node.children.is_empty() {
             let project_path = base_path.join(full_path);
             if let Ok(nested_config) = MetaConfig::load_from_file(project_path.join(".meta")) {
-                for (nested_name, _) in nested_config.projects.iter() {
+                for nested_name in nested_config.projects.keys() {
                     let nested_full_path = format!("{}/{}", full_path, nested_name);
                     insert_path_into_subtree(
                         &mut node.children,
