@@ -10,13 +10,7 @@ pub use self::plugin::InitPlugin;
 
 mod plugin;
 
-// Bundled meta-tool Claude Code skill. Lives in the workspace at
-// .claude/skills/meta-tool/ and is included at compile time so `meta init
-// --with-skill` works in fresh checkouts that don't have the source repo
-// available on disk.
-const SKILL_MD: &str = include_str!("../../../../.claude/skills/meta-tool/SKILL.md");
-const SKILL_CHANGELOG: &str =
-    include_str!("../../../../.claude/skills/meta-tool/references/CHANGELOG_NOTES.md");
+use crate::plugins::skill;
 
 /// User-selected options for `meta init`.
 ///
@@ -157,11 +151,10 @@ pub fn initialize_meta_repo_with_options<P: AsRef<Path>>(
 
     // --- optional skill ---
     if options.want_skill() {
-        let skill_root = root.join(".claude").join("skills").join("meta-tool");
-        if skill_root.join("SKILL.md").exists() {
+        if skill::is_installed(root) {
             report.skill_already_present = true;
         } else {
-            install_skill(&skill_root)?;
+            skill::write_skill(root)?;
             report.skill_installed = true;
         }
     }
@@ -214,16 +207,6 @@ fn print_report(report: &InitReport) {
             "·".bright_black()
         );
     }
-}
-
-fn install_skill(skill_root: &Path) -> Result<()> {
-    fs::create_dir_all(skill_root.join("references"))?;
-    fs::write(skill_root.join("SKILL.md"), SKILL_MD)?;
-    fs::write(
-        skill_root.join("references").join("CHANGELOG_NOTES.md"),
-        SKILL_CHANGELOG,
-    )?;
-    Ok(())
 }
 
 /// Append meta-specific ignore patterns if missing. Returns true if any change

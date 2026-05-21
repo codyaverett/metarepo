@@ -261,12 +261,12 @@ bump-version:
 .PHONY: publish-core
 publish-core:
 	@echo "$(CYAN)📦 Publishing metarepo-core...$(NC)"
-	@cd meta-core && cargo publish 2>/dev/null && echo "$(GREEN)✅ Published metarepo-core$(NC)" || echo "$(YELLOW)⚠️  metarepo-core already published or error occurred$(NC)"
+	@cd meta-core && cargo publish && echo "$(GREEN)✅ Published metarepo-core$(NC)" || echo "$(YELLOW)⚠️  metarepo-core publish failed (see error above)$(NC)"
 
 .PHONY: publish-main
 publish-main:
 	@echo "$(CYAN)📦 Publishing metarepo (main package with built-in plugins)...$(NC)"
-	@cd meta && cargo publish 2>/dev/null && echo "$(GREEN)✅ Published metarepo$(NC)" || echo "$(YELLOW)⚠️  metarepo already published or error occurred$(NC)"
+	@cd meta && cargo publish && echo "$(GREEN)✅ Published metarepo$(NC)" || echo "$(YELLOW)⚠️  metarepo publish failed (see error above)$(NC)"
 
 # Smart publish - only publishes packages that aren't already published
 .PHONY: publish
@@ -313,21 +313,20 @@ publish-all: check-versions
 	@printf "$(YELLOW)Continue? (y/N): $(NC)" && read confirm && [ "$$confirm" = "y" ] || exit 1
 	@echo "$(CYAN)Starting publish sequence...$(NC)"
 	@echo "$(BLUE)[1/2] Publishing metarepo-core...$(NC)"
-	@if cd meta-core && cargo publish 2>/dev/null; then \
+	@if cd meta-core && cargo publish; then \
 		echo "$(GREEN)✅ Published metarepo-core$(NC)"; \
 		sleep 10; \
 	else \
-		echo "$(YELLOW)⚠️  metarepo-core v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) already published or error occurred$(NC)"; \
+		echo "$(YELLOW)⚠️  metarepo-core v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) publish failed (see error above)$(NC)"; \
 		echo "$(CYAN)Continuing with metarepo...$(NC)"; \
 	fi
 	@echo "$(BLUE)[2/2] Publishing metarepo (main package with built-in plugins)...$(NC)"
-	@if cd meta && cargo publish 2>/dev/null; then \
+	@if cd meta && cargo publish; then \
 		echo "$(GREEN)✅ Published metarepo$(NC)"; \
 		echo ""; \
 		echo "$(GREEN)🎉 Successfully published metarepo!$(NC)"; \
 	else \
-		echo "$(YELLOW)⚠️  metarepo v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) already published or error occurred$(NC)"; \
-		echo "$(YELLOW)Check if both packages are already at the desired version on crates.io$(NC)"; \
+		echo "$(YELLOW)⚠️  metarepo v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) publish failed (see error above)$(NC)"; \
 	fi
 
 
