@@ -186,6 +186,43 @@ Exit `0` is success; a non-zero exit surfaces as a plugin error. A complete
 example is in
 [`examples/metarepo-plugin-shell`](../examples/metarepo-plugin-shell).
 
+#### Manifest reference
+
+`[plugin]`:
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `name` | yes | Top-level command (`meta <name> ...`). |
+| `version` | yes | Reported by `meta plugin list`. |
+| `description` | yes | Shown in `meta --help`. |
+| `experimental` | no | If true, only loaded under `--experimental`. |
+| `min_meta_version`, `author`, `license`, `homepage`, `repository` | no | Metadata only. |
+
+`[[commands]]` (may nest via `subcommands`):
+
+| Field | Notes |
+| --- | --- |
+| `name`, `description` | Required. |
+| `aliases` | Visible aliases for the subcommand. |
+| `subcommands` | Nested `[[commands]]` for arbitrary depth. |
+| `args` | See below. |
+
+`[[commands.args]]`:
+
+| Field | Notes |
+| --- | --- |
+| `name` | Required. Used as the positional name and to derive `METAREPO_ARG_<NAME>`. |
+| `help` | Required. |
+| `long` / `short` | Omit both for a positional; supply one for a flag. |
+| `takes_value` | A flag with `takes_value = true` accepts a value (e.g. `--name Ada`); without it, the flag is boolean. |
+| `required`, `default_value`, `possible_values` | Standard clap semantics. |
+
+`[config.execution]`:
+
+| Field | Notes |
+| --- | --- |
+| `binary` | Path to the executable, relative to the manifest. Required. |
+
 Install it the same way as any plugin — `install` detects the manifest, copies
 it and the binary into `~/.config/metarepo/plugins/<name>/`, and registers it:
 
@@ -236,12 +273,21 @@ meta hello greet Ada
 ### Managing plugins
 
 ```bash
-meta plugin list              # status: installed (vX) / missing / version mismatch
+meta plugin list              # status legend below
 meta plugin update hello      # reinstall from the recorded spec
 meta plugin update            # update all (crates/git sources)
 meta plugin remove hello      # unregister from .metarepo
 meta plugin remove hello --purge   # also delete the installed binary
 ```
+
+`meta plugin list` status symbols:
+
+| Symbol | Meaning |
+| --- | --- |
+| `✓ <name> [<source>] installed (vX)` | Binary present and (for protocol plugins) probes to vX, or manifest declares vX. |
+| `✓ <name> [<source>] installed at <path>` | Binary present but not probeable (e.g. blocked by the allowed-path policy, or not protocol-speaking). |
+| `⚠ <name> [<source>] version mismatch` | Spec declares one version; the installed binary reports another. Run `meta plugin update <name>`. |
+| `✗ <name> [<source>] missing` | Registered in `.metarepo` but not installed. Run `meta plugin install <name>`. |
 
 ### Spec forms in `.metarepo`
 
