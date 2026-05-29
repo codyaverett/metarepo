@@ -241,8 +241,13 @@ A plugin only needs to:
    response line. **Flush stdout.**
 4. Exit when stdin closes.
 
-A 30-line Python plugin or 50-line Bash plugin is entirely feasible. The
-canonical reference is `examples/metarepo-plugin-example/` (Rust).
+A 30-line Python plugin or 50-line Bash plugin is entirely feasible. Starter
+templates that implement exactly this loop:
+
+- Rust (via the SDK): `examples/metarepo-plugin-example/`
+- Node.js: `examples/plugin-node/`
+- Python: `examples/plugin-python/`
+- Go: `examples/plugin-go/`
 
 ## Versioning policy
 
@@ -265,8 +270,9 @@ Done:
 - Manifest-based plugins for shell/Python/argv-only use cases (#26) — argv
   dispatch via `plugin.manifest.*`, no protocol required. See
   `PLUGIN_DEVELOPMENT.md`.
+- Cross-language templates (Node, Python, Go) (#27) — single-file starters
+  under `examples/plugin-{node,python,go}/`.
 
 Planned:
 
 - Version pinning + checksum integrity (#25).
-- Cross-language templates (Node, Python, Go) (#27).

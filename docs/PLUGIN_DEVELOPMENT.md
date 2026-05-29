@@ -22,10 +22,10 @@ Metarepo has three kinds of plugins:
    context env vars; the binary never speaks the protocol. Best for shell /
    Python / Go scripts. See [Manifest plugins](#manifest-plugins).
 
-> **Status note.** The `meta plugin install/list/remove/update` CLI and both
-> protocol and manifest plugins are available. Still **Planned**: version
-> pinning + checksum enforcement (#25) and first-party cross-language templates
-> (#27).
+> **Status note.** The `meta plugin install/list/remove/update` CLI, both
+> protocol and manifest plugins, and cross-language templates (Node, Python,
+> Go) are all available. Still **Planned**: version pinning + checksum
+> enforcement (#25).
 
 ## Quick start (Rust, with the SDK)
 
@@ -243,8 +243,17 @@ dispatch on its `type`, write one JSON response line, and **flush stdout**. See
 `docs/PLUGIN_PROTOCOL_V1.md` for the exact messages and a transcript. (For the
 common argv-only case, prefer a manifest plugin above.)
 
-> **Planned (#27):** first-party protocol templates for Node, Python, and Go
-> under `examples/`.
+Single-file starter templates are in-tree — copy one and edit:
+
+| Language | Template | Notes |
+| --- | --- | --- |
+| Node.js | [`examples/plugin-node`](../examples/plugin-node) | `chmod +x hello.mjs` and install as `file:`. Node 18+. |
+| Python | [`examples/plugin-python`](../examples/plugin-python) | `chmod +x hello.py` and install as `file:`. Python 3.8+, stdlib only. |
+| Go | [`examples/plugin-go`](../examples/plugin-go) | `go build` then install the binary as `file:`. Go 1.21+. |
+
+Each template is ~80–130 lines and implements `GetInfo`, `RegisterCommands`,
+and `HandleCommand` directly. They share the same hello-world surface as the
+Rust example, so the smoke-test JSON is interchangeable.
 
 ## Installing a plugin
 
