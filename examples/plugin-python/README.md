@@ -15,6 +15,13 @@ meta hello greet Ada
 # -> Hello, Ada! (cwd: ...)
 ```
 
+> **Install name must match the registered command.** A protocol plugin's
+> command name comes from its `RegisterCommands` response (`hello` here), not
+> from the `meta plugin install <name>` argument. Install it under that same
+> name — `meta plugin install hello` — or `meta <name> ...` won't resolve.
+> (Manifest plugins read the name from the manifest, so they don't have this
+> constraint.)
+
 ## Smoke test (without installing)
 
 ```bash

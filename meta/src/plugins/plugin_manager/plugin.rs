@@ -327,6 +327,20 @@ fn handle_update(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             .get(name)
             .ok_or_else(|| anyhow!("Plugin '{}' is not registered", name))?;
         let spec = PluginSpec::parse(name, spec_str)?;
+        // file: sources record the install destination, so reinstalling would
+        // copy the file onto itself and truncate it. They have no upstream to
+        // pull from — reinstall from the original source instead.
+        if matches!(spec, PluginSpec::File { .. }) {
+            println!(
+                "\n  {} '{}' was installed from a file source — nothing to update.",
+                "·".bright_black(),
+                name
+            );
+            println!(
+                "    To refresh it, reinstall from the original source: meta plugin install {name} --from file:<path>"
+            );
+            return Ok(());
+        }
         println!("\n  {} {}", "Updating".cyan().bold(), name);
         install_from_spec(name, &spec)?;
         println!("  {} Updated '{}'", "✓".green(), name);
