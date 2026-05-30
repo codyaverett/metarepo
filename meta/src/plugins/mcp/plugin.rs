@@ -136,10 +136,11 @@ impl McpPlugin {
                             .takes_value(true),
                     )
                     .arg(
-                        arg("tool")
-                            .help("Tool name to call")
-                            .required(true)
-                            .takes_value(true),
+                        // Not marked required at the clap level: it follows the
+                        // optional `server-args` positional, and clap forbids a
+                        // required positional after an optional one. Presence is
+                        // enforced at runtime in the handler instead.
+                        arg("tool").help("Tool name to call").takes_value(true),
                     )
                     .arg(
                         arg("tool-args")
@@ -426,7 +427,9 @@ async fn handle_call_tool_async(matches: &ArgMatches) -> Result<()> {
         .get_one::<String>("name")
         .ok_or_else(|| anyhow::anyhow!("Server name or command required"))?;
     let server_args = matches.get_one::<String>("server-args");
-    let tool_name = matches.get_one::<String>("tool").unwrap();
+    let tool_name = matches
+        .get_one::<String>("tool")
+        .ok_or_else(|| anyhow::anyhow!("Tool name required"))?;
     let tool_args = matches
         .get_one::<String>("tool-args")
         .map(|s| serde_json::from_str(s))

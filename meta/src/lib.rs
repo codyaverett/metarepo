@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod completions;
 pub mod config;
 pub mod plugin;
 pub mod plugins;

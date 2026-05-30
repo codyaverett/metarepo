@@ -225,18 +225,27 @@ Cache expensive operations:
 ### Shell Completions
 
 **Priority:** High
-**Status:** Planned
+**Status:** ✅ Completed (v0.23.0)
 
 Generate shell completions for:
-- Bash
-- Zsh
-- Fish
-- PowerShell
+- ✅ Bash
+- ✅ Zsh
+- ✅ Fish
+- ✅ PowerShell
+- ✅ Elvish (bonus, provided by `clap_complete`)
 
 ```bash
 meta completions bash > /etc/bash_completion.d/meta
 meta completions zsh > ~/.zsh/completion/_meta
 ```
+
+**Implementation Notes:**
+- Native `meta completions <shell>` subcommand (not a plugin) in `meta/src/completions.rs`.
+- Built on `clap_complete`, generated from the assembled clap command tree so
+  every built-in subcommand is covered.
+- Output is deterministic: always generated from the stable command set, so an
+  installed script does not depend on whether `-x`/`--experimental` was passed.
+- See `docs/SHELL_COMPLETIONS.md` for install instructions per shell.
 
 ### Better Error Messages
 

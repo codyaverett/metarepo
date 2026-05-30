@@ -118,6 +118,7 @@ meta git update
 | **exec** | `meta exec [flags] <command>` | Execute commands across repositories |
 | **run** | `meta run [flags] <script>` | Run scripts defined in `.meta` |
 | **worktree** | `meta worktree <add\|remove\|list\|prune>` | Git worktree management across workspace |
+| **completions** | `meta completions <bash\|zsh\|fish\|powershell\|elvish>` | Generate shell completion scripts |
 | **rules** | `meta -x rules <check\|init\|list\|...>` | Project structure enforcement (experimental) |
 | **plugin** | `meta -x plugin <add\|install\|remove\|list\|update>` | External plugin management (experimental) |
 | **mcp** | `meta -x mcp <add\|list\|connect\|serve\|...>` | Model Context Protocol integration (experimental) |
@@ -246,6 +247,7 @@ For security vulnerabilities, please follow our [Security Policy](SECURITY.md). 
 - [Harness Integration](docs/HARNESS_INTEGRATION.md) - Making AI agent harnesses (Claude Code, opencode, MCP clients, a custom TUI) fluent in metarepo
 - [Rules System](docs/RULES.md) - Defining project rules and metadata
 - [Worktree Configuration](docs/WORKTREE.md) - Advanced worktree features and configuration
+- [Shell Completions](docs/SHELL_COMPLETIONS.md) - Generating and installing tab-completion scripts
 - [Testing Guidelines](docs/qa/) - QA and testing strategy
 - [Security Testing](docs/security/) - Security testing strategy
 - [Enhancement Ideas](docs/ENHANCEMENT_IDEAS.md) - Future improvement ideas

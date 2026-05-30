@@ -151,6 +151,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0a7a9bfdb35811f9e59832f0f05975114d2251b415fb534108e6f34060fd772"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -754,10 +763,11 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "metarepo"
-version = "0.22.4"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "clap",
+ "clap_complete",
  "colored",
  "console",
  "crossterm",
@@ -785,7 +795,7 @@ dependencies = [
 
 [[package]]
 name = "metarepo-core"
-version = "0.22.4"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -803,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "metarepo-plugin-sdk"
-version = "0.22.4"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "metarepo-core",
