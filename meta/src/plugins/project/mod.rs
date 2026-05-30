@@ -855,18 +855,18 @@ fn get_remote_url(repo: &Repository) -> Result<Option<String>> {
     let remote_names = repo.remotes()?;
 
     // First try 'origin'
-    if remote_names.iter().any(|n| n == Some("origin")) {
+    if remote_names.iter().any(|n| n == Ok(Some("origin"))) {
         if let Ok(remote) = repo.find_remote("origin") {
-            if let Some(url) = remote.url() {
+            if let Ok(url) = remote.url() {
                 return Ok(Some(url.to_string()));
             }
         }
     }
 
     // Fallback to first available remote
-    for name in remote_names.iter().flatten() {
+    for name in remote_names.iter().flatten().flatten() {
         if let Ok(remote) = repo.find_remote(name) {
-            if let Some(url) = remote.url() {
+            if let Ok(url) = remote.url() {
                 return Ok(Some(url.to_string()));
             }
         }

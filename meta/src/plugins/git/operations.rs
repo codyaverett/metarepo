@@ -12,7 +12,7 @@ pub fn get_git_status(repo_path: &Path) -> Result<String> {
         let mut status_lines = Vec::new();
 
         for entry in statuses.iter() {
-            if let Some(path) = entry.path() {
+            if let Ok(path) = entry.path() {
                 let status = entry.status();
                 let mut status_str = String::new();
 
