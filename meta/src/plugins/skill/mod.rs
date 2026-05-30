@@ -85,7 +85,13 @@ fn fingerprint(skill_md: &str, changelog: &str) -> String {
         hasher.update(part.len().to_le_bytes());
         hasher.update(part.as_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    let digest = hasher.finalize();
+    let mut s = String::with_capacity(digest.len() * 2);
+    for b in digest {
+        use std::fmt::Write;
+        let _ = write!(s, "{b:02x}");
+    }
+    s
 }
 
 /// Fingerprint recorded at the last install/update, if any. Legacy installs

@@ -48,7 +48,7 @@ tempfile = "3.0"
 shlex = "1.3"
 
 # Plugin integrity (version pinning + checksum)
-sha2 = "0.10"
+sha2 = "0.11"
 semver = "1"
 
 [dev-dependencies]
