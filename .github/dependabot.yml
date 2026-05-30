@@ -1,0 +1,26 @@
+# Dependabot keeps Cargo crates and GitHub Actions up to date. Actions are
+# pinned by commit SHA in the workflows; Dependabot bumps the SHA and the
+# trailing version comment together. See issue #43.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Collapse routine minor/patch bumps into a single PR to cut noise.
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      github-actions:
+        patterns:
+          - "*"
