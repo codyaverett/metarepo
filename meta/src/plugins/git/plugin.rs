@@ -54,7 +54,12 @@ impl GitPlugin {
                     .arg(
                         arg("parallel")
                             .long("parallel")
-                            .help("Pull repositories in parallel"),
+                            .help("Pull repositories in parallel (now the default)"),
+                    )
+                    .arg(
+                        arg("sequential")
+                            .long("sequential")
+                            .help("Pull repositories one at a time instead of concurrently"),
                     )
                     .arg(
                         arg("skip-main")
@@ -155,9 +160,10 @@ fn handle_pull(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
     let config = MetaConfig::load_from_file(&meta_file)?;
     let base_path = meta_file.parent().unwrap();
 
-    let parallel = matches.get_flag("parallel");
+    // Pulls are network-bound, so run them concurrently by default. `--sequential`
+    // restores one-at-a-time behavior; `--parallel` is kept for back-compat.
+    let parallel = !matches.get_flag("sequential");
     let skip_main = matches.get_flag("skip-main");
-    let include_main = !skip_main;
 
     // Build iterator filtered to existing git repos
     let mut iterator = ProjectIterator::new(&config, base_path)
@@ -174,21 +180,54 @@ fn handle_pull(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
         iterator = iterator.with_exclude_patterns(pattern_vec);
     }
 
-    // Expand each project into the directories that can actually be pulled.
+    // Collect every candidate up front so the independent per-repo preflight
+    // checks (bare detection, uncommitted-change and upstream probes, worktree
+    // listing) can run concurrently rather than one repo at a time.
+    let mut candidates: Vec<ProjectInfo> = iterator.collect();
+
+    // Treat the main meta repository as just another candidate so it goes
+    // through the same graceful skipping (uncommitted changes / no upstream)
+    // instead of aborting the whole run, and so it is pulled alongside the rest.
+    if !skip_main {
+        let main_name = base_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| format!("{} (main)", n))
+            .unwrap_or_else(|| "main repository".to_string());
+        candidates.insert(
+            0,
+            ProjectInfo::new(main_name, base_path.to_path_buf(), "local".to_string()),
+        );
+    }
+
+    // Expand each candidate into the directories that can actually be pulled.
     // Regular repos pull in place; bare repos (whose top-level git dir is bare)
     // pull in each managed worktree so we never hit
     // "fatal: this operation must be run in a work tree". Worktrees with
     // uncommitted changes are skipped to avoid conflicts.
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let classifications = parallel_map(candidates, workers, classify_pull_target);
+
     let mut targets: Vec<ProjectInfo> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
+    let mut no_upstream: Vec<String> = Vec::new();
 
-    for project in iterator {
-        if is_bare_repository(&project.path) {
-            expand_bare_repo_targets(&project, &mut targets, &mut skipped);
-        } else if project.has_uncommitted_changes() {
-            skipped.push(project.name.clone());
-        } else {
-            targets.push(project);
+    for classification in classifications {
+        match classification {
+            PullTarget::Pull(project) => targets.push(project),
+            PullTarget::Skip(name) => skipped.push(name),
+            PullTarget::NoUpstream(name) => no_upstream.push(name),
+            PullTarget::Bare {
+                targets: t,
+                skipped: s,
+                no_upstream: u,
+            } => {
+                targets.extend(t);
+                skipped.extend(s);
+                no_upstream.extend(u);
+            }
         }
     }
 
@@ -203,15 +242,103 @@ fn handle_pull(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
         println!();
     }
 
-    execute_with_projects(
-        "git",
-        &["pull"],
-        targets,
-        include_main,
-        parallel,
-        false,
-        false,
-    )
+    if !no_upstream.is_empty() {
+        println!(
+            "ℹ️  Skipping {} target(s) with no upstream tracking branch:",
+            no_upstream.len()
+        );
+        for name in &no_upstream {
+            println!("   - {}", name);
+        }
+        println!("   Set one with: git branch --set-upstream-to=origin/<branch>");
+        println!();
+    }
+
+    // `include_main` is false here: the main repo, when not skipped, is already
+    // part of `targets` so it is filtered and pulled like any other repository.
+    execute_with_projects("git", &["pull"], targets, false, parallel, false, false)
+}
+
+/// Outcome of inspecting a single candidate before pulling.
+enum PullTarget {
+    /// A directory that can be pulled directly.
+    Pull(ProjectInfo),
+    /// Skipped because of uncommitted changes (carries the display name).
+    Skip(String),
+    /// Skipped because the current branch has no upstream (display name).
+    NoUpstream(String),
+    /// A bare repository expanded into its per-worktree results.
+    Bare {
+        targets: Vec<ProjectInfo>,
+        skipped: Vec<String>,
+        no_upstream: Vec<String>,
+    },
+}
+
+/// Inspect one candidate and decide how (or whether) it should be pulled.
+///
+/// This is pure preflight: it only spawns short-lived, network-free git probes,
+/// which makes it safe to run concurrently across many repositories.
+fn classify_pull_target(project: ProjectInfo) -> PullTarget {
+    if is_bare_repository(&project.path) {
+        let mut targets = Vec::new();
+        let mut skipped = Vec::new();
+        let mut no_upstream = Vec::new();
+        expand_bare_repo_targets(&project, &mut targets, &mut skipped, &mut no_upstream);
+        PullTarget::Bare {
+            targets,
+            skipped,
+            no_upstream,
+        }
+    } else if project.has_uncommitted_changes() {
+        PullTarget::Skip(project.name)
+    } else if !branch_has_upstream(&project.path) {
+        PullTarget::NoUpstream(project.name)
+    } else {
+        PullTarget::Pull(project)
+    }
+}
+
+/// Apply `f` to every item across a bounded pool of worker threads, preserving
+/// input order in the returned vector.
+///
+/// Used to run the independent, per-repository preflight checks concurrently.
+/// Falls back to a plain sequential map when there is nothing to gain.
+fn parallel_map<T, R>(items: Vec<T>, workers: usize, f: impl Fn(T) -> R + Sync) -> Vec<R>
+where
+    T: Send,
+    R: Send,
+{
+    let len = items.len();
+    if len <= 1 || workers <= 1 {
+        return items.into_iter().map(f).collect();
+    }
+
+    let workers = workers.min(len);
+    let queue: std::sync::Mutex<std::collections::VecDeque<(usize, T)>> =
+        std::sync::Mutex::new(items.into_iter().enumerate().collect());
+    let slots: Vec<std::sync::Mutex<Option<R>>> =
+        (0..len).map(|_| std::sync::Mutex::new(None)).collect();
+
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let next = queue.lock().unwrap().pop_front();
+                match next {
+                    Some((index, item)) => {
+                        let result = f(item);
+                        *slots[index].lock().unwrap() = Some(result);
+                    }
+                    None => break,
+                }
+            });
+        }
+    });
+
+    slots
+        .into_iter()
+        .map(|slot| slot.into_inner().unwrap().expect("worker filled slot"))
+        .collect()
 }
 
 /// Determine whether the git repository discovered at `path` is bare.
@@ -232,6 +359,27 @@ fn is_bare_repository(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Determine whether the current branch at `path` has an upstream tracking
+/// branch configured.
+///
+/// `git pull` aborts with "There is no tracking information for the current
+/// branch" when the checked-out branch has no upstream. Detecting that ahead of
+/// time lets us skip the target with a helpful note instead of surfacing a
+/// failure for what is an expected, benign state (e.g. a freshly created local
+/// branch).
+fn branch_has_upstream(path: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("--symbolic-full-name")
+        .arg("@{upstream}")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 /// Expand a bare repository into one pull target per checked-out worktree.
 ///
 /// Every managed branch (worktree) is added so they all get updated, and the
@@ -241,6 +389,7 @@ fn expand_bare_repo_targets(
     project: &ProjectInfo,
     targets: &mut Vec<ProjectInfo>,
     skipped: &mut Vec<String>,
+    no_upstream: &mut Vec<String>,
 ) {
     let worktrees = match list_worktrees(&project.path) {
         Ok(worktrees) => worktrees,
@@ -276,6 +425,8 @@ fn expand_bare_repo_targets(
 
         if info.has_uncommitted_changes() {
             skipped.push(info.name.clone());
+        } else if !branch_has_upstream(&info.path) {
+            no_upstream.push(info.name.clone());
         } else {
             targets.push(info);
         }
