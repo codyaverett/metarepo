@@ -68,6 +68,19 @@ SHA-256 is recomputed and compared:
 When integrity is `off`, checksums are still *recorded* on install (cheap, and
 makes turning the mode on later seamless) but never *enforced* on load.
 
+## Installing, updating, and re-pinning
+
+- `meta plugin install <name> [--version X]` installs and records the spec plus
+  a lockfile entry. The recorded version is the **actual** version the installed
+  plugin reports (read from the manifest, or probed from the binary), not just
+  the declared pin — so even an unpinned `meta plugin install foo` captures a
+  concrete version rather than `*`.
+- `meta plugin update <name>` reinstalls from the recorded spec and refreshes
+  the lockfile, printing the version change (`old → new`).
+- `meta plugin update <name> --version X` re-pins a crates.io plugin to `X`
+  (rewriting the spec in `.metarepo`) and then updates. Re-pinning a
+  `file:`/`git+` plugin is rejected, since those carry no crates version.
+
 ## On-demand verification & reporting
 
 - `meta plugin verify [name]` recomputes the SHA-256 of each installed plugin
@@ -99,7 +112,7 @@ plugin:
 
 ```toml
 [plugins.foo]
-version = "1.2.3"          # version resolved at install time (informational)
+version = "1.2.3"          # actual version the plugin reported at install time
 source = "crates:metarepo-plugin-foo@1.2.3"
 sha256 = "9f86d0818..."     # hex digest of the resolved binary
 

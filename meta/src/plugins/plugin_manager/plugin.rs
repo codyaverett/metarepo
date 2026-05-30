@@ -8,10 +8,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::install::{
-    install_from_spec, integrity_status, record_lock_entry, remove_lock_entry,
+    install_from_spec, integrity_status, locked_version, record_lock_entry, remove_lock_entry,
     resolved_binary_path, IntegrityStatus,
 };
 use super::spec::PluginSpec;
+use super::verify::version_satisfies;
 use crate::plugins::plugin_loader::ExternalPlugin;
 
 /// Manages external metarepo plugins: install / list / remove / update.
@@ -90,6 +91,12 @@ impl PluginManagerPlugin {
                         arg("name")
                             .help("Plugin to update; omit to update all")
                             .required(false)
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("version")
+                            .long("version")
+                            .help("Re-pin to this version before updating (crates.io plugins, single plugin only)")
                             .takes_value(true),
                     ),
             )
@@ -286,7 +293,10 @@ fn print_plugin_status(name: &str, spec: &PluginSpec) {
     match ExternalPlugin::probe(&path) {
         Ok((_, installed)) => {
             if let Some(declared) = declared {
-                if declared != installed {
+                // Match the loader's semver enforcement, not exact equality, so
+                // an installed 1.4.2 satisfying a `1.0.0` (i.e. ^1.0.0) pin is
+                // not falsely reported as a mismatch.
+                if !version_satisfies(declared, &installed) {
                     println!(
                         "  {} {}  [{}]  version mismatch (declared {}, installed {})",
                         "⚠".yellow(),
@@ -379,15 +389,42 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     Ok(())
 }
 
+/// Render a concise version-change suffix for update output: `old → new` when
+/// it changed, `(vX)` when known and unchanged, empty otherwise.
+fn version_change(before: &Option<String>, after: &Option<String>) -> String {
+    match (before, after) {
+        (Some(o), Some(n)) if o != n => format!("  {} → {}", o, n),
+        (_, Some(n)) => format!("  (v{n})"),
+        _ => String::new(),
+    }
+}
+
 fn handle_update(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let meta_file = require_meta_file(config)?;
     let (_, plugins) = load_plugins(&meta_file)?;
+    let repin = matches.get_one::<String>("version").map(String::as_str);
 
     if let Some(name) = matches.get_one::<String>("name") {
         let spec_str = plugins
             .get(name)
             .ok_or_else(|| anyhow!("Plugin '{}' is not registered", name))?;
-        let spec = PluginSpec::parse(name, spec_str)?;
+        let mut spec = PluginSpec::parse(name, spec_str)?;
+
+        // `--version` re-pins (crates.io only) and persists the new spec before
+        // reinstalling, so the change sticks in .metarepo.
+        if let Some(version) = repin {
+            match &mut spec {
+                PluginSpec::Crates { version: v, .. } => *v = Some(version.to_string()),
+                _ => return Err(anyhow!("--version can only re-pin crates.io plugins")),
+            }
+            let mut cfg = MetaConfig::load_from_file(&meta_file)?;
+            cfg.plugins
+                .get_or_insert_with(HashMap::new)
+                .insert(name.clone(), spec.to_spec_string());
+            cfg.save_to_file(&meta_file)
+                .with_context(|| format!("Failed to update {}", meta_file.display()))?;
+        }
+
         // file: sources record the install destination, so reinstalling would
         // copy the file onto itself and truncate it. They have no upstream to
         // pull from — reinstall from the original source instead.
@@ -403,11 +440,18 @@ fn handle_update(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             return Ok(());
         }
         println!("\n  {} {}", "Updating".cyan().bold(), name);
+        let before = locked_version(&meta_file, name);
         let stored = install_from_spec(name, &spec)?;
         if let Err(e) = record_lock_entry(&meta_file, name, &stored) {
             eprintln!("  {} Could not record checksum: {}", "⚠".yellow(), e);
         }
-        println!("  {} Updated '{}'", "✓".green(), name);
+        let after = locked_version(&meta_file, name);
+        println!(
+            "  {} Updated '{}'{}",
+            "✓".green(),
+            name,
+            version_change(&before, &after)
+        );
         return Ok(());
     }
 
@@ -432,12 +476,19 @@ fn handle_update(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             continue;
         }
         println!("  {} {}", "Updating".cyan(), name);
+        let before = locked_version(&meta_file, name);
         match install_from_spec(name, &spec) {
             Ok(stored) => {
                 if let Err(e) = record_lock_entry(&meta_file, name, &stored) {
                     eprintln!("    {} could not record checksum: {}", "⚠".yellow(), e);
                 }
-                println!("  {} {}", "✓".green(), name);
+                let after = locked_version(&meta_file, name);
+                println!(
+                    "  {} {}{}",
+                    "✓".green(),
+                    name,
+                    version_change(&before, &after)
+                );
             }
             Err(e) => println!("  {} {} failed: {}", "✗".red(), name, e),
         }

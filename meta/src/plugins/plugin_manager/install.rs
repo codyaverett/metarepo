@@ -10,6 +10,7 @@ use std::process::Command;
 use super::lockfile::{LockEntry, Lockfile};
 use super::spec::{default_crate_name, PluginSpec};
 use super::verify::{integrity_target, sha256_file};
+use crate::plugins::plugin_loader::ExternalPlugin;
 
 /// `~/.config/metarepo/plugins`, created if missing. Preferred home for plugins
 /// installed from `file:` and `git+` sources.
@@ -137,28 +138,31 @@ fn install_manifest_files(plugin_name: &str, manifest_path: &Path) -> Result<Pat
     Ok(manifest_dest)
 }
 
-/// The version to record in the lockfile for a stored spec. Informational only
-/// (the checksum is the real guard): the declared crates version when present,
-/// the manifest version for manifest plugins, otherwise `*`.
-fn lock_version(spec: &PluginSpec) -> String {
-    if let Some(v) = spec.declared_version() {
-        return v.to_string();
-    }
-    if let PluginSpec::File { path } = spec {
-        let p = expand_tilde(path);
-        if PluginManifest::is_manifest_path(&p) {
-            if let Ok(m) = PluginManifest::from_file_auto(&p) {
-                return m.plugin.version;
-            }
+/// The version to record in the lockfile: the *actual* version the installed
+/// plugin reports, not just the declared pin. Manifest plugins are read from
+/// their manifest; protocol/argv binaries are probed; if neither works we fall
+/// back to the declared pin and finally `*`.
+///
+/// `resolved` is the path the spec resolves to (a manifest or a binary) and
+/// `target` is the executable that path ultimately points at.
+fn resolved_version(spec: &PluginSpec, resolved: &Path, target: &Path) -> String {
+    if PluginManifest::is_manifest_path(resolved) {
+        if let Ok(m) = PluginManifest::from_file_auto(resolved) {
+            return m.plugin.version;
         }
     }
-    "*".to_string()
+    if let Ok((_, version)) = ExternalPlugin::probe(target) {
+        return version;
+    }
+    spec.declared_version()
+        .map(String::from)
+        .unwrap_or_else(|| "*".to_string())
 }
 
-/// Record (or refresh) a plugin's checksum entry in the lockfile beside the
-/// active config. Best-effort by design: integrity is only *enforced* when the
-/// workspace opts in via `plugins-integrity = "required"`, but the digest is
-/// always recorded so opting in later needs no reinstall.
+/// Record (or refresh) a plugin's entry in the lockfile beside the active
+/// config. Best-effort by design: integrity is only *enforced* when the
+/// workspace opts in via `plugins-integrity = "required"`, but the digest (and
+/// resolved version) are always recorded so opting in later needs no reinstall.
 pub fn record_lock_entry(meta_file: &Path, plugin_name: &str, stored: &PluginSpec) -> Result<()> {
     let resolved = resolved_binary_path(plugin_name, stored)?;
     let target = integrity_target(&resolved)?;
@@ -170,12 +174,20 @@ pub fn record_lock_entry(meta_file: &Path, plugin_name: &str, stored: &PluginSpe
     lock.upsert(
         plugin_name,
         LockEntry {
-            version: lock_version(stored),
+            version: resolved_version(stored, &resolved, &target),
             source: stored.to_spec_string(),
             sha256,
         },
     );
     lock.save(&lock_path)
+}
+
+/// The version currently recorded in the lockfile for a plugin, if any. Used to
+/// report `old → new` on update.
+pub fn locked_version(meta_file: &Path, plugin_name: &str) -> Option<String> {
+    let dir = meta_file.parent().unwrap_or_else(|| Path::new("."));
+    let lock = Lockfile::load(&Lockfile::path_for(dir)).ok()?;
+    lock.get(plugin_name).map(|e| e.version.clone())
 }
 
 /// Outcome of comparing an installed plugin's binary against the digest

@@ -276,15 +276,11 @@ fn list_shows_integrity_ok_when_required() {
     );
 }
 
-/// Write a fake protocol plugin (a shell script speaking the JSON handshake)
-/// into the fixture's `~/.cargo/bin`, and pin it in `.metarepo` with `pin`.
-/// The plugin reports version `reports`.
-fn install_fake_crates_plugin(f: &Fixture, reports: &str, pin: &str) {
-    let bin_dir = f.home.join(".cargo").join("bin");
-    fs::create_dir_all(&bin_dir).unwrap();
-    let script = bin_dir.join("metarepo-plugin-fake");
+/// Write an executable shell script at `path` that speaks the plugin protocol
+/// and reports name `fake` at version `reports`.
+fn write_protocol_script(path: &Path, reports: &str) {
     fs::write(
-        &script,
+        path,
         format!(
             r#"#!/usr/bin/env bash
 while IFS= read -r line; do
@@ -307,15 +303,92 @@ done
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
     }
+}
 
-    // Reference it from config with the given pin.
+/// Place a fake protocol plugin in the fixture's `~/.cargo/bin` (where crates
+/// plugins are loaded from) and pin it in `.metarepo` with `pin`. The plugin
+/// reports version `reports`.
+fn install_fake_crates_plugin(f: &Fixture, reports: &str, pin: &str) {
+    let bin_dir = f.home.join(".cargo").join("bin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    write_protocol_script(&bin_dir.join("metarepo-plugin-fake"), reports);
     fs::write(
         f.config_path(),
         format!(r#"{{"projects":{{}},"plugins":{{"fake":"crates:metarepo-plugin-fake@{pin}"}}}}"#),
     )
     .unwrap();
+}
+
+#[test]
+fn install_records_probed_version_for_unpinned_binary() {
+    let f = Fixture::new();
+    // A protocol plugin reporting 2.0.0, installed from a file source with no
+    // version pin: the lockfile should capture the probed version, not "*".
+    let script = f.ws.join("metarepo-plugin-probe");
+    write_protocol_script(&script, "2.0.0");
+    let from = format!("file:{}", script.display());
+    ok(f.meta(&["plugin", "install", "probe", "--from", &from]));
+
+    let lock = fs::read_to_string(f.ws.join(".metarepo.lock")).unwrap();
+    assert!(
+        lock.contains("2.0.0"),
+        "lockfile should record the probed version: {lock}"
+    );
+    assert!(
+        !lock.contains("\"*\""),
+        "lockfile should not fall back to * for a probeable binary: {lock}"
+    );
+}
+
+#[test]
+fn list_does_not_falsely_flag_semver_satisfied_pin() {
+    let f = Fixture::new();
+    // Pin ^1.0.0, plugin reports 1.4.2 — satisfied, so list must NOT warn.
+    install_fake_crates_plugin(&f, "1.4.2", "1.0.0");
+
+    let out = ok(f.meta(&["plugin", "list"]));
+    let s = stdout(&out);
+    assert!(
+        !s.contains("version mismatch"),
+        "a semver-satisfied pin must not be flagged as a mismatch: {s}"
+    );
+    assert!(
+        s.contains("1.4.2"),
+        "list should show the installed version: {s}"
+    );
+}
+
+#[test]
+fn list_flags_semver_violating_pin() {
+    let f = Fixture::new();
+    // Pin ^1.0.0, plugin reports 2.0.0 — violates the pin.
+    install_fake_crates_plugin(&f, "2.0.0", "1.0.0");
+
+    let out = ok(f.meta(&["plugin", "list"]));
+    assert!(
+        stdout(&out).contains("version mismatch"),
+        "a pin-violating version should be flagged in list: {}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn update_version_rejects_non_crates_plugin() {
+    let f = Fixture::new();
+    install_greet(&f); // installed as a file:/manifest source
+
+    let out = f.meta(&["plugin", "update", "greet", "--version", "9.9.9"]);
+    assert!(
+        !out.status.success(),
+        "re-pinning a non-crates plugin should fail"
+    );
+    assert!(
+        stderr(&out).contains("crates.io"),
+        "expected a crates-only re-pin error, got: {}",
+        stderr(&out)
+    );
 }
 
 #[test]
