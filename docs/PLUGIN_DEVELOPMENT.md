@@ -22,10 +22,10 @@ Metarepo has three kinds of plugins:
    context env vars; the binary never speaks the protocol. Best for shell /
    Python / Go scripts. See [Manifest plugins](#manifest-plugins).
 
-> **Status note.** The `meta plugin install/list/remove/update` CLI, both
-> protocol and manifest plugins, and cross-language templates (Node, Python,
-> Go) are all available. Still **Planned**: version pinning + checksum
-> enforcement (#25).
+> **Status note.** The full plugin story is in place: the `meta plugin
+> install/list/remove/update/verify` CLI, both protocol and manifest plugins,
+> cross-language templates (Node, Python, Go), and version pinning + optional
+> checksum integrity. See [Integrity & version enforcement](#integrity--version-enforcement).
 
 ## Quick start (Rust, with the SDK)
 
@@ -282,12 +282,19 @@ meta hello greet Ada
 ### Managing plugins
 
 ```bash
-meta plugin list              # status legend below
-meta plugin update hello      # reinstall from the recorded spec
-meta plugin update            # update all (crates/git sources)
-meta plugin remove hello      # unregister from .metarepo
-meta plugin remove hello --purge   # also delete the installed binary
+meta plugin list                    # status + integrity (legend below)
+meta plugin update hello            # reinstall from the recorded spec
+meta plugin update hello --version 0.3.0  # re-pin (crates.io) then update
+meta plugin update                  # update all (crates/git sources)
+meta plugin verify                  # check all binaries against .metarepo.lock
+meta plugin verify hello            # check one (non-zero exit on mismatch — CI-friendly)
+meta plugin remove hello            # unregister from .metarepo
+meta plugin remove hello --purge    # also delete the installed binary
 ```
+
+`update` reports the version change (`old → new`); `update --version` re-pins a
+crates.io plugin in `.metarepo` before reinstalling (rejected for `file:`/`git+`
+sources, which carry no crates version).
 
 `meta plugin list` status symbols:
 
@@ -295,8 +302,13 @@ meta plugin remove hello --purge   # also delete the installed binary
 | --- | --- |
 | `✓ <name> [<source>] installed (vX)` | Binary present and (for protocol plugins) probes to vX, or manifest declares vX. |
 | `✓ <name> [<source>] installed at <path>` | Binary present but not probeable (e.g. blocked by the allowed-path policy, or not protocol-speaking). |
-| `⚠ <name> [<source>] version mismatch` | Spec declares one version; the installed binary reports another. Run `meta plugin update <name>`. |
+| `⚠ <name> [<source>] version mismatch` | The installed version does not satisfy the spec's pin (semver — same check the loader enforces). Run `meta plugin update <name>`. |
 | `✗ <name> [<source>] missing` | Registered in `.metarepo` but not installed. Run `meta plugin install <name>`. |
+
+Each entry may carry an indented integrity line: `integrity: MISMATCH` (always
+shown — the binary no longer matches `.metarepo.lock`), or `integrity: ok` /
+`not recorded` / `unverifiable` (shown only when the workspace enforces
+integrity). See below.
 
 ### Spec forms in `.metarepo`
 
@@ -329,8 +341,29 @@ Metarepo will only spawn a plugin binary whose path passes these checks:
 The `config` snapshot handed to plugins is sanitized first: dangerous env vars
 and traversal-prone project keys are stripped before serialization.
 
-> **Planned (#25):** version pinning and optional checksum integrity so a
-> pinned plugin can be verified before it runs.
+## Integrity & version enforcement
+
+Two layers guard what actually loads. Full details (lockfile format, CI usage,
+design rationale) live in [`docs/PLUGIN_INTEGRITY.md`](PLUGIN_INTEGRITY.md).
+
+- **Version pinning (always on).** When a plugin loads, the version it reports
+  is checked against the version pinned by its spec. Crates pins use semver
+  (`crates:foo@1.2.3` means `^1.2.3`; `=1.2.3` and ranges are honored as
+  written); `file:`/`git+`/unpinned specs declare no version, so the check is
+  skipped. A mismatch refuses to load that plugin (its commands won't appear);
+  `--allow-version-mismatch`, or `METAREPO_ALLOW_VERSION_MISMATCH=1`, downgrades
+  it to a warning.
+- **Checksum integrity (opt-in).** Set `plugins-integrity = "required"` in
+  `.metarepo`. `meta plugin install`/`update` then record each binary's SHA-256
+  in a sibling `.metarepo.lock`; on load the digest is recomputed and a mismatch
+  is refused (no override). Checksums are always *recorded* on install even when
+  the mode is off, so turning it on later needs no reinstall.
+
+Loading happens immediately before any command is dispatched, so a plugin that
+fails either check can never be invoked — load time is the pre-run gate. Use
+`meta plugin verify` for an explicit, CI-friendly check (non-zero exit on
+mismatch), and `meta plugin list` for at-a-glance status. Commit `.metarepo.lock`
+to protect every clone of the workspace.
 
 ## Testing
 
@@ -402,6 +435,7 @@ RUST_LOG=debug meta hello greet Ada
 ## References
 
 - Wire protocol: [`PLUGIN_PROTOCOL_V1.md`](./PLUGIN_PROTOCOL_V1.md)
+- Integrity & version enforcement: [`PLUGIN_INTEGRITY.md`](./PLUGIN_INTEGRITY.md)
 - Reference plugin: [`examples/metarepo-plugin-example`](../examples/metarepo-plugin-example)
 - SDK source: [`metarepo-plugin-sdk`](../metarepo-plugin-sdk)
 - Plugin epic and roadmap: GitHub issue #21
