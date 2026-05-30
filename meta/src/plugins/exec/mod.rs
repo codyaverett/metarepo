@@ -68,7 +68,32 @@ pub fn execute_with_iterator(
     streaming: bool,
 ) -> Result<()> {
     let projects: Vec<_> = iterator.collect();
+    execute_with_projects(
+        command,
+        args,
+        projects,
+        include_main,
+        parallel,
+        no_progress,
+        streaming,
+    )
+}
 
+/// Execute a command across a pre-built list of projects.
+///
+/// This mirrors [`execute_with_iterator`] but accepts an already-collected list
+/// of [`ProjectInfo`] entries. It is useful when callers need to transform the
+/// project set before execution (for example, expanding a bare repository into
+/// one target per worktree).
+pub fn execute_with_projects(
+    command: &str,
+    args: &[&str],
+    projects: Vec<ProjectInfo>,
+    include_main: bool,
+    parallel: bool,
+    no_progress: bool,
+    streaming: bool,
+) -> Result<()> {
     if projects.is_empty() && !include_main {
         println!("No projects matched the criteria");
         return Ok(());

@@ -320,6 +320,42 @@ workspace/
 │       └── auth/
 ```
 
+### Pulling Updates
+
+Because a bare repository keeps only git data at `<project>/.git/`, the project
+root itself has no work tree. Running `git pull` there directly would fail with
+`fatal: this operation must be run in a work tree`.
+
+`meta git pull` handles this automatically: for bare repositories it pulls each
+managed worktree (branch) in place instead of the project root, so every
+checked-out branch is updated in one command.
+
+```bash
+meta git pull
+```
+
+For a bare project with `main` and `feature/auth` worktrees, this runs
+`git pull` in both `<project>/main/` and `<project>/feature/auth/`:
+
+```
+[1/2] my-app [main]
+  ✅ Success
+[2/2] my-app [feature/auth]
+  ✅ Success
+```
+
+Behavior details:
+
+- **All managed branches** are updated — one pull per worktree.
+- **The default branch is always covered.** If no worktree exists for it,
+  Metarepo falls back to fetching its refs so the bare repo is still updated.
+- **Dirty worktrees are skipped** (those with uncommitted changes) to avoid
+  conflicts, and are listed before pulling.
+- **Detached worktrees and the bare entry are skipped** — there is nothing to
+  pull into them.
+
+Regular (non-bare) repositories continue to pull in place as before.
+
 ### Default Branch Detection
 
 When creating the default worktree, Metarepo automatically detects your default branch:

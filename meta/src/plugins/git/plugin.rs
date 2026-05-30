@@ -1,8 +1,12 @@
 use super::{clone_missing_repos, clone_repository, get_git_status};
-use crate::plugins::exec::{execute_with_iterator, ProjectIterator};
+use crate::plugins::exec::{execute_with_projects, ProjectInfo, ProjectIterator};
+use crate::plugins::shared::detect_default_branch;
+use crate::plugins::worktree::list_worktrees;
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
+use std::path::Path;
+use std::process::Command;
 
 /// GitPlugin using the new simplified plugin architecture
 pub struct GitPlugin;
@@ -170,12 +174,27 @@ fn handle_pull(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
         iterator = iterator.with_exclude_patterns(pattern_vec);
     }
 
-    // Filter out repos with uncommitted changes to avoid conflicts
-    let (iterator, skipped) = iterator.filter_clean_repos();
+    // Expand each project into the directories that can actually be pulled.
+    // Regular repos pull in place; bare repos (whose top-level git dir is bare)
+    // pull in each managed worktree so we never hit
+    // "fatal: this operation must be run in a work tree". Worktrees with
+    // uncommitted changes are skipped to avoid conflicts.
+    let mut targets: Vec<ProjectInfo> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+
+    for project in iterator {
+        if is_bare_repository(&project.path) {
+            expand_bare_repo_targets(&project, &mut targets, &mut skipped);
+        } else if project.has_uncommitted_changes() {
+            skipped.push(project.name.clone());
+        } else {
+            targets.push(project);
+        }
+    }
 
     if !skipped.is_empty() {
         println!(
-            "⚠️  Skipping {} repo(s) with uncommitted changes:",
+            "⚠️  Skipping {} target(s) with uncommitted changes:",
             skipped.len()
         );
         for name in &skipped {
@@ -184,15 +203,108 @@ fn handle_pull(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
         println!();
     }
 
-    execute_with_iterator(
+    execute_with_projects(
         "git",
         &["pull"],
-        iterator,
+        targets,
         include_main,
         parallel,
         false,
         false,
     )
+}
+
+/// Determine whether the git repository discovered at `path` is bare.
+///
+/// Metarepo clones bare repositories into `<project>/.git` and checks branches
+/// out into `<project>/<branch>` worktrees, so running `git pull` in the
+/// project root itself fails because there is no work tree there.
+fn is_bare_repository(path: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("rev-parse")
+        .arg("--is-bare-repository")
+        .output()
+        .map(|output| {
+            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
+        })
+        .unwrap_or(false)
+}
+
+/// Expand a bare repository into one pull target per checked-out worktree.
+///
+/// Every managed branch (worktree) is added so they all get updated, and the
+/// default branch is verified to be present. The bare entry and detached
+/// worktrees are skipped because there is nothing to pull into them.
+fn expand_bare_repo_targets(
+    project: &ProjectInfo,
+    targets: &mut Vec<ProjectInfo>,
+    skipped: &mut Vec<String>,
+) {
+    let worktrees = match list_worktrees(&project.path) {
+        Ok(worktrees) => worktrees,
+        Err(e) => {
+            eprintln!("⚠️  Could not list worktrees for {}: {}", project.name, e);
+            return;
+        }
+    };
+
+    let default_branch = detect_default_branch(&project.path).ok();
+    let mut added_default = false;
+
+    for wt in &worktrees {
+        // Skip the bare entry and any detached HEADs: neither can be pulled.
+        if wt.is_bare || wt.is_detached {
+            continue;
+        }
+
+        let branch = wt.branch.strip_prefix("refs/heads/").unwrap_or(&wt.branch);
+        if branch.is_empty() {
+            continue;
+        }
+
+        if default_branch.as_deref() == Some(branch) {
+            added_default = true;
+        }
+
+        let info = ProjectInfo::new(
+            format!("{} [{}]", project.name, branch),
+            wt.path.clone(),
+            project.repo_url.clone(),
+        );
+
+        if info.has_uncommitted_changes() {
+            skipped.push(info.name.clone());
+        } else {
+            targets.push(info);
+        }
+    }
+
+    // "Always use the default branch at least": if no worktree for the default
+    // branch exists, fall back to fetching so its refs are still updated rather
+    // than leaving the bare repo untouched.
+    if !added_default {
+        if let Some(branch) = &default_branch {
+            println!(
+                "ℹ️  {}: no worktree for default branch '{}', fetching instead",
+                project.name, branch
+            );
+            let status = Command::new("git")
+                .arg("-C")
+                .arg(&project.path)
+                .arg("fetch")
+                .arg("origin")
+                .arg(branch)
+                .status();
+            match status {
+                Ok(s) if s.success() => {}
+                Ok(_) | Err(_) => {
+                    eprintln!("⚠️  {}: fetch of '{}' failed", project.name, branch);
+                }
+            }
+        }
+    }
 }
 
 // Traditional implementation for backward compatibility
