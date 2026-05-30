@@ -77,13 +77,13 @@ impl PluginRegistry {
     pub fn discover_and_register(&mut self) -> Result<()> {
         // 1. Register workspace plugins
         self.register_workspace_plugins()?;
-        
+
         // 2. Discover external plugins
         self.discover_external_plugins()?;
-        
+
         // 3. Load configuration-specified plugins
         self.load_config_plugins()?;
-        
+
         Ok(())
     }
 }
@@ -187,7 +187,7 @@ pub struct ProjectIterator<'a> {
 
 impl<'a> Iterator for ProjectIterator<'a> {
     type Item = ProjectInfo;
-    
+
     fn next(&mut self) -> Option<Self::Item> {
         // Implementation
     }
@@ -225,13 +225,13 @@ impl<'a> Iterator for ProjectIterator<'a> {
 pub enum MetaError {
     #[error("Configuration error: {0}")]
     Config(String),
-    
+
     #[error("Plugin error: {0}")]
     Plugin(String),
-    
+
     #[error("Git operation failed: {0}")]
     Git(String),
-    
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -290,6 +290,15 @@ pub enum MetaError {
 - Verify Node.js workflow compatibility
 - Cross-platform testing (Windows, macOS, Linux)
 - Version compatibility matrix
+
+## AI Harness Integration
+
+Beyond extending the CLI with internal plugins, metarepo can be driven by external AI
+agent harnesses (Claude Code, opencode, MCP clients, a custom TUI). The `meta -x mcp serve`
+command exposes metarepo itself as an MCP server, the universal bridge that lets any
+MCP-capable harness use meta operations as tools. See
+[Harness Integration](HARNESS_INTEGRATION.md) for the integration types, per-harness how-to,
+and roadmap.
 
 ## Future Architecture Extensions
 

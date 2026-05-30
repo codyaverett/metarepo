@@ -243,6 +243,7 @@ For security vulnerabilities, please follow our [Security Policy](SECURITY.md). 
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md) - Development roadmap
 - [Plugin Development](docs/PLUGIN_DEVELOPMENT.md) - Guide for creating external plugins (SDK quick start, install, security, testing)
 - [Plugin Protocol v1](docs/PLUGIN_PROTOCOL_V1.md) - External-plugin wire protocol specification
+- [Harness Integration](docs/HARNESS_INTEGRATION.md) - Making AI agent harnesses (Claude Code, opencode, MCP clients, a custom TUI) fluent in metarepo
 - [Rules System](docs/RULES.md) - Defining project rules and metadata
 - [Worktree Configuration](docs/WORKTREE.md) - Advanced worktree features and configuration
 - [Testing Guidelines](docs/qa/) - QA and testing strategy
