@@ -55,8 +55,15 @@ impl PluginRegistry {
             self.register(plugin);
         }
 
-        // Discover plugins in standard locations
-        let discovered = PluginLoader::discover_plugins();
+        // Discover ambient plugins in standard locations, skipping any already
+        // declared in config (those were loaded and enforced above; re-loading
+        // here would bypass integrity/version checks).
+        let configured: std::collections::HashSet<String> = config
+            .plugins
+            .as_ref()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default();
+        let discovered = PluginLoader::discover_plugins(&configured);
         for plugin in discovered {
             tracing::debug!("Discovered plugin: {}", plugin.name());
             self.register(plugin);

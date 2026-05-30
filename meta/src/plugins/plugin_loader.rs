@@ -4,6 +4,8 @@ use metarepo_core::protocol::{check_protocol_version, CommandInfo, PluginRequest
 use metarepo_core::{MetaConfig, MetaPlugin, PluginManifest, RuntimeConfig};
 
 use crate::plugins::manifest_plugin::ManifestPlugin;
+use crate::plugins::plugin_manager::lockfile::Lockfile;
+use crate::plugins::plugin_manager::spec::PluginSpec;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -302,6 +304,10 @@ impl MetaPlugin for ExternalPlugin {
     fn is_experimental(&self) -> bool {
         self.experimental
     }
+
+    fn reported_version(&self) -> Option<&str> {
+        Some(&self.version)
+    }
 }
 
 impl Drop for ExternalPlugin {
@@ -370,32 +376,143 @@ impl PluginLoader {
     pub fn load_from_config(config: &MetaConfig) -> Vec<Box<dyn MetaPlugin>> {
         let mut plugins = Vec::new();
 
-        if let Some(plugin_specs) = &config.plugins {
-            for (name, spec) in plugin_specs {
-                match Self::load_plugin_spec(name, spec) {
-                    Ok(plugin) => plugins.push(plugin),
-                    Err(e) => eprintln!("Failed to load plugin '{}': {}", name, e),
-                }
+        let Some(plugin_specs) = &config.plugins else {
+            return plugins;
+        };
+
+        // Integrity (checksum) enforcement is per-workspace opt-in; version
+        // enforcement is always on. Load the lockfile once when required.
+        let integrity = config.integrity_required();
+        let allow_mismatch = version_mismatch_allowed();
+        let lockfile = if integrity {
+            let path = Lockfile::locate();
+            match path {
+                Some(p) => Lockfile::load(&p).unwrap_or_else(|e| {
+                    eprintln!("Failed to read plugin lockfile: {}", e);
+                    Lockfile::default()
+                }),
+                None => Lockfile::default(),
+            }
+        } else {
+            Lockfile::default()
+        };
+
+        for (name, spec) in plugin_specs {
+            match Self::load_plugin_spec(name, spec, integrity, allow_mismatch, &lockfile) {
+                Ok(plugin) => plugins.push(plugin),
+                Err(e) => eprintln!("Failed to load plugin '{}': {}", name, e),
             }
         }
 
         plugins
     }
 
-    fn load_plugin_spec(name: &str, spec: &str) -> Result<Box<dyn MetaPlugin>> {
+    fn load_plugin_spec(
+        name: &str,
+        spec: &str,
+        integrity: bool,
+        allow_mismatch: bool,
+        lockfile: &Lockfile,
+    ) -> Result<Box<dyn MetaPlugin>> {
+        // Verify the on-disk bytes BEFORE spawning, so a tampered binary is never
+        // executed when integrity is enforced.
+        if integrity {
+            let load_path = Self::resolve_load_path(name, spec)?;
+            Self::verify_checksum(name, &load_path, lockfile)?;
+        }
+
         // Handle different spec formats
-        if let Some(stripped) = spec.strip_prefix("file:") {
+        let plugin = if let Some(stripped) = spec.strip_prefix("file:") {
             // Local file path (may point at a binary or a plugin.manifest.*).
             let path = expand_tilde(stripped);
-            Self::load_from_path(&path)
+            Self::load_from_path(&path)?
         } else if spec.starts_with("git+") {
             // git+ plugins are built and copied into the plugin dir at install
             // time under the conventional name; load that binary.
             let binary = Self::plugin_dir()?.join(format!("metarepo-plugin-{}", name));
-            Self::load_from_path(&binary)
+            Self::load_from_path(&binary)?
         } else {
             // Assume it's a crates.io plugin installed via cargo install.
-            Self::load_from_installed(name)
+            Self::load_from_installed(name)?
+        };
+
+        // Enforce the declared version against what the plugin reports.
+        Self::enforce_version(name, spec, plugin.as_ref(), allow_mismatch)?;
+        Ok(plugin)
+    }
+
+    /// Resolve the on-disk path a spec loads from (mirrors the dispatch in
+    /// [`Self::load_plugin_spec`]) for integrity hashing.
+    fn resolve_load_path(name: &str, spec: &str) -> Result<PathBuf> {
+        if let Some(stripped) = spec.strip_prefix("file:") {
+            Ok(expand_tilde(stripped))
+        } else if spec.starts_with("git+") {
+            Ok(Self::plugin_dir()?.join(format!("metarepo-plugin-{}", name)))
+        } else {
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .context("Could not determine home directory")?;
+            Ok(PathBuf::from(home)
+                .join(".cargo")
+                .join("bin")
+                .join(format!("metarepo-plugin-{}", name)))
+        }
+    }
+
+    /// Refuse to load a plugin whose binary does not match the digest recorded
+    /// in `.metarepo.lock`. Only called when `plugins-integrity = "required"`.
+    fn verify_checksum(name: &str, load_path: &Path, lockfile: &Lockfile) -> Result<()> {
+        let entry = lockfile.get(name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "plugins-integrity is 'required' but '{name}' has no entry in .metarepo.lock; \
+                 reinstall it (meta plugin install {name} ...) to record its checksum"
+            )
+        })?;
+        let target = crate::plugins::plugin_manager::verify::integrity_target(load_path)?;
+        let actual = crate::plugins::plugin_manager::verify::sha256_file(&target)?;
+        if actual != entry.sha256 {
+            return Err(anyhow::anyhow!(
+                "checksum mismatch for plugin '{name}': {} does not match the digest in \
+                 .metarepo.lock — refusing to load. Reinstall from a trusted source if this \
+                 change is expected.",
+                target.display()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Compare a plugin's self-reported version against the version pinned by its
+    /// spec. No-op when the spec declares no version (e.g. unpinned crates,
+    /// `file:`/`git+`) or the plugin reports none.
+    fn enforce_version(
+        name: &str,
+        spec: &str,
+        plugin: &dyn MetaPlugin,
+        allow_mismatch: bool,
+    ) -> Result<()> {
+        let Ok(parsed) = PluginSpec::parse(name, spec) else {
+            return Ok(());
+        };
+        let (Some(declared), Some(reported)) =
+            (parsed.declared_version(), plugin.reported_version())
+        else {
+            return Ok(());
+        };
+        if crate::plugins::plugin_manager::verify::version_satisfies(declared, reported) {
+            return Ok(());
+        }
+        if allow_mismatch {
+            eprintln!(
+                "warning: plugin '{name}' reports version {reported}, which does not satisfy the \
+                 pinned '{declared}' (loaded anyway: --allow-version-mismatch)"
+            );
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "version mismatch: plugin '{name}' reports {reported} but .metarepo pins \
+                 '{declared}'. Update the pin, reinstall the matching version, or pass \
+                 --allow-version-mismatch"
+            ))
         }
     }
 
@@ -430,13 +547,18 @@ impl PluginLoader {
         }
     }
 
-    /// Discover plugins in the user's plugin directory.
+    /// Discover ambient plugins in the user's plugin directory: ones dropped in
+    /// but not declared in `.metarepo`. Top-level executables load as protocol
+    /// plugins; a `plugin.manifest.*` (top-level or inside a per-plugin
+    /// subdirectory, how `meta plugin install` lays out manifest plugins) loads
+    /// as a manifest plugin.
     ///
-    /// - Top-level executable files load as protocol plugins (existing behavior).
-    /// - A top-level `plugin.manifest.*`, or one inside a per-plugin subdirectory
-    ///   (how `meta plugin install` lays out manifest plugins), loads as a
-    ///   manifest plugin.
-    pub fn discover_plugins() -> Vec<Box<dyn MetaPlugin>> {
+    /// `skip` holds the install names already declared in config. Those are
+    /// loaded (and integrity/version enforced) by `load_from_config`, so
+    /// discovery must not load them again: doing so would bypass enforcement (a
+    /// tampered binary refused there could slip in here) and needlessly spawn
+    /// the binary.
+    pub fn discover_plugins(skip: &std::collections::HashSet<String>) -> Vec<Box<dyn MetaPlugin>> {
         let mut plugins = Vec::new();
 
         let Ok(plugin_dir) = Self::plugin_dir() else {
@@ -452,27 +574,58 @@ impl PluginLoader {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                // Per-plugin subdirectory: load a manifest if present.
+                // Per-plugin subdirectory: its name is the install name.
+                if path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| skip.contains(n))
+                {
+                    continue;
+                }
                 if let Some(manifest) = PluginManifest::find_in_dir(&path) {
                     if let Ok(plugin) = Self::load_from_path(&manifest) {
-                        plugins.push(plugin);
+                        if !skip.contains(plugin.name()) {
+                            plugins.push(plugin);
+                        }
                     }
                 }
             } else if path.is_file() && !PluginManifest::is_manifest_path(&path) {
-                // Loose executable: protocol plugin.
+                // Loose executable: `metarepo-plugin-<name>` encodes the name.
+                if path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| n.strip_prefix("metarepo-plugin-"))
+                    .is_some_and(|n| skip.contains(n))
+                {
+                    continue;
+                }
                 if let Ok(plugin) = Self::load_from_path(&path) {
-                    plugins.push(plugin);
+                    if !skip.contains(plugin.name()) {
+                        plugins.push(plugin);
+                    }
                 }
             } else if PluginManifest::is_manifest_path(&path) {
                 // A manifest sitting directly in the plugins dir.
                 if let Ok(plugin) = Self::load_from_path(&path) {
-                    plugins.push(plugin);
+                    if !skip.contains(plugin.name()) {
+                        plugins.push(plugin);
+                    }
                 }
             }
         }
 
         plugins
     }
+}
+
+/// Whether a pinned-version mismatch should be downgraded to a warning instead
+/// of refusing to load. Plugins are loaded before the CLI parses arguments, so
+/// the override is detected from the raw args and the environment.
+fn version_mismatch_allowed() -> bool {
+    let env_set = std::env::var("METAREPO_ALLOW_VERSION_MISMATCH")
+        .map(|v| !v.is_empty() && v != "0")
+        .unwrap_or(false);
+    env_set || std::env::args().any(|a| a == "--allow-version-mismatch")
 }
 
 /// Expand a leading `~/` to the user's home directory.

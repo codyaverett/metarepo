@@ -112,6 +112,13 @@ impl MetarepoCli {
                     .value_name("PATH")
                     .help("Path to a metarepo config file (overrides auto-discovery). Format is detected from the file extension.")
                     .global(true)
+            )
+            .arg(
+                Arg::new("allow-version-mismatch")
+                    .long("allow-version-mismatch")
+                    .action(clap::ArgAction::SetTrue)
+                    .help("Load external plugins even if their version does not satisfy the pin in .metarepo")
+                    .global(true)
             );
 
         app

@@ -7,7 +7,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::lockfile::{LockEntry, Lockfile};
 use super::spec::{default_crate_name, PluginSpec};
+use super::verify::{integrity_target, sha256_file};
 
 /// `~/.config/metarepo/plugins`, created if missing. Preferred home for plugins
 /// installed from `file:` and `git+` sources.
@@ -133,6 +135,102 @@ fn install_manifest_files(plugin_name: &str, manifest_path: &Path) -> Result<Pat
 
     println!("  Installed manifest plugin to {}", dest_dir.display());
     Ok(manifest_dest)
+}
+
+/// The version to record in the lockfile for a stored spec. Informational only
+/// (the checksum is the real guard): the declared crates version when present,
+/// the manifest version for manifest plugins, otherwise `*`.
+fn lock_version(spec: &PluginSpec) -> String {
+    if let Some(v) = spec.declared_version() {
+        return v.to_string();
+    }
+    if let PluginSpec::File { path } = spec {
+        let p = expand_tilde(path);
+        if PluginManifest::is_manifest_path(&p) {
+            if let Ok(m) = PluginManifest::from_file_auto(&p) {
+                return m.plugin.version;
+            }
+        }
+    }
+    "*".to_string()
+}
+
+/// Record (or refresh) a plugin's checksum entry in the lockfile beside the
+/// active config. Best-effort by design: integrity is only *enforced* when the
+/// workspace opts in via `plugins-integrity = "required"`, but the digest is
+/// always recorded so opting in later needs no reinstall.
+pub fn record_lock_entry(meta_file: &Path, plugin_name: &str, stored: &PluginSpec) -> Result<()> {
+    let resolved = resolved_binary_path(plugin_name, stored)?;
+    let target = integrity_target(&resolved)?;
+    let sha256 = sha256_file(&target)?;
+
+    let dir = meta_file.parent().unwrap_or_else(|| Path::new("."));
+    let lock_path = Lockfile::path_for(dir);
+    let mut lock = Lockfile::load(&lock_path)?;
+    lock.upsert(
+        plugin_name,
+        LockEntry {
+            version: lock_version(stored),
+            source: stored.to_spec_string(),
+            sha256,
+        },
+    );
+    lock.save(&lock_path)
+}
+
+/// Outcome of comparing an installed plugin's binary against the digest
+/// recorded in `.metarepo.lock`.
+pub enum IntegrityStatus {
+    /// The binary matches the recorded digest.
+    Ok,
+    /// The binary differs from the recorded digest (possible tampering).
+    Mismatch,
+    /// No digest is recorded for this plugin yet.
+    NotRecorded,
+    /// The binary could not be resolved or hashed.
+    Unreadable(String),
+}
+
+/// Compare a plugin's current binary against the digest recorded in the
+/// lockfile beside `meta_file`. Used by `meta plugin verify` and `list`; the
+/// load-time enforcement in the loader applies the same comparison.
+pub fn integrity_status(meta_file: &Path, plugin_name: &str, spec: &PluginSpec) -> IntegrityStatus {
+    let dir = meta_file.parent().unwrap_or_else(|| Path::new("."));
+    let lock = match Lockfile::load(&Lockfile::path_for(dir)) {
+        Ok(lock) => lock,
+        Err(e) => return IntegrityStatus::Unreadable(e.to_string()),
+    };
+    let Some(entry) = lock.get(plugin_name) else {
+        return IntegrityStatus::NotRecorded;
+    };
+    let resolved = match resolved_binary_path(plugin_name, spec) {
+        Ok(p) => p,
+        Err(e) => return IntegrityStatus::Unreadable(e.to_string()),
+    };
+    let target = match integrity_target(&resolved) {
+        Ok(p) => p,
+        Err(e) => return IntegrityStatus::Unreadable(e.to_string()),
+    };
+    match sha256_file(&target) {
+        Ok(actual) if actual == entry.sha256 => IntegrityStatus::Ok,
+        Ok(_) => IntegrityStatus::Mismatch,
+        Err(e) => IntegrityStatus::Unreadable(e.to_string()),
+    }
+}
+
+/// Drop a plugin from the lockfile if present. No-op when the lockfile or entry
+/// is absent.
+pub fn remove_lock_entry(meta_file: &Path, plugin_name: &str) -> Result<()> {
+    let dir = meta_file.parent().unwrap_or_else(|| Path::new("."));
+    let lock_path = Lockfile::path_for(dir);
+    if !lock_path.exists() {
+        return Ok(());
+    }
+    let mut lock = Lockfile::load(&lock_path)?;
+    if lock.remove(plugin_name) {
+        lock.save(&lock_path)?;
+    }
+    Ok(())
 }
 
 fn install_crates(crate_name: &str, version: Option<&str>) -> Result<()> {

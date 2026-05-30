@@ -166,9 +166,16 @@ fn git_available() -> bool {
 }
 
 fn run_git(dir: &Path, args: &[&str]) {
+    // Disable commit signing and pin an identity so the test is deterministic
+    // regardless of the developer's global git config (a global
+    // `commit.gpgsign = true` otherwise makes `git commit` block on a gpg
+    // passphrase prompt).
     let status = Command::new("git")
         .arg("-C")
         .arg(dir)
+        .args(["-c", "commit.gpgsign=false"])
+        .args(["-c", "user.name=Test"])
+        .args(["-c", "user.email=test@example.com"])
         .args(args)
         .status()
         .unwrap_or_else(|e| panic!("git {:?} failed to spawn: {}", args, e));

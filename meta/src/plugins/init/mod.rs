@@ -91,6 +91,7 @@ fn create_default_config() -> MetaConfig {
         scripts: None,
         worktree_init: None,
         default_bare: None,
+        plugins_integrity: None,
     }
 }
 

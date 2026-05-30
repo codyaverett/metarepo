@@ -229,6 +229,10 @@ impl MetaPlugin for ManifestPlugin {
     fn is_experimental(&self) -> bool {
         self.manifest.plugin.experimental
     }
+
+    fn reported_version(&self) -> Option<&str> {
+        Some(&self.manifest.plugin.version)
+    }
 }
 
 #[cfg(test)]

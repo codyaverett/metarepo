@@ -50,6 +50,14 @@ pub trait MetaPlugin: Send + Sync {
     fn is_experimental(&self) -> bool {
         false
     }
+
+    /// The version the plugin reports about itself (protocol `Info` handshake or
+    /// manifest `[plugin].version`), if any. Built-in plugins return `None`;
+    /// external plugins override this so the loader can enforce the version
+    /// declared in `.metarepo`. Default: `None`.
+    fn reported_version(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Runtime configuration available to all plugins
@@ -242,6 +250,8 @@ pub struct MetaConfig {
     pub worktree_init: Option<String>, // Global worktree post-create command
     #[serde(default)]
     pub default_bare: Option<bool>, // Global default for bare repository clones
+    #[serde(rename = "plugins-integrity", default)]
+    pub plugins_integrity: Option<String>, // "off" (default) | "required"
 }
 
 impl Default for MetaConfig {
@@ -261,6 +271,7 @@ impl Default for MetaConfig {
             scripts: None,
             worktree_init: None,
             default_bare: None,
+            plugins_integrity: None,
         }
     }
 }
@@ -316,6 +327,16 @@ impl From<std::io::Error> for ConfigDiscoveryError {
 }
 
 impl MetaConfig {
+    /// Whether plugin checksum integrity is enforced for this workspace.
+    /// Controlled by the `plugins-integrity` key (`"required"` turns it on;
+    /// anything else, including absent, leaves it off).
+    pub fn integrity_required(&self) -> bool {
+        self.plugins_integrity
+            .as_deref()
+            .map(|v| v.eq_ignore_ascii_case("required"))
+            .unwrap_or(false)
+    }
+
     /// Read a config file from disk. Format is detected from the path's
     /// filename/extension; unrecognized names are rejected so callers don't
     /// accidentally try to parse, say, `package.json` as a metarepo config.

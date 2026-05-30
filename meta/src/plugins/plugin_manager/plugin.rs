@@ -5,9 +5,12 @@ use metarepo_core::{
     arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, PluginManifest, RuntimeConfig,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use super::install::{install_from_spec, resolved_binary_path};
+use super::install::{
+    install_from_spec, integrity_status, record_lock_entry, remove_lock_entry,
+    resolved_binary_path, IntegrityStatus,
+};
 use super::spec::PluginSpec;
 use crate::plugins::plugin_loader::ExternalPlugin;
 
@@ -90,10 +93,27 @@ impl PluginManagerPlugin {
                             .takes_value(true),
                     ),
             )
+            .command(
+                command("verify")
+                    .about("Verify installed plugin binaries against .metarepo.lock checksums")
+                    .long_about(
+                        "Recompute the SHA-256 of each installed plugin binary and compare it to\n\
+                         the digest recorded in .metarepo.lock. Exits non-zero if any plugin's\n\
+                         checksum does not match, so it is suitable for CI.\n\n\
+                         Pass a name to verify a single plugin; omit it to verify all.",
+                    )
+                    .arg(
+                        arg("name")
+                            .help("Plugin to verify; omit to verify all")
+                            .required(false)
+                            .takes_value(true),
+                    ),
+            )
             .handler("install", handle_install)
             .handler("list", handle_list)
             .handler("remove", handle_remove)
             .handler("update", handle_update)
+            .handler("verify", handle_verify)
             .build()
     }
 }
@@ -146,6 +166,11 @@ fn handle_install(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     cfg.save_to_file(&meta_file)
         .with_context(|| format!("Failed to update {}", meta_file.display()))?;
 
+    // Record the checksum so integrity can be enforced (now or later).
+    if let Err(e) = record_lock_entry(&meta_file, name, &stored) {
+        eprintln!("  {} Could not record checksum: {}", "⚠".yellow(), e);
+    }
+
     println!(
         "  {} Registered '{}' in {} — available on next run",
         "✓".green(),
@@ -167,7 +192,7 @@ fn handle_list(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         }
     };
 
-    let (_, plugins) = load_plugins(&meta_file)?;
+    let (cfg, plugins) = load_plugins(&meta_file)?;
     if plugins.is_empty() {
         println!(
             "  {} No plugins registered in {}",
@@ -177,17 +202,48 @@ fn handle_list(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         return Ok(());
     }
 
+    let integrity_required = cfg.integrity_required();
     println!("\n  {}", "Registered plugins".bold());
+    if integrity_required {
+        println!("  {}", "integrity: required".bright_black());
+    }
     let mut names: Vec<&String> = plugins.keys().collect();
     names.sort();
     for name in names {
         let spec_str = &plugins[name];
         match PluginSpec::parse(name, spec_str) {
-            Ok(spec) => print_plugin_status(name, &spec),
+            Ok(spec) => {
+                print_plugin_status(name, &spec);
+                print_integrity_line(&meta_file, name, &spec, integrity_required);
+            }
             Err(e) => println!("  {} {}  ({})", "✗".red(), name, e),
         }
     }
     Ok(())
+}
+
+/// Print an indented integrity annotation under a plugin's `list` entry. A
+/// checksum mismatch is always surfaced (tampering matters regardless of mode);
+/// the other states are only shown when the workspace enforces integrity, to
+/// keep output quiet for everyone else.
+fn print_integrity_line(meta_file: &Path, name: &str, spec: &PluginSpec, required: bool) {
+    match integrity_status(meta_file, name, spec) {
+        IntegrityStatus::Mismatch => println!(
+            "      {} checksum does not match .metarepo.lock",
+            "integrity: MISMATCH".red().bold()
+        ),
+        IntegrityStatus::Ok if required => {
+            println!("      {}", "integrity: ok".green())
+        }
+        IntegrityStatus::NotRecorded if required => println!(
+            "      {} (reinstall to record a checksum)",
+            "integrity: not recorded".yellow()
+        ),
+        IntegrityStatus::Unreadable(e) if required => {
+            println!("      {} ({})", "integrity: unverifiable".yellow(), e)
+        }
+        _ => {}
+    }
 }
 
 fn print_plugin_status(name: &str, spec: &PluginSpec) {
@@ -288,6 +344,11 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
     cfg.save_to_file(&meta_file)
         .with_context(|| format!("Failed to update {}", meta_file.display()))?;
+
+    if let Err(e) = remove_lock_entry(&meta_file, name) {
+        eprintln!("  {} Could not update lockfile: {}", "⚠".yellow(), e);
+    }
+
     println!(
         "  {} Removed '{}' from {}",
         "✓".green(),
@@ -342,7 +403,10 @@ fn handle_update(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             return Ok(());
         }
         println!("\n  {} {}", "Updating".cyan().bold(), name);
-        install_from_spec(name, &spec)?;
+        let stored = install_from_spec(name, &spec)?;
+        if let Err(e) = record_lock_entry(&meta_file, name, &stored) {
+            eprintln!("  {} Could not record checksum: {}", "⚠".yellow(), e);
+        }
         println!("  {} Updated '{}'", "✓".green(), name);
         return Ok(());
     }
@@ -369,9 +433,95 @@ fn handle_update(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         }
         println!("  {} {}", "Updating".cyan(), name);
         match install_from_spec(name, &spec) {
-            Ok(_) => println!("  {} {}", "✓".green(), name),
+            Ok(stored) => {
+                if let Err(e) = record_lock_entry(&meta_file, name, &stored) {
+                    eprintln!("    {} could not record checksum: {}", "⚠".yellow(), e);
+                }
+                println!("  {} {}", "✓".green(), name);
+            }
             Err(e) => println!("  {} {} failed: {}", "✗".red(), name, e),
         }
+    }
+    Ok(())
+}
+
+fn handle_verify(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let meta_file = require_meta_file(config)?;
+    let (_, plugins) = load_plugins(&meta_file)?;
+
+    // Verify a single named plugin or every registered one.
+    let targets: Vec<String> = match matches.get_one::<String>("name") {
+        Some(name) => {
+            if !plugins.contains_key(name) {
+                return Err(anyhow!("Plugin '{}' is not registered", name));
+            }
+            vec![name.clone()]
+        }
+        None => {
+            if plugins.is_empty() {
+                println!("  {} No plugins registered.", "·".bright_black());
+                return Ok(());
+            }
+            let mut names: Vec<String> = plugins.keys().cloned().collect();
+            names.sort();
+            names
+        }
+    };
+
+    println!("\n  {}", "Verifying plugin integrity".bold());
+    let mut mismatches = 0;
+    let mut unverified = 0;
+    for name in &targets {
+        let spec = match PluginSpec::parse(name, &plugins[name]) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("  {} {}  (bad spec: {})", "✗".red(), name.bold(), e);
+                unverified += 1;
+                continue;
+            }
+        };
+        match integrity_status(&meta_file, name, &spec) {
+            IntegrityStatus::Ok => println!("  {} {}  matches", "✓".green(), name.bold()),
+            IntegrityStatus::Mismatch => {
+                println!(
+                    "  {} {}  {} — does not match .metarepo.lock",
+                    "✗".red(),
+                    name.bold(),
+                    "MISMATCH".red().bold()
+                );
+                mismatches += 1;
+            }
+            IntegrityStatus::NotRecorded => {
+                println!(
+                    "  {} {}  no checksum recorded (reinstall to record one)",
+                    "·".yellow(),
+                    name.bold()
+                );
+                unverified += 1;
+            }
+            IntegrityStatus::Unreadable(e) => {
+                println!("  {} {}  unverifiable ({})", "·".yellow(), name.bold(), e);
+                unverified += 1;
+            }
+        }
+    }
+
+    println!();
+    if mismatches > 0 {
+        return Err(anyhow!(
+            "{} plugin(s) failed checksum verification",
+            mismatches
+        ));
+    }
+    if unverified > 0 {
+        println!(
+            "  {} {} verified, {} without a recorded checksum",
+            "✓".green(),
+            targets.len() - unverified,
+            unverified
+        );
+    } else {
+        println!("  {} all {} plugin(s) verified", "✓".green(), targets.len());
     }
     Ok(())
 }
