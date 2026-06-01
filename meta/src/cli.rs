@@ -78,9 +78,6 @@ impl MetarepoCli {
             .borrow()
             .build_cli_with_flags(app, experimental);
 
-        // Native (non-plugin) subcommands that need access to the assembled app.
-        app = app.subcommand(crate::completions::command());
-
         // Then add global options after subcommands
         // Only version and experimental are truly global
         app = app
@@ -156,16 +153,6 @@ impl MetarepoCli {
         let app = self.build_app();
         let matches = app.try_get_matches_from(args)?;
 
-        // Shell completions are generated from the assembled app and need no
-        // runtime config, so handle them before any config loading.
-        if let Some((crate::completions::COMMAND_NAME, sub_matches)) = matches.subcommand() {
-            let shell = *sub_matches
-                .get_one::<clap_complete::Shell>("shell")
-                .expect("shell is a required argument");
-            crate::completions::print(shell, self.build_app());
-            return Ok(());
-        }
-
         // Parse non-interactive mode if provided
         let non_interactive = matches
             .get_one::<String>("non-interactive")
@@ -205,18 +192,6 @@ impl MetarepoCli {
         // Parse with experimental plugins available
         let app = self.build_app_with_flags(true);
         let matches = app.try_get_matches_from(args)?;
-
-        // Shell completions are generated from the assembled app and need no
-        // runtime config, so handle them before any config loading. Always
-        // generate from the stable (non-experimental) command set so an
-        // installed completion script is deterministic regardless of `-x`.
-        if let Some((crate::completions::COMMAND_NAME, sub_matches)) = matches.subcommand() {
-            let shell = *sub_matches
-                .get_one::<clap_complete::Shell>("shell")
-                .expect("shell is a required argument");
-            crate::completions::print(shell, self.build_app_with_flags(false));
-            return Ok(());
-        }
 
         // Parse non-interactive mode if provided
         let non_interactive = matches

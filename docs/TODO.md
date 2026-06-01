@@ -227,25 +227,27 @@ Cache expensive operations:
 **Priority:** High
 **Status:** ✅ Completed (v0.23.0)
 
-Generate shell completions for:
-- ✅ Bash
-- ✅ Zsh
-- ✅ Fish
-- ✅ PowerShell
-- ✅ Elvish (bonus, provided by `clap_complete`)
+Shell completions install themselves as part of `meta init` (no standalone
+command). Supported: ✅ Bash, ✅ Zsh, ✅ Fish, ✅ Elvish. PowerShell/unknown
+shells report a skipped step.
 
 ```bash
-meta completions bash > /etc/bash_completion.d/meta
-meta completions zsh > ~/.zsh/completion/_meta
+meta init                    # interactive: offers to install for $SHELL
+meta init --with-completions # install without a prompt (CI-friendly)
+meta init --all              # skill + completions
 ```
 
 **Implementation Notes:**
-- Native `meta completions <shell>` subcommand (not a plugin) in `meta/src/completions.rs`.
+- Generation logic lives in `meta/src/completions.rs` (not a CLI command); the
+  init handler (`meta/src/plugins/init/plugin.rs`) drives install via a prompt or
+  `--with-completions`/`--all`.
 - Built on `clap_complete`, generated from the assembled clap command tree so
-  every built-in subcommand is covered.
-- Output is deterministic: always generated from the stable command set, so an
-  installed script does not depend on whether `-x`/`--experimental` was passed.
-- See `docs/SHELL_COMPLETIONS.md` for install instructions per shell.
+  every built-in subcommand is covered; generated from the stable command set,
+  so experimental (`-x`) commands are excluded.
+- Auto-detects shell from `$SHELL` and writes to the conventional per-shell
+  location; refreshes the zsh completion cache. Never edits rc files (prints an
+  `$fpath` snippet for the non-oh-my-zsh zsh case).
+- See `docs/SHELL_COMPLETIONS.md` for details.
 
 ### Better Error Messages
 

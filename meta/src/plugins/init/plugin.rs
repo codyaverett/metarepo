@@ -1,8 +1,12 @@
 use super::{initialize_meta_repo_with_options, InitOptions};
+use crate::completions;
 use anyhow::Result;
 use clap::ArgMatches;
 use colored::Colorize;
-use metarepo_core::{plugin, BasePlugin, ConfigFormat, MetaPlugin, RuntimeConfig};
+use metarepo_core::{
+    is_interactive, plugin, prompt_confirm, BasePlugin, ConfigFormat, MetaPlugin,
+    NonInteractiveMode, RuntimeConfig,
+};
 
 /// InitPlugin using the new simplified plugin architecture
 pub struct InitPlugin;
@@ -37,12 +41,15 @@ impl MetaPlugin for InitPlugin {
                      Idempotent by default: if .meta already exists it is left untouched and only\n\
                      missing artifacts (e.g., .gitignore patterns, optional Claude Code skill)\n\
                      are added.\n\n\
+                     When run interactively, init also offers to install shell completions for\n\
+                     your detected shell. Use --with-completions to install them without a prompt.\n\n\
                      Examples:\n  \
-                       meta init                  Idempotent init with defaults\n  \
-                       meta init --with-skill     Also install the bundled Claude Code skill\n  \
-                       meta init --all            Install every optional component\n  \
-                       meta init --repair         Restore missing artifacts without touching .meta\n  \
-                       meta init --force          Overwrite existing .meta with defaults",
+                       meta init                    Idempotent init with defaults\n  \
+                       meta init --with-skill       Also install the bundled Claude Code skill\n  \
+                       meta init --with-completions Install shell completions for your shell\n  \
+                       meta init --all              Install every optional component\n  \
+                       meta init --repair           Restore missing artifacts without touching .meta\n  \
+                       meta init --force            Overwrite existing .meta with defaults",
                 )
                 .visible_aliases(vec!["i"])
                 .version(env!("CARGO_PKG_VERSION"))
@@ -67,10 +74,16 @@ impl MetaPlugin for InitPlugin {
                         .help("Install the bundled Claude Code meta-tool skill"),
                 )
                 .arg(
+                    clap::Arg::new("with-completions")
+                        .long("with-completions")
+                        .action(clap::ArgAction::SetTrue)
+                        .help("Install shell completions for your detected shell ($SHELL)"),
+                )
+                .arg(
                     clap::Arg::new("all")
                         .long("all")
                         .action(clap::ArgAction::SetTrue)
-                        .help("Install every optional component (currently: --with-skill)"),
+                        .help("Install every optional component (--with-skill, --with-completions)"),
                 )
                 .arg(
                     clap::Arg::new("format")
@@ -147,7 +160,73 @@ impl MetaPlugin for InitPlugin {
             );
         }
 
+        let want_completions = matches.get_flag("with-completions") || matches.get_flag("all");
+        maybe_install_completions(want_completions, config.non_interactive);
+
         Ok(())
+    }
+}
+
+/// Optionally install shell completions as part of `meta init`.
+///
+/// Installs when `forced` (from `--with-completions`/`--all`), or — when running
+/// interactively without those flags — after an opt-in confirmation. In a
+/// non-interactive run without the flag it does nothing. Completion failures are
+/// reported as a skipped step and never abort `init`, since completions are an
+/// optional, user-level convenience.
+fn maybe_install_completions(forced: bool, non_interactive: Option<NonInteractiveMode>) {
+    let shell = match completions::detect_shell() {
+        Some(shell) => shell,
+        None => {
+            if forced {
+                println!(
+                    "  {} Could not detect your shell from $SHELL; skipping completions",
+                    "·".bright_black()
+                );
+            }
+            return;
+        }
+    };
+
+    if !forced {
+        // Only offer the prompt in a real interactive session. In any
+        // non-interactive context (piped, CI, --non-interactive) stay silent.
+        if non_interactive.is_some() || !is_interactive() {
+            return;
+        }
+        match prompt_confirm(
+            &format!("Install {shell} shell completions?"),
+            true,
+            NonInteractiveMode::Defaults,
+        ) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(_) => return,
+        }
+    }
+
+    match completions::install(shell) {
+        Ok(outcome) => {
+            println!(
+                "  {} Installed {} completions at {}",
+                "✓".green(),
+                outcome.shell,
+                outcome.path.display()
+            );
+            if outcome.refreshed {
+                println!("  {} Refreshed shell completion cache", "✓".green());
+            }
+            if let Some(note) = outcome.manual_note {
+                println!("  {} {}", "→".cyan(), note);
+            }
+            println!(
+                "  {} Restart your shell to load completions",
+                "·".bright_black()
+            );
+        }
+        Err(e) => {
+            println!("  {} Skipped completions: {}", "·".bright_black(), e);
+        }
     }
 }
 

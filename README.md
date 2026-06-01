@@ -111,14 +111,13 @@ meta git update
 
 | Plugin | Command Pattern | Description |
 |--------|----------------|-------------|
-| **init** | `meta init` | Initialize a new meta repository |
+| **init** | `meta init [--with-skill\|--with-completions\|--all]` | Initialize a meta repository; optionally install the Claude Code skill and shell completions |
 | **git** | `meta git <clone\|status\|update>` | Git operations across repositories |
 | **project** | `meta project <add\|list\|remove\|rename\|tree\|update\|convert-to-bare\|update-gitignore>` | Project management |
 | **config** | `meta config <edit\|show\|get\|set\|validate>` | Configuration management with interactive TUI |
 | **exec** | `meta exec [flags] <command>` | Execute commands across repositories |
 | **run** | `meta run [flags] <script>` | Run scripts defined in `.meta` |
 | **worktree** | `meta worktree <add\|remove\|list\|prune>` | Git worktree management across workspace |
-| **completions** | `meta completions <bash\|zsh\|fish\|powershell\|elvish>` | Generate shell completion scripts |
 | **rules** | `meta -x rules <check\|init\|list\|...>` | Project structure enforcement (experimental) |
 | **plugin** | `meta -x plugin <add\|install\|remove\|list\|update>` | External plugin management (experimental) |
 | **mcp** | `meta -x mcp <add\|list\|connect\|serve\|...>` | Model Context Protocol integration (experimental) |
