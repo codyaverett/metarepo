@@ -29,10 +29,17 @@ fn setup_workspace() -> TempDir {
     tmp
 }
 
+// Scope is now expressed as a slice of resolved project keys. An unknown key
+// (e.g. a --project typo) is still rejected; a valid key is accepted; and the
+// full key set iterates the whole workspace.
+fn all_projects() -> Vec<String> {
+    vec!["alpha".to_string(), "beta".to_string()]
+}
+
 #[test]
 fn list_rejects_unknown_scope_project() {
     let tmp = setup_workspace();
-    let err = list_all_worktrees(tmp.path(), Some("not-a-project")).unwrap_err();
+    let err = list_all_worktrees(tmp.path(), &["not-a-project".to_string()]).unwrap_err();
     assert!(
         err.to_string().contains("not in the workspace"),
         "expected workspace-membership error, got: {}",
@@ -45,19 +52,19 @@ fn list_accepts_known_scope_project() {
     let tmp = setup_workspace();
     // The project has no on-disk checkout so list_all_worktrees skips it cleanly
     // — but the scope itself must be accepted without erroring.
-    list_all_worktrees(tmp.path(), Some("alpha")).expect("known project must be accepted");
+    list_all_worktrees(tmp.path(), &["alpha".to_string()]).expect("known project must be accepted");
 }
 
 #[test]
-fn list_with_none_scope_iterates_workspace() {
+fn list_with_full_scope_iterates_workspace() {
     let tmp = setup_workspace();
-    list_all_worktrees(tmp.path(), None).expect("workspace-wide listing must succeed");
+    list_all_worktrees(tmp.path(), &all_projects()).expect("workspace-wide listing must succeed");
 }
 
 #[test]
 fn prune_rejects_unknown_scope_project() {
     let tmp = setup_workspace();
-    let err = prune_worktrees(tmp.path(), true, Some("not-a-project")).unwrap_err();
+    let err = prune_worktrees(tmp.path(), true, &["not-a-project".to_string()]).unwrap_err();
     assert!(
         err.to_string().contains("not in the workspace"),
         "expected workspace-membership error, got: {}",
@@ -66,15 +73,15 @@ fn prune_rejects_unknown_scope_project() {
 }
 
 #[test]
-fn prune_with_none_scope_iterates_workspace() {
+fn prune_with_full_scope_iterates_workspace() {
     let tmp = setup_workspace();
-    prune_worktrees(tmp.path(), true, None).expect("workspace-wide prune must succeed");
+    prune_worktrees(tmp.path(), true, &all_projects()).expect("workspace-wide prune must succeed");
 }
 
 #[test]
 fn repair_rejects_unknown_scope_project() {
     let tmp = setup_workspace();
-    let err = repair_worktrees(tmp.path(), Some("not-a-project"), true).unwrap_err();
+    let err = repair_worktrees(tmp.path(), &["not-a-project".to_string()], true).unwrap_err();
     assert!(
         err.to_string().contains("not in the workspace"),
         "expected workspace-membership error, got: {}",
@@ -85,7 +92,7 @@ fn repair_rejects_unknown_scope_project() {
 #[test]
 fn repair_dry_run_succeeds_workspace_wide() {
     let tmp = setup_workspace();
-    repair_worktrees(tmp.path(), None, true).expect("dry-run repair must succeed");
+    repair_worktrees(tmp.path(), &all_projects(), true).expect("dry-run repair must succeed");
 }
 
 /// End-to-end: initialize a git repo + worktree under the workspace, move the
@@ -153,8 +160,64 @@ fn repair_recovers_moved_worktree() {
     );
 
     // Now call our wrapper end-to-end to ensure it returns Ok for the project.
-    repair_worktrees(workspace, Some("alpha"), false)
+    repair_worktrees(workspace, &["alpha".to_string()], false)
         .expect("scoped repair_worktrees must return Ok on healthy repo");
+}
+
+/// End-to-end: with projects `app` and `plugins/a`, running `meta worktree list`
+/// from inside `plugins/` must show only the `plugins/a` worktree, not `app`.
+#[test]
+fn list_from_subdirectory_scopes_to_that_subtree() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let ws = tmp.path();
+
+    for key in ["app", "plugins/a"] {
+        let project = ws.join(key);
+        std::fs::create_dir_all(&project).unwrap();
+        run_git(&project, &["init", "-q", "-b", "main"]);
+        std::fs::write(project.join("file.txt"), "x").unwrap();
+        run_git(&project, &["add", "."]);
+        run_git(&project, &["commit", "-q", "-m", "init"]);
+        let wt = project.join(".worktrees").join("feat");
+        std::fs::create_dir_all(wt.parent().unwrap()).unwrap();
+        run_git(
+            &project,
+            &["worktree", "add", "-q", "-b", "feat", wt.to_str().unwrap()],
+        );
+    }
+
+    let mut config = MetaConfig::default();
+    config.projects.insert(
+        "app".to_string(),
+        ProjectEntry::Url("https://example.com/app.git".to_string()),
+    );
+    config.projects.insert(
+        "plugins/a".to_string(),
+        ProjectEntry::Url("https://example.com/a.git".to_string()),
+    );
+    config.save_to_file(ws.join(".meta")).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_meta"))
+        .args(["worktree", "list"])
+        .current_dir(ws.join("plugins"))
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("failed to run meta binary");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    assert!(
+        stdout.contains("plugins/a"),
+        "should list the in-scope project; got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("app"),
+        "must NOT list the out-of-scope project 'app'; got:\n{stdout}"
+    );
 }
 
 fn git_available() -> bool {

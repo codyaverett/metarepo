@@ -130,6 +130,88 @@ Post-create commands have access to project-specific environment variables defin
 - **Environment**: Inherits project-specific environment variables from `.meta`
 - **Failure handling**: Hook failures are reported but don't prevent worktree creation
 
+## Cleaning Up Worktrees
+
+Two commands help you keep a workspace tidy. They are different operations:
+
+| Command | What it does | Destructive? |
+|---------|--------------|--------------|
+| `meta worktree prune` | Removes git's *administrative references* to worktrees whose directories no longer exist | No — never deletes a worktree that still has files |
+| `meta worktree clean` | Removes *worktrees* whose branches are already merged (or have no changes) into the base branch | Yes — but heavily gated and confirmed |
+
+### `meta worktree prune`
+
+Wraps `git worktree prune` per project and reports exactly what it removed (or
+"nothing to prune") plus a summary:
+
+```bash
+meta worktree prune            # remove stale references
+meta worktree prune --dry-run  # show what would be removed
+meta worktree prune --global   # across all projects, ignoring directory context
+```
+
+Prune only removes references to worktree directories that are already gone. It
+**never** deletes a worktree that still has files, so it cannot lose uncommitted
+work.
+
+### `meta worktree clean`
+
+Removes worktrees for branches that have already landed — for example old
+feature branches — and deletes their local branches. Alias: `meta worktree tidy`.
+
+```bash
+meta worktree clean                 # preview candidates, then confirm
+meta worktree clean --dry-run       # show candidates only, remove nothing
+meta worktree clean --yes           # skip the confirmation prompt
+meta worktree clean --keep-branches # remove worktrees but keep their branches
+meta worktree clean --global        # across every project
+```
+
+**Eligibility.** A worktree is a candidate when its branch is either:
+- fully merged into the project's base branch (an ordinary merge), or
+- has no diff against the base branch (catches squash- and rebase-merged
+  branches, and branches with no changes of their own — "merged without
+  changes").
+
+The base branch is detected per project via `origin/HEAD`, falling back to
+`main`/`master`/`develop`.
+
+**Safety gates (always skipped, and shown in a "Skipped" section so you can see
+why):**
+- worktrees with uncommitted or untracked changes
+- locked worktrees
+- detached-HEAD worktrees
+- each project's primary worktree
+
+Nothing is removed until you confirm. The candidate list (project, branch,
+reason, and last-commit age) is printed first, then a single `[y/N]` prompt.
+`--dry-run` stops after the preview; `--yes` skips the prompt for automation.
+
+**Branches.** Each removed worktree's local branch is deleted with `git branch
+-d`, which refuses to delete a branch that isn't fully merged. If it refuses
+(e.g. a squash-merged branch that has no diff but isn't an ancestor of base),
+the branch is kept and reported so you can delete it manually if intended.
+`--keep-branches` skips branch deletion entirely.
+
+## Directory-aware scope (all worktree commands)
+
+`meta worktree list`, `prune`, `repair`, `remove`, and `clean` all choose which
+projects to act on based on your current directory:
+
+- **inside a project** → only that project
+- **inside a subdirectory** that contains projects → the projects beneath it
+- **at the workspace root** → every project
+
+So running `meta worktree list` from inside `plugins/` shows only the worktrees
+of the projects under `plugins/`, not the whole workspace. (`meta worktree add`
+keeps its own behavior: it creates in the current project, or prompts you to
+choose when run outside one.)
+
+Use `--global` (`-g`) to force all projects, or `--project <name>` / `--projects
+a,b,c` to target specific ones regardless of the current directory. For
+`remove`, when several in-scope projects have the named branch you'll be asked
+which to remove from.
+
 ## Bare Repository Support
 
 ### Quick Start: Adding Bare Repositories

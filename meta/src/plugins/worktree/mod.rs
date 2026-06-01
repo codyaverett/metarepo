@@ -15,6 +15,7 @@ pub struct WorktreeInfo {
     pub path: PathBuf,
     pub is_bare: bool,
     pub is_detached: bool,
+    pub is_locked: bool,
     pub head: Option<String>,
 }
 
@@ -126,6 +127,7 @@ pub fn list_worktrees(repo_path: &Path) -> Result<Vec<WorktreeInfo>> {
                 path: PathBuf::from(path),
                 is_bare: false,
                 is_detached: false,
+                is_locked: false,
                 head: None,
             });
         } else if line.starts_with("HEAD ") {
@@ -144,6 +146,11 @@ pub fn list_worktrees(repo_path: &Path) -> Result<Vec<WorktreeInfo>> {
             if let Some(ref mut wt) = current_worktree {
                 wt.is_detached = true;
             }
+        } else if line == "locked" || line.starts_with("locked ") {
+            // Porcelain emits a bare `locked` line, or `locked <reason>`.
+            if let Some(ref mut wt) = current_worktree {
+                wt.is_locked = true;
+            }
         }
     }
 
@@ -152,6 +159,117 @@ pub fn list_worktrees(repo_path: &Path) -> Result<Vec<WorktreeInfo>> {
     }
 
     Ok(worktrees)
+}
+
+/// Strip the `refs/heads/` prefix from a branch ref, if present.
+fn short_branch_name(branch_ref: &str) -> &str {
+    branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref)
+}
+
+/// Validate that every key in `scope_projects` is a workspace project, returning
+/// them as the iteration set. Errors on an unknown project (e.g. a typo passed
+/// via `--project`); directory-derived scopes are always valid and pass through.
+fn validate_scope<'a>(
+    config: &MetaConfig,
+    scope_projects: &'a [String],
+) -> Result<Vec<&'a String>> {
+    for name in scope_projects {
+        if !config.projects.contains_key(name) {
+            return Err(anyhow::anyhow!(
+                "Project '{}' is not in the workspace .meta file",
+                name
+            ));
+        }
+    }
+    Ok(scope_projects.iter().collect())
+}
+
+/// True if `refname` resolves in the given repo.
+fn git_ref_exists(project_path: &Path, refname: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(project_path)
+        .arg("rev-parse")
+        .arg("--verify")
+        .arg("--quiet")
+        .arg(refname)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Resolve the ref that worktree branches should be compared against, given the
+/// project's base branch name. Prefers the local base branch; otherwise falls
+/// back to the remote-tracking ref, then the bare name.
+fn resolve_base_ref(project_path: &Path, base_name: &str) -> String {
+    if git_ref_exists(project_path, base_name) {
+        return base_name.to_string();
+    }
+    let remote = format!("origin/{}", base_name);
+    if git_ref_exists(project_path, &remote) {
+        return remote;
+    }
+    base_name.to_string()
+}
+
+/// True if `branch_ref` is fully contained in `base_ref` (an ordinary merge):
+/// the branch tip is an ancestor of base.
+fn branch_is_merged(project_path: &Path, branch_ref: &str, base_ref: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(project_path)
+        .arg("merge-base")
+        .arg("--is-ancestor")
+        .arg(branch_ref)
+        .arg(base_ref)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// True if `branch_ref` introduces no changes relative to `base_ref`. Uses a
+/// three-dot diff so it catches squash- and rebase-merged branches (whose tips
+/// are not ancestors of base) as well as branches with no commits of their own.
+fn branch_has_no_diff(project_path: &Path, branch_ref: &str, base_ref: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(project_path)
+        .arg("diff")
+        .arg("--quiet")
+        .arg(format!("{}...{}", base_ref, branch_ref))
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// True if the worktree at `wt_path` has uncommitted or untracked changes.
+fn worktree_is_dirty(wt_path: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(wt_path)
+        .arg("status")
+        .arg("--porcelain")
+        .output()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
+/// Relative date of the last commit on `branch_ref` (e.g. "3 weeks ago").
+fn last_commit_relative(project_path: &Path, branch_ref: &str) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(project_path)
+        .arg("log")
+        .arg("-1")
+        .arg("--format=%cr")
+        .arg(branch_ref)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!s.is_empty()).then_some(s)
 }
 
 /// Add a worktree for selected projects
@@ -447,7 +565,7 @@ pub fn remove_worktrees(
     projects: &[String],
     base_path: &Path,
     force: bool,
-    current_project: Option<&str>,
+    scope: &[String],
 ) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -476,26 +594,27 @@ pub fn remove_worktrees(
     }
 
     let selected_projects = if projects.is_empty() {
-        // If no projects specified, check for current project context
-        if let Some(current) = current_project {
-            // Check if current project has this worktree
-            if projects_with_worktree.contains(&current.to_string()) {
-                println!("Using current project: {}", current.bold());
-                vec![current.to_string()]
-            } else {
-                println!(
-                    "{} Current project '{}' doesn't have worktree '{}'",
-                    "✗".yellow(),
-                    current,
-                    branch
-                );
-                return Ok(());
-            }
-        } else if !projects_with_worktree.is_empty() {
-            // Interactive selection from projects that have this worktree
-            select_projects_for_removal(&projects_with_worktree, branch)?
+        // No explicit projects: limit auto-detection to the directory-derived
+        // scope so we never touch (or prompt about) out-of-scope projects.
+        let in_scope: Vec<String> = projects_with_worktree
+            .iter()
+            .filter(|p| scope.iter().any(|s| s == *p))
+            .cloned()
+            .collect();
+
+        if in_scope.is_empty() {
+            println!(
+                "{} No project in scope has a worktree '{}'",
+                "·".bright_black(),
+                branch
+            );
+            return Ok(());
+        } else if in_scope.len() == 1 {
+            println!("Using project: {}", in_scope[0].bold());
+            in_scope
         } else {
-            Vec::new()
+            // Multiple in-scope projects have it — let the user choose.
+            select_projects_for_removal(&in_scope, branch)?
         }
     } else if projects.len() == 1 && projects[0] == "--all" {
         projects_with_worktree
@@ -584,10 +703,11 @@ pub fn remove_worktrees(
 
 /// List worktrees across the workspace, optionally scoped to a single project.
 ///
-/// When `scope_to_project` is `Some(name)`, only that project's worktrees are
-/// listed — this lets callers honor "context-aware" behavior where running
-/// `meta worktree list` inside a project directory shows just that project.
-pub fn list_all_worktrees(base_path: &Path, scope_to_project: Option<&str>) -> Result<()> {
+/// `scope_projects` is the set of project keys to list (already resolved from
+/// directory context by the caller) — running `meta worktree list` inside a
+/// project shows just that project, inside a subdirectory the projects beneath
+/// it, and at the workspace root every project.
+pub fn list_all_worktrees(base_path: &Path, scope_projects: &[String]) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
         return Err(anyhow::anyhow!(
@@ -596,23 +716,12 @@ pub fn list_all_worktrees(base_path: &Path, scope_to_project: Option<&str>) -> R
     }
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
+    let project_iter = validate_scope(&config, scope_projects)?;
 
-    let project_iter: Vec<&String> = match scope_to_project {
-        Some(name) if config.projects.contains_key(name) => {
-            vec![config.projects.keys().find(|k| k.as_str() == name).unwrap()]
-        }
-        Some(name) => {
-            return Err(anyhow::anyhow!(
-                "Current project '{}' is not in the workspace .meta file",
-                name
-            ));
-        }
-        None => config.projects.keys().collect(),
-    };
-
-    let header = match scope_to_project {
-        Some(name) => format!("Worktrees for {}", name),
-        None => "Workspace Worktrees".to_string(),
+    let header = if scope_projects.len() == 1 {
+        format!("Worktrees for {}", scope_projects[0])
+    } else {
+        "Workspace Worktrees".to_string()
     };
     println!("\n{}\n", header.bold());
 
@@ -709,12 +818,8 @@ pub fn list_all_worktrees(base_path: &Path, scope_to_project: Option<&str>) -> R
     Ok(())
 }
 
-/// Prune stale worktrees, optionally scoped to a single project.
-pub fn prune_worktrees(
-    base_path: &Path,
-    dry_run: bool,
-    scope_to_project: Option<&str>,
-) -> Result<()> {
+/// Prune stale worktrees across the given set of projects.
+pub fn prune_worktrees(base_path: &Path, dry_run: bool, scope_projects: &[String]) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
         return Err(anyhow::anyhow!(
@@ -723,25 +828,16 @@ pub fn prune_worktrees(
     }
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
-
-    let project_iter: Vec<&String> = match scope_to_project {
-        Some(name) if config.projects.contains_key(name) => {
-            vec![config.projects.keys().find(|k| k.as_str() == name).unwrap()]
-        }
-        Some(name) => {
-            return Err(anyhow::anyhow!(
-                "Current project '{}' is not in the workspace .meta file",
-                name
-            ));
-        }
-        None => config.projects.keys().collect(),
-    };
+    let project_iter = validate_scope(&config, scope_projects)?;
 
     if dry_run {
         println!("\nChecking for stale worktrees (dry run)\n");
     } else {
         println!("\nPruning stale worktrees\n");
     }
+
+    let mut total_pruned = 0usize;
+    let mut repos_with_stale = 0usize;
 
     for project_name in project_iter {
         let project_path = base_path.join(project_name);
@@ -761,39 +857,353 @@ pub fn prune_worktrees(
         if dry_run {
             cmd.arg("--dry-run");
         }
-
         cmd.arg("--verbose");
 
-        // Stream git output in real-time
-        cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
-
-        let _status = cmd
-            .status()
+        // Capture rather than inherit: `git worktree prune --verbose` only emits
+        // a "Removing ..." line per stale entry and is silent when there is
+        // nothing to do. Parsing it lets us say what was (or would be) pruned
+        // and report "nothing to prune" instead of leaving the user guessing.
+        let output = cmd
+            .output()
             .context(format!("Failed to prune worktrees for {}", project_name))?;
+
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let pruned_lines: Vec<&str> = combined
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| l.starts_with("Removing "))
+            .collect();
+
+        if pruned_lines.is_empty() {
+            println!("  {} nothing to prune", "·".bright_black());
+        } else {
+            repos_with_stale += 1;
+            for line in &pruned_lines {
+                total_pruned += 1;
+                let verb = if dry_run { "would remove" } else { "removed" };
+                // Strip git's leading "Removing " so we can prepend our own verb.
+                let detail = line.strip_prefix("Removing ").unwrap_or(line);
+                println!("  {} {} {}", "✓".green(), verb, detail);
+            }
+        }
     }
 
-    if dry_run {
-        println!("\n{}", "Check complete".dimmed());
-        println!(
-            "{}",
-            "Run without --dry-run to remove stale worktrees".dimmed()
-        );
+    let entry_word = if total_pruned == 1 {
+        "entry"
     } else {
-        println!("\n{}", "Prune complete".green());
+        "entries"
+    };
+    let repo_word = if repos_with_stale == 1 {
+        "repo"
+    } else {
+        "repos"
+    };
+    if dry_run {
+        println!(
+            "\n{}",
+            format!(
+                "Would prune {} stale {} across {} {}",
+                total_pruned, entry_word, repos_with_stale, repo_word
+            )
+            .dimmed()
+        );
+        if total_pruned > 0 {
+            println!("{}", "Run without --dry-run to remove them".dimmed());
+        }
+    } else {
+        println!(
+            "\n{} {} stale {} removed across {} {}",
+            "Prune complete:".green(),
+            total_pruned,
+            entry_word,
+            repos_with_stale,
+            repo_word
+        );
     }
+    println!(
+        "{}",
+        "Prune only removes references to worktree directories that no longer exist; \
+         it never deletes a worktree that still has files."
+            .dimmed()
+    );
 
     Ok(())
+}
+
+/// Options controlling [`clean_worktrees`].
+#[derive(Debug, Clone, Copy)]
+pub struct CleanOptions {
+    pub dry_run: bool,
+    pub assume_yes: bool,
+    pub keep_branches: bool,
+}
+
+/// A worktree eligible for cleanup, with the reason it qualified.
+struct CleanCandidate {
+    project: String,
+    project_path: PathBuf,
+    wt_path: PathBuf,
+    branch_ref: String,
+    reason: String,
+    age: Option<String>,
+}
+
+/// A worktree that resembled a cleanup target but was skipped, with the reason.
+struct CleanSkip {
+    project: String,
+    label: String,
+    reason: String,
+}
+
+/// Remove worktrees whose branches are already merged into (or contribute no
+/// changes relative to) their project's base branch. Destructive, but gated:
+/// dirty, locked, detached, and primary worktrees are always skipped, and a
+/// confirmation is required before anything is removed (unless `assume_yes`).
+pub fn clean_worktrees(
+    base_path: &Path,
+    scope_projects: &[String],
+    opts: CleanOptions,
+    non_interactive: metarepo_core::NonInteractiveMode,
+) -> Result<()> {
+    let meta_file_path = base_path.join(".meta");
+    if !meta_file_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No .meta file found. Run 'meta init' first."
+        ));
+    }
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    let mut candidates: Vec<CleanCandidate> = Vec::new();
+    let mut skipped: Vec<CleanSkip> = Vec::new();
+
+    for project_name in scope_projects {
+        if !config.projects.contains_key(project_name) {
+            continue;
+        }
+        let project_path = base_path.join(project_name);
+        if !project_path.exists() || !project_path.join(".git").exists() {
+            continue;
+        }
+        let Ok(worktrees) = list_worktrees(&project_path) else {
+            continue;
+        };
+
+        let base_name = crate::plugins::shared::detect_default_branch(&project_path)
+            .unwrap_or_else(|_| "main".to_string());
+        let base_ref = resolve_base_ref(&project_path, &base_name);
+
+        for wt in worktrees {
+            // Never touch the primary working tree or a bare entry.
+            if wt.is_bare || wt.path == project_path {
+                continue;
+            }
+
+            let label = if !wt.branch.is_empty() {
+                short_branch_name(&wt.branch).to_string()
+            } else {
+                wt.path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            };
+
+            if wt.is_locked {
+                skipped.push(CleanSkip {
+                    project: project_name.clone(),
+                    label,
+                    reason: "locked".to_string(),
+                });
+                continue;
+            }
+            if wt.is_detached || wt.branch.is_empty() {
+                skipped.push(CleanSkip {
+                    project: project_name.clone(),
+                    label,
+                    reason: "detached HEAD".to_string(),
+                });
+                continue;
+            }
+            // Don't evaluate a worktree that has the base branch checked out.
+            if short_branch_name(&wt.branch) == base_name {
+                continue;
+            }
+            if worktree_is_dirty(&wt.path) {
+                skipped.push(CleanSkip {
+                    project: project_name.clone(),
+                    label,
+                    reason: "uncommitted changes".to_string(),
+                });
+                continue;
+            }
+
+            let merged = branch_is_merged(&project_path, &wt.branch, &base_ref);
+            let no_diff = !merged && branch_has_no_diff(&project_path, &wt.branch, &base_ref);
+            if merged || no_diff {
+                let reason = if merged {
+                    format!("merged into {}", base_name)
+                } else {
+                    format!("no changes vs {}", base_name)
+                };
+                candidates.push(CleanCandidate {
+                    age: last_commit_relative(&project_path, &wt.branch),
+                    project: project_name.clone(),
+                    project_path: project_path.clone(),
+                    wt_path: wt.path.clone(),
+                    branch_ref: wt.branch.clone(),
+                    reason,
+                });
+            } else {
+                skipped.push(CleanSkip {
+                    project: project_name.clone(),
+                    label,
+                    reason: "not merged".to_string(),
+                });
+            }
+        }
+    }
+
+    println!("\n{}\n", "Cleaning up merged worktrees".bold());
+
+    if candidates.is_empty() {
+        println!("{}", "Nothing to clean up".dimmed());
+        print_clean_skips(&skipped);
+        println!();
+        return Ok(());
+    }
+
+    println!("{}", "Worktrees eligible for cleanup:".bold());
+    for c in &candidates {
+        let rel = c
+            .wt_path
+            .strip_prefix(base_path)
+            .unwrap_or(&c.wt_path)
+            .display();
+        let location = match &c.age {
+            Some(age) => format!("{} ({})", rel, age),
+            None => format!("{}", rel),
+        };
+        println!(
+            "  {} {}  {}  {}",
+            c.project.bright_blue(),
+            short_branch_name(&c.branch_ref).white(),
+            c.reason.green(),
+            location.dimmed()
+        );
+    }
+    print_clean_skips(&skipped);
+
+    if opts.dry_run {
+        println!("\n{}", "Dry run — nothing removed".dimmed());
+        println!(
+            "{}",
+            "Run without --dry-run to remove these worktrees".dimmed()
+        );
+        return Ok(());
+    }
+
+    if !opts.assume_yes {
+        let proceed = metarepo_core::prompt_confirm(
+            &format!(
+                "Remove {} worktree{}?",
+                candidates.len(),
+                if candidates.len() == 1 { "" } else { "s" }
+            ),
+            false,
+            non_interactive,
+        )?;
+        if !proceed {
+            println!("{}", "Aborted — nothing removed".dimmed());
+            return Ok(());
+        }
+    }
+
+    println!();
+    let mut removed = 0usize;
+    let mut branches_deleted = 0usize;
+    let mut failed = 0usize;
+
+    for c in &candidates {
+        let short = short_branch_name(&c.branch_ref);
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(&c.project_path)
+            .arg("worktree")
+            .arg("remove")
+            .arg(&c.wt_path)
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                removed += 1;
+                println!("  {} {} ({})", "✓".green(), short, c.project.bright_blue());
+
+                if !opts.keep_branches {
+                    let del = Command::new("git")
+                        .arg("-C")
+                        .arg(&c.project_path)
+                        .arg("branch")
+                        .arg("-d")
+                        .arg(short)
+                        .output();
+                    match del {
+                        Ok(o) if o.status.success() => branches_deleted += 1,
+                        _ => println!(
+                            "    {} kept branch {} (delete manually if intended)",
+                            "·".bright_black(),
+                            short
+                        ),
+                    }
+                }
+            }
+            _ => {
+                failed += 1;
+                eprintln!("  {} {} ({})", "✗".red(), short, c.project.bright_blue());
+            }
+        }
+    }
+
+    println!(
+        "\nSummary: {} removed, {} branch{} deleted, {} skipped{}",
+        removed.to_string().green(),
+        branches_deleted.to_string().green(),
+        if branches_deleted == 1 { "" } else { "es" },
+        skipped.len().to_string().bright_black(),
+        if failed > 0 {
+            format!(", {} failed", failed.to_string().red())
+        } else {
+            String::new()
+        }
+    );
+
+    Ok(())
+}
+
+/// Print the dimmed "Skipped" section listing worktrees that were not eligible.
+fn print_clean_skips(skipped: &[CleanSkip]) {
+    if skipped.is_empty() {
+        return;
+    }
+    println!("\n{}", "Skipped (not eligible):".dimmed());
+    for s in skipped {
+        println!(
+            "  {} {} ({}) — {}",
+            "·".bright_black(),
+            s.label,
+            s.project.bright_blue(),
+            s.reason.dimmed()
+        );
+    }
 }
 
 /// Repair worktree administrative paths after worktrees have been moved on
 /// disk. Wraps `git worktree repair` for each project in the (optionally
 /// scoped) workspace, mirroring [`prune_worktrees`] in shape so the two can be
 /// composed into a future maintenance command.
-pub fn repair_worktrees(
-    base_path: &Path,
-    scope_to_project: Option<&str>,
-    dry_run: bool,
-) -> Result<()> {
+pub fn repair_worktrees(base_path: &Path, scope_projects: &[String], dry_run: bool) -> Result<()> {
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
         return Err(anyhow::anyhow!(
@@ -802,19 +1212,7 @@ pub fn repair_worktrees(
     }
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
-
-    let project_iter: Vec<&String> = match scope_to_project {
-        Some(name) if config.projects.contains_key(name) => {
-            vec![config.projects.keys().find(|k| k.as_str() == name).unwrap()]
-        }
-        Some(name) => {
-            return Err(anyhow::anyhow!(
-                "Project '{}' is not in the workspace .meta file",
-                name
-            ));
-        }
-        None => config.projects.keys().collect(),
-    };
+    let project_iter = validate_scope(&config, scope_projects)?;
 
     if dry_run {
         println!("\nChecking worktree repair (dry run)\n");

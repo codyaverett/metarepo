@@ -1,5 +1,6 @@
 use super::{
-    add_worktrees, list_all_worktrees, prune_worktrees, remove_worktrees, repair_worktrees,
+    add_worktrees, clean_worktrees, list_all_worktrees, prune_worktrees, remove_worktrees,
+    repair_worktrees, CleanOptions,
 };
 use anyhow::Result;
 use clap::ArgMatches;
@@ -8,6 +9,7 @@ use metarepo_core::{
     arg, command, is_interactive, plugin, prompt_multiselect, prompt_text, BasePlugin, MetaPlugin,
     NonInteractiveMode, RuntimeConfig,
 };
+use std::path::Path;
 
 /// WorktreePlugin using the simplified plugin architecture
 pub struct WorktreePlugin;
@@ -218,11 +220,71 @@ impl WorktreePlugin {
                             .help("Repair worktrees across all projects, ignoring the current project directory context")
                     )
             )
+            .command(
+                command("clean")
+                    .about("Remove worktrees whose branches are already merged")
+                    .aliases(vec!["tidy".to_string()])
+                    .long_about("Remove worktrees whose branches are already merged into (or contribute\n\
+                                 no changes relative to) their project's base branch — for example old\n\
+                                 feature branches that have already landed.\n\n\
+                                 Safe by design: worktrees with uncommitted or untracked changes, locked\n\
+                                 worktrees, detached HEADs, and each project's primary worktree are always\n\
+                                 skipped, and you are shown the full list and asked to confirm before\n\
+                                 anything is removed. Each removed worktree's local branch is deleted with\n\
+                                 'git branch -d' (which refuses unmerged branches) unless --keep-branches.\n\n\
+                                 Scope follows the current directory: inside a project it cleans that\n\
+                                 project; inside a subdirectory it cleans the projects beneath it; at the\n\
+                                 workspace root it cleans every project. Use --global to force all.\n\n\
+                                 Examples:\n\
+                                   meta worktree clean                  # Preview, then confirm\n\
+                                   meta worktree clean --dry-run        # Show candidates only\n\
+                                   meta worktree clean --yes            # Skip the confirmation prompt\n\
+                                   meta worktree clean --keep-branches  # Remove worktrees, keep branches\n\
+                                   meta worktree clean --global         # Across every project")
+                    .with_help_formatting()
+                    .arg(
+                        arg("dry-run")
+                            .long("dry-run")
+                            .short('n')
+                            .help("Show what would be removed without removing anything")
+                    )
+                    .arg(
+                        arg("yes")
+                            .long("yes")
+                            .short('y')
+                            .help("Skip the confirmation prompt and remove eligible worktrees")
+                    )
+                    .arg(
+                        arg("keep-branches")
+                            .long("keep-branches")
+                            .help("Remove the worktrees but do not delete their local branches")
+                    )
+                    .arg(
+                        arg("project")
+                            .long("project")
+                            .short('p')
+                            .help("Clean a single project (overrides directory context)")
+                            .takes_value(true)
+                    )
+                    .arg(
+                        arg("projects")
+                            .long("projects")
+                            .help("Clean a comma-separated list of projects (overrides directory context)")
+                            .takes_value(true)
+                    )
+                    .arg(
+                        arg("global")
+                            .long("global")
+                            .short('g')
+                            .help("Clean worktrees across all projects, ignoring the current directory context")
+                    )
+            )
             .handler("add", handle_add)
             .handler("remove", handle_remove)
             .handler("list", handle_list)
             .handler("prune", handle_prune)
             .handler("repair", handle_repair)
+            .handler("clean", handle_clean)
             .build()
     }
 }
@@ -348,20 +410,16 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
     let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
 
-    // Get current project context unless --global was passed.
-    let current_project = if global {
-        None
-    } else {
-        config.current_project()
-    };
+    // Directory-context-aware scope. When no explicit project is given,
+    // remove_worktrees limits auto-detection (and any interactive selection) to
+    // this set, so removal never reaches out-of-scope projects.
+    let scope = contextual_scope(config, global);
 
-    // Collect selected projects
+    // Collect explicitly selected projects, if any.
     let mut projects = Vec::new();
-
     if matches.get_flag("all") || global {
         projects.push("--all".to_string());
     } else if let Some(project) = matches.get_one::<String>("project") {
-        // Use resolve_project to handle aliases
         if let Some(resolved) = config.resolve_project(project) {
             projects.push(resolved);
         } else {
@@ -370,65 +428,42 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     } else if let Some(project_list) = matches.get_one::<String>("projects") {
         for p in project_list.split(',') {
             let trimmed = p.trim();
-            // Use resolve_project to handle aliases
             if let Some(resolved) = config.resolve_project(trimmed) {
                 projects.push(resolved);
             } else {
                 projects.push(trimmed.to_string());
             }
         }
-    } else if is_interactive() && current_project.is_none() {
-        // Prompt for project selection if none specified and no current project
-        let project_names: Vec<String> = config.meta_config.projects.keys().cloned().collect();
-
-        if !project_names.is_empty() {
-            println!("\n  📋 {}", "Select projects for removal".cyan().bold());
-            let selected = prompt_multiselect("Projects", project_names, vec![], non_interactive)?;
-            projects.extend(selected);
-        }
     }
-    // If no projects specified, will use current project or trigger interactive selection
+    // If no projects specified, remove_worktrees selects from `scope` (using an
+    // interactive multiselect when several in-scope projects have the branch).
 
-    remove_worktrees(
-        &branch,
-        &projects,
-        &base_path,
-        force,
-        current_project.as_deref(),
-    )?;
+    remove_worktrees(&branch, &projects, &base_path, force, &scope)?;
     Ok(())
 }
 
 /// Handler for the list command
 fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
-
-    // When run from inside a project directory, scope to that project unless
-    // --global was passed. When run from outside any project, default to
-    // workspace-wide regardless of the flag.
-    let scope = if matches.get_flag("global") {
-        None
-    } else {
-        config.current_project()
-    };
-
-    list_all_worktrees(&base_path, scope.as_deref())?;
+    let scope = contextual_scope(config, matches.get_flag("global"));
+    if scope.is_empty() {
+        println!("\n{}", "No projects in this directory".dimmed());
+        return Ok(());
+    }
+    list_all_worktrees(&base_path, &scope)?;
     Ok(())
 }
 
 /// Handler for the prune command
 fn handle_prune(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let dry_run = matches.get_flag("dry-run");
-
     let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
-
-    let scope = if matches.get_flag("global") {
-        None
-    } else {
-        config.current_project()
-    };
-
-    prune_worktrees(&base_path, dry_run, scope.as_deref())?;
+    let scope = contextual_scope(config, matches.get_flag("global"));
+    if scope.is_empty() {
+        println!("\n{}", "No projects in this directory".dimmed());
+        return Ok(());
+    }
+    prune_worktrees(&base_path, dry_run, &scope)?;
     Ok(())
 }
 
@@ -437,20 +472,114 @@ fn handle_repair(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
     let dry_run = matches.get_flag("dry-run");
 
-    // Explicit --project wins; otherwise --global clears the scope; otherwise
-    // fall back to whatever project the cwd is inside.
-    let scope: Option<String> = if let Some(project) = matches.get_one::<String>("project") {
-        config
+    // Explicit --project wins; otherwise use the directory-context-aware scope
+    // (with --global forcing all projects).
+    let scope: Vec<String> = if let Some(project) = matches.get_one::<String>("project") {
+        vec![config
             .resolve_project(project)
-            .or_else(|| Some(project.clone()))
-    } else if matches.get_flag("global") {
-        None
+            .unwrap_or_else(|| project.clone())]
     } else {
-        config.current_project()
+        contextual_scope(config, matches.get_flag("global"))
     };
 
-    repair_worktrees(&base_path, scope.as_deref(), dry_run)?;
+    if scope.is_empty() {
+        println!("\n{}", "No projects in this directory".dimmed());
+        return Ok(());
+    }
+
+    repair_worktrees(&base_path, &scope, dry_run)?;
     Ok(())
+}
+
+/// Handler for the clean command.
+fn handle_clean(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
+    let opts = CleanOptions {
+        dry_run: matches.get_flag("dry-run"),
+        assume_yes: matches.get_flag("yes"),
+        keep_branches: matches.get_flag("keep-branches"),
+    };
+    let non_interactive = config
+        .non_interactive
+        .unwrap_or(NonInteractiveMode::Defaults);
+
+    // Scope resolution: explicit --project/--projects win, otherwise the
+    // directory-context-aware scope (with --global forcing all projects).
+    let scope: Vec<String> = if let Some(project) = matches.get_one::<String>("project") {
+        vec![config
+            .resolve_project(project)
+            .unwrap_or_else(|| project.clone())]
+    } else if let Some(list) = matches.get_one::<String>("projects") {
+        list.split(',')
+            .map(|p| {
+                let trimmed = p.trim();
+                config
+                    .resolve_project(trimmed)
+                    .unwrap_or_else(|| trimmed.to_string())
+            })
+            .collect()
+    } else {
+        contextual_scope(config, matches.get_flag("global"))
+    };
+
+    if scope.is_empty() {
+        println!("\n{}", "No projects in scope for cleanup".dimmed());
+        return Ok(());
+    }
+
+    clean_worktrees(&base_path, &scope, opts, non_interactive)?;
+    Ok(())
+}
+
+/// Resolve the directory-context-aware project scope for a worktree command,
+/// honoring `--global` (which forces all projects). Explicit `--project` /
+/// `--projects` overrides are applied by the individual handlers.
+fn contextual_scope(config: &RuntimeConfig, global: bool) -> Vec<String> {
+    if global {
+        return config.meta_config.projects.keys().cloned().collect();
+    }
+    let meta_root = config
+        .meta_root()
+        .unwrap_or_else(|| config.working_dir.clone());
+    let keys: Vec<String> = config.meta_config.projects.keys().cloned().collect();
+    projects_in_scope(
+        &meta_root,
+        &config.working_dir,
+        &keys,
+        config.current_project(),
+    )
+}
+
+/// Resolve which project keys are in scope for a directory-context-aware
+/// command, given the workspace root, the current working directory, all
+/// project keys, and the project the cwd is inside (if any):
+///
+/// - inside a project (`current_project` is `Some`) → just that project
+/// - at the workspace root, or outside it entirely → all projects
+/// - in a subdirectory of the root → the projects nested beneath it
+fn projects_in_scope(
+    meta_root: &Path,
+    working_dir: &Path,
+    project_keys: &[String],
+    current_project: Option<String>,
+) -> Vec<String> {
+    if let Some(project) = current_project {
+        return vec![project];
+    }
+    let Ok(rel) = working_dir.strip_prefix(meta_root) else {
+        // cwd is outside the workspace root — operate on everything.
+        return project_keys.to_vec();
+    };
+    if rel.as_os_str().is_empty() {
+        // At the workspace root.
+        return project_keys.to_vec();
+    }
+    // In a subdirectory: keep only projects whose key path is nested under it.
+    project_keys
+        .iter()
+        .filter(|key| Path::new(key).starts_with(rel))
+        .cloned()
+        .collect()
 }
 
 // Traditional implementation for backward compatibility
@@ -489,5 +618,66 @@ impl BasePlugin for WorktreePlugin {
 impl Default for WorktreePlugin {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::projects_in_scope;
+    use std::path::Path;
+
+    fn keys(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn scope_inside_a_project_targets_only_that_project() {
+        // current_project resolves to the project the cwd is inside.
+        let scope = projects_in_scope(
+            Path::new("/ws"),
+            Path::new("/ws/app/src"),
+            &keys(&["app", "api", "plugins/a"]),
+            Some("app".to_string()),
+        );
+        assert_eq!(scope, vec!["app".to_string()]);
+    }
+
+    #[test]
+    fn scope_at_workspace_root_targets_all_projects() {
+        let all = keys(&["app", "api", "plugins/a"]);
+        let scope = projects_in_scope(Path::new("/ws"), Path::new("/ws"), &all, None);
+        assert_eq!(scope, all);
+    }
+
+    #[test]
+    fn scope_in_a_subdirectory_targets_projects_beneath_it() {
+        let scope = projects_in_scope(
+            Path::new("/ws"),
+            Path::new("/ws/plugins"),
+            &keys(&["app", "plugins/a", "plugins/b", "tools/x"]),
+            None,
+        );
+        assert_eq!(
+            scope,
+            vec!["plugins/a".to_string(), "plugins/b".to_string()]
+        );
+    }
+
+    #[test]
+    fn scope_in_an_empty_subdirectory_is_empty() {
+        let scope = projects_in_scope(
+            Path::new("/ws"),
+            Path::new("/ws/docs"),
+            &keys(&["app", "plugins/a"]),
+            None,
+        );
+        assert!(scope.is_empty());
+    }
+
+    #[test]
+    fn scope_outside_the_workspace_targets_all_projects() {
+        let all = keys(&["app", "api"]);
+        let scope = projects_in_scope(Path::new("/ws"), Path::new("/elsewhere"), &all, None);
+        assert_eq!(scope, all);
     }
 }
