@@ -117,7 +117,7 @@ meta git update
 | **config** | `meta config <edit\|show\|get\|set\|validate>` | Configuration management with interactive TUI |
 | **exec** | `meta exec [flags] <command>` | Execute commands across repositories |
 | **run** | `meta run [flags] <script>` | Run scripts defined in `.meta` |
-| **worktree** | `meta worktree <add\|remove\|list\|prune>` | Git worktree management across workspace |
+| **worktree** | `meta worktree <add\|remove\|list\|prune\|clean\|repair>` | Git worktree management across workspace (`clean` removes merged worktrees) |
 | **rules** | `meta -x rules <check\|init\|list\|...>` | Project structure enforcement (experimental) |
 | **plugin** | `meta -x plugin <add\|install\|remove\|list\|update>` | External plugin management (experimental) |
 | **mcp** | `meta -x mcp <add\|list\|connect\|serve\|...>` | Model Context Protocol integration (experimental) |
