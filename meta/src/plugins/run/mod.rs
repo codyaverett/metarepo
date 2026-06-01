@@ -18,7 +18,7 @@ pub fn run_script(
     script_name: &str,
     projects: &[String],
     base_path: &Path,
-    current_project: Option<&str>,
+    scope: &[String],
     parallel: bool,
     existing_only: bool,
     git_only: bool,
@@ -37,13 +37,14 @@ pub fn run_script(
 
     // Determine which projects to operate on
     let mut selected_projects = if projects.is_empty() {
-        // If no projects specified, check for current project context
-        if let Some(current) = current_project {
-            vec![current.to_string()]
-        } else {
-            // Run in all projects that have this script
-            find_projects_with_script(&config, script_name)
-        }
+        // No explicit projects: run in the in-scope projects that define the
+        // script (scope already reflects the cwd and the --workspace flag).
+        let with_script = find_projects_with_script(&config, script_name);
+        scope
+            .iter()
+            .filter(|p| with_script.contains(p))
+            .cloned()
+            .collect()
     } else if projects.len() == 1 && projects[0] == "--all" {
         // Run in all projects
         config.projects.keys().cloned().collect()

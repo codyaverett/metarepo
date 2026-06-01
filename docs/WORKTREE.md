@@ -193,10 +193,11 @@ reason, and last-commit age) is printed first, then a single `[y/N]` prompt.
 the branch is kept and reported so you can delete it manually if intended.
 `--keep-branches` skips branch deletion entirely.
 
-## Directory-aware scope (all worktree commands)
+## Directory-aware scope
 
-`meta worktree list`, `prune`, `repair`, `remove`, and `clean` all choose which
-projects to act on based on your current directory:
+Worktree commands (`list`, `prune`, `repair`, `remove`, `clean`) — like the
+other multi-project commands — choose which projects to act on based on your
+current directory:
 
 - **inside a project** → only that project
 - **inside a subdirectory** that contains projects → the projects beneath it
@@ -207,10 +208,11 @@ of the projects under `plugins/`, not the whole workspace. (`meta worktree add`
 keeps its own behavior: it creates in the current project, or prompts you to
 choose when run outside one.)
 
-Use `--global` (`-g`) to force all projects, or `--project <name>` / `--projects
-a,b,c` to target specific ones regardless of the current directory. For
-`remove`, when several in-scope projects have the named branch you'll be asked
-which to remove from.
+This is governed by the global `--workspace`/`-w` flag (force all projects from
+anywhere) and `--root` (target the outermost metarepo) — see the "Directory-aware
+scope" section in the README. You can also target specific projects with
+`--project <name>` / `--projects a,b,c`. For `remove`, when several in-scope
+projects have the named branch you'll be asked which to remove from.
 
 ## Bare Repository Support
 

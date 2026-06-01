@@ -85,6 +85,13 @@ impl ProjectIterator {
         self
     }
 
+    /// Restrict iteration to the given set of project keys (names). Used to
+    /// apply directory-aware scope resolved from `RuntimeConfig`.
+    pub fn with_scope(mut self, scope: &[String]) -> Self {
+        self.projects.retain(|p| scope.iter().any(|s| s == &p.name));
+        self
+    }
+
     pub fn filter_existing(mut self) -> Self {
         self.projects.retain(|p| p.exists);
         self

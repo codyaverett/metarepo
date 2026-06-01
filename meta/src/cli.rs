@@ -119,6 +119,22 @@ impl MetarepoCli {
                     .action(clap::ArgAction::SetTrue)
                     .help("Load external plugins even if their version does not satisfy the pin in .metarepo")
                     .global(true)
+            )
+            .arg(
+                Arg::new("workspace")
+                    .long("workspace")
+                    .short('w')
+                    .alias("global")
+                    .action(clap::ArgAction::SetTrue)
+                    .help("Operate on every project in the workspace, ignoring the current directory")
+                    .global(true)
+            )
+            .arg(
+                Arg::new("root")
+                    .long("root")
+                    .action(clap::ArgAction::SetTrue)
+                    .help("Resolve the outermost enclosing metarepo instead of the nearest one")
+                    .global(true)
             );
 
         app
@@ -159,9 +175,17 @@ impl MetarepoCli {
             .and_then(|s| NonInteractiveMode::from_str(s).ok());
 
         let config_override = resolve_config_override(matches.get_one::<String>("config"));
+        let scope_workspace = matches.get_flag("workspace");
+        let discover_root = matches.get_flag("root");
 
         // Load runtime configuration
-        let config = create_runtime_config_full(false, non_interactive, config_override)?;
+        let config = create_runtime_config_full(
+            false,
+            non_interactive,
+            config_override,
+            scope_workspace,
+            discover_root,
+        )?;
 
         // Route to appropriate plugin
         match matches.subcommand() {
@@ -199,9 +223,17 @@ impl MetarepoCli {
             .and_then(|s| NonInteractiveMode::from_str(s).ok());
 
         let config_override = resolve_config_override(matches.get_one::<String>("config"));
+        let scope_workspace = matches.get_flag("workspace");
+        let discover_root = matches.get_flag("root");
 
         // Load runtime configuration with experimental flag
-        let config = create_runtime_config_full(true, non_interactive, config_override)?;
+        let config = create_runtime_config_full(
+            true,
+            non_interactive,
+            config_override,
+            scope_workspace,
+            discover_root,
+        )?;
 
         tracing::debug!("Experimental features enabled");
 

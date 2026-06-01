@@ -46,8 +46,9 @@ impl McpPlugin {
                             .takes_value(true),
                     )
                     .arg(
+                        // No `-w` short: that's reserved for the global
+                        // `--workspace` scope flag.
                         arg("workdir")
-                            .short('w')
                             .long("workdir")
                             .help("Working directory for the server")
                             .takes_value(true),

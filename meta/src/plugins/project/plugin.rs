@@ -305,44 +305,42 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
 /// Handler for the list command
 fn handle_list(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let base_path = if config.meta_root().is_some() {
-        config.meta_root().unwrap()
-    } else {
-        config.working_dir.clone()
-    };
+    let base_path = config
+        .meta_root()
+        .unwrap_or_else(|| config.working_dir.clone());
+    let scope = config.scoped_project_keys();
 
     // Check flags for output format
     if matches.get_flag("minimal") {
         // Minimal: just project names
-        list_projects_minimal(&base_path)?;
+        list_projects_minimal(&base_path, &scope)?;
     } else if matches.get_flag("flat") {
         // Flat: list with details
-        list_projects(&base_path)?;
+        list_projects(&base_path, &scope)?;
     } else {
         // Default: tree view
-        show_project_tree(&base_path)?;
+        show_project_tree(&base_path, &scope)?;
     }
     Ok(())
 }
 
 /// Handler for the tree command
 fn handle_tree(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let base_path = if config.meta_root().is_some() {
-        config.meta_root().unwrap()
-    } else {
-        config.working_dir.clone()
-    };
+    let base_path = config
+        .meta_root()
+        .unwrap_or_else(|| config.working_dir.clone());
+    let scope = config.scoped_project_keys();
 
     // Check flags for output format (same as list command)
     if matches.get_flag("minimal") {
         // Minimal: just project names
-        list_projects_minimal(&base_path)?;
+        list_projects_minimal(&base_path, &scope)?;
     } else if matches.get_flag("flat") {
         // Flat: list with details
-        list_projects(&base_path)?;
+        list_projects(&base_path, &scope)?;
     } else {
         // Default: tree view
-        show_project_tree(&base_path)?;
+        show_project_tree(&base_path, &scope)?;
     }
     Ok(())
 }

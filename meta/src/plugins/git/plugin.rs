@@ -4,7 +4,7 @@ use crate::plugins::shared::detect_default_branch;
 use crate::plugins::worktree::list_worktrees;
 use anyhow::Result;
 use clap::ArgMatches;
-use metarepo_core::{arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
+use metarepo_core::{arg, command, plugin, BasePlugin, MetaPlugin, RuntimeConfig};
 use std::path::Path;
 use std::process::Command;
 
@@ -114,24 +114,31 @@ fn handle_clone(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
 /// Handler for the status command
 fn handle_status(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    println!("Git status across all repositories:");
-    println!("================================");
+    let scope = config.scoped_project_keys();
+    if scope.is_empty() {
+        println!("No projects in this directory.");
+        return Ok(());
+    }
+    // Only show the workspace's main repository in the full-workspace view, not
+    // when scoped to a project or subdirectory.
+    let show_main = scope.len() == config.meta_config.projects.len();
+    let base_path = config
+        .meta_root()
+        .unwrap_or_else(|| config.working_dir.clone());
 
-    // Show status for main repo
-    println!("\nMain repository:");
-    match get_git_status(&config.working_dir) {
-        Ok(status) => println!("{}", status),
-        Err(e) => println!("Error: {}", e),
+    println!("Git status:");
+    println!("===========");
+
+    if show_main {
+        println!("\nMain repository:");
+        match get_git_status(&base_path) {
+            Ok(status) => println!("{}", status),
+            Err(e) => println!("Error: {}", e),
+        }
     }
 
-    // Show status for each project
-    for project_path in config.meta_config.projects.keys() {
-        let full_path = if config.meta_root().is_some() {
-            config.meta_root().unwrap().join(project_path)
-        } else {
-            config.working_dir.join(project_path)
-        };
-
+    for project_path in &scope {
+        let full_path = base_path.join(project_path);
         if full_path.exists() {
             println!("\n{}:", project_path);
             match get_git_status(&full_path) {
@@ -154,19 +161,28 @@ fn handle_update(_matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
 }
 
 /// Handler for the pull command
-fn handle_pull(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    let meta_file = MetaConfig::find_meta_file()
+fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let base_path = config
+        .meta_root()
         .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
-    let config = MetaConfig::load_from_file(&meta_file)?;
-    let base_path = meta_file.parent().unwrap();
+
+    // Directory-aware scope: only the in-scope projects are pulled.
+    let scope = config.scoped_project_keys();
+    if scope.is_empty() {
+        println!("No projects in this directory.");
+        return Ok(());
+    }
+    let full_scope = scope.len() == config.meta_config.projects.len();
 
     // Pulls are network-bound, so run them concurrently by default. `--sequential`
     // restores one-at-a-time behavior; `--parallel` is kept for back-compat.
     let parallel = !matches.get_flag("sequential");
-    let skip_main = matches.get_flag("skip-main");
+    // Pull the main repo only in the full-workspace view (or when not skipped).
+    let skip_main = matches.get_flag("skip-main") || !full_scope;
 
-    // Build iterator filtered to existing git repos
-    let mut iterator = ProjectIterator::new(&config, base_path)
+    // Build iterator scoped to the in-scope projects, filtered to existing repos.
+    let mut iterator = ProjectIterator::new(&config.meta_config, &base_path)
+        .with_scope(&scope)
         .filter_existing()
         .filter_git_repos();
 

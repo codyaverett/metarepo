@@ -626,6 +626,7 @@ mod tests {
             meta_file_path: None,
             experimental: false,
             non_interactive: None,
+            scope_workspace: false,
         };
 
         // Handle the command - the plugin will look for subcommands in the matches

@@ -123,7 +123,35 @@ A complete, tested reference lives in
 
 `CommandInfo` and `ArgInfo` have builder helpers (`new`, `.arg`,
 `.subcommand`). `RuntimeConfigDto` is a read-only snapshot of host state
-(`meta_config`, `working_dir`, `meta_file_path`, `experimental`).
+(`meta_config`, `working_dir`, `meta_file_path`, `experimental`, `scope_workspace`).
+
+### Honoring directory-aware scope
+
+Multi-project metarepo commands act only on the projects in scope for the user's
+current directory (the project they're in, the projects under the subdirectory
+they're in, or all projects at the root), with `--workspace`/`-w` forcing the
+whole workspace. To behave consistently, resolve your target projects from the
+config instead of iterating `meta_config.projects` directly:
+
+```rust
+fn handle(&self, _command: &str, _args: &[String], config: &RuntimeConfigDto)
+    -> anyhow::Result<Option<String>>
+{
+    for project_key in config.scoped_project_keys() {
+        let path = config.meta_file_path.as_deref()
+            .and_then(|p| p.parent())
+            .map(|root| root.join(&project_key));
+        // ... operate on `path` ...
+    }
+    Ok(None)
+}
+```
+
+`scoped_project_keys()` already reflects the current directory and the
+`--workspace` flag, and `--root` is applied host-side before your plugin runs
+(so `meta_file_path`/`meta_config` already point at the chosen metarepo). The
+`scope_workspace` field is additive — older plugins that ignore it simply keep
+seeing every project.
 
 ## Manifest plugins
 

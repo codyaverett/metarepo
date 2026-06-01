@@ -10,15 +10,18 @@ pub fn create_runtime_config_with_flags(
     experimental: bool,
     non_interactive: Option<NonInteractiveMode>,
 ) -> Result<RuntimeConfig> {
-    create_runtime_config_full(experimental, non_interactive, None)
+    create_runtime_config_full(experimental, non_interactive, None, false, false)
 }
 
 /// Build the runtime config, allowing the caller to override config discovery
 /// with an explicit file path (typically from `--config` or `METAREPO_CONFIG`).
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn create_runtime_config_full(
     experimental: bool,
     non_interactive: Option<NonInteractiveMode>,
     config_override: Option<PathBuf>,
+    scope_workspace: bool,
+    discover_root: bool,
 ) -> Result<RuntimeConfig> {
     let working_dir = std::env::current_dir()?;
 
@@ -29,7 +32,14 @@ pub fn create_runtime_config_full(
         let config = MetaConfig::load_from_file_with_format(&path, format)?;
         (config, Some(path))
     } else {
-        match MetaConfig::discover_from(&working_dir) {
+        // `--root` resolves the outermost enclosing metarepo; otherwise the
+        // nearest one wins.
+        let discovered = if discover_root {
+            MetaConfig::discover_topmost_from(&working_dir)
+        } else {
+            MetaConfig::discover_from(&working_dir)
+        };
+        match discovered {
             Ok(Some(found)) => {
                 let config = MetaConfig::load_from_file_with_format(&found.path, found.format)?;
                 (config, Some(found.path))
@@ -49,6 +59,7 @@ pub fn create_runtime_config_full(
         meta_file_path,
         experimental,
         non_interactive,
+        scope_workspace,
     })
 }
 

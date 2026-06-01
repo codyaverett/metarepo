@@ -68,6 +68,9 @@ pub struct RuntimeConfig {
     pub meta_file_path: Option<PathBuf>,
     pub experimental: bool,
     pub non_interactive: Option<NonInteractiveMode>,
+    /// When true, multi-project commands operate on every project regardless of
+    /// the current directory (set by the global `--workspace`/`-w` flag).
+    pub scope_workspace: bool,
 }
 
 impl RuntimeConfig {
@@ -76,9 +79,7 @@ impl RuntimeConfig {
     }
 
     pub fn meta_root(&self) -> Option<PathBuf> {
-        self.meta_file_path
-            .as_ref()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        meta_root_of(self.meta_file_path.as_deref())
     }
 
     pub fn is_experimental(&self) -> bool {
@@ -88,25 +89,18 @@ impl RuntimeConfig {
     /// Detect if we're currently inside a project directory and return its name
     pub fn current_project(&self) -> Option<String> {
         let meta_root = self.meta_root()?;
-        let cwd = &self.working_dir;
+        current_project_of(&self.meta_config, &meta_root, &self.working_dir)
+    }
 
-        // Check if we're inside the meta root
-        if !cwd.starts_with(&meta_root) {
-            return None;
-        }
-
-        // Get relative path from meta root
-        let _relative = cwd.strip_prefix(&meta_root).ok()?;
-
-        // Check each project to see if we're inside it
-        for project_name in self.meta_config.projects.keys() {
-            let project_path = meta_root.join(project_name);
-            if cwd.starts_with(&project_path) {
-                return Some(project_name.clone());
-            }
-        }
-
-        None
+    /// Resolve the set of project keys a directory-aware command should act on,
+    /// honoring the `--workspace` flag. See [`scoped_keys`].
+    pub fn scoped_project_keys(&self) -> Vec<String> {
+        scoped_keys(
+            &self.meta_config,
+            &self.working_dir,
+            self.meta_file_path.as_deref(),
+            self.scope_workspace,
+        )
     }
 
     /// Resolve a project identifier (could be full name, basename, or alias)
@@ -160,6 +154,90 @@ impl RuntimeConfig {
 
         identifiers
     }
+}
+
+// ============================================================================
+// Directory-aware project scoping (shared by RuntimeConfig and the wire DTO)
+// ============================================================================
+
+/// The workspace root: the parent directory of the discovered meta file.
+pub fn meta_root_of(meta_file_path: Option<&Path>) -> Option<PathBuf> {
+    meta_file_path.and_then(|p| p.parent().map(|p| p.to_path_buf()))
+}
+
+/// The project that `working_dir` is inside, if any. A project matches when the
+/// working directory is at or below `meta_root/<project key>`.
+pub fn current_project_of(
+    meta_config: &MetaConfig,
+    meta_root: &Path,
+    working_dir: &Path,
+) -> Option<String> {
+    if !working_dir.starts_with(meta_root) {
+        return None;
+    }
+    // Prefer the deepest (longest key) match so nested project keys win.
+    let mut best: Option<&String> = None;
+    for project_name in meta_config.projects.keys() {
+        if working_dir.starts_with(meta_root.join(project_name))
+            && best.is_none_or(|b| project_name.len() > b.len())
+        {
+            best = Some(project_name);
+        }
+    }
+    best.cloned()
+}
+
+/// The directory-contextual 3-level project scope:
+/// - inside a project (`current_project` is `Some`) → just that project
+/// - at the workspace root, or `working_dir` outside it → all projects
+/// - in a subdirectory of the root → the projects nested beneath it
+pub fn projects_in_scope(
+    meta_root: &Path,
+    working_dir: &Path,
+    project_keys: &[String],
+    current_project: Option<String>,
+) -> Vec<String> {
+    if let Some(project) = current_project {
+        return vec![project];
+    }
+    let Ok(rel) = working_dir.strip_prefix(meta_root) else {
+        // cwd is outside the workspace root — operate on everything.
+        return project_keys.to_vec();
+    };
+    if rel.as_os_str().is_empty() {
+        // At the workspace root.
+        return project_keys.to_vec();
+    }
+    // In a subdirectory: keep only projects whose key path is nested under it.
+    project_keys
+        .iter()
+        .filter(|key| Path::new(key).starts_with(rel))
+        .cloned()
+        .collect()
+}
+
+/// Resolve the set of project keys a directory-aware command should operate on.
+///
+/// Keys are returned sorted for deterministic output. When `scope_workspace` is
+/// true (the `--workspace`/`-w` flag), every project is returned; otherwise the
+/// [`projects_in_scope`] 3-level rule is applied relative to the workspace root.
+pub fn scoped_keys(
+    meta_config: &MetaConfig,
+    working_dir: &Path,
+    meta_file_path: Option<&Path>,
+    scope_workspace: bool,
+) -> Vec<String> {
+    let mut keys: Vec<String> = meta_config.projects.keys().cloned().collect();
+    keys.sort();
+    if scope_workspace {
+        return keys;
+    }
+    let Some(meta_root) = meta_root_of(meta_file_path) else {
+        // No workspace root known — fall back to all projects.
+        return keys;
+    };
+    let current = current_project_of(meta_config, &meta_root, working_dir);
+    projects_in_scope(&meta_root, working_dir, &keys, current)
 }
 
 /// Configuration for nested repository handling
@@ -465,6 +543,46 @@ impl MetaConfig {
         }
     }
 
+    /// Like [`discover_from`](Self::discover_from), but keeps walking to the
+    /// filesystem root and returns the **outermost** config found, so a metarepo
+    /// nested inside another can be driven from the top (the `--root` flag).
+    ///
+    /// Each directory follows the same single-match rule as `discover_from`:
+    /// two recognized files in one directory is still an error.
+    pub fn discover_topmost_from(
+        start: &Path,
+    ) -> std::result::Result<Option<DiscoveredConfig>, ConfigDiscoveryError> {
+        let mut current = start.to_path_buf();
+        let mut outermost: Option<DiscoveredConfig> = None;
+        loop {
+            let mut found: Vec<PathBuf> = Vec::new();
+            for name in KNOWN_FILENAMES {
+                let candidate = current.join(name);
+                if candidate.exists() {
+                    found.push(candidate);
+                }
+            }
+            match found.len() {
+                0 => {}
+                1 => {
+                    let path = found.into_iter().next().unwrap();
+                    let format = ConfigFormat::from_path(&path).unwrap_or(ConfigFormat::Json);
+                    // Keep the highest one seen so far; keep walking upward.
+                    outermost = Some(DiscoveredConfig { path, format });
+                }
+                _ => {
+                    return Err(ConfigDiscoveryError::Multiple {
+                        dir: current,
+                        files: found,
+                    });
+                }
+            }
+            if !current.pop() {
+                return Ok(outermost);
+            }
+        }
+    }
+
     /// Convenience wrapper around `discover_from` that starts at the current
     /// working directory. Returns just the path to keep older call sites that
     /// only need the location backwards-compatible.
@@ -562,6 +680,109 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    fn keys(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn scope_inside_a_project_targets_only_that_project() {
+        let scope = projects_in_scope(
+            Path::new("/ws"),
+            Path::new("/ws/app/src"),
+            &keys(&["app", "api", "plugins/a"]),
+            Some("app".to_string()),
+        );
+        assert_eq!(scope, vec!["app".to_string()]);
+    }
+
+    #[test]
+    fn scope_at_workspace_root_targets_all_projects() {
+        let all = keys(&["app", "api", "plugins/a"]);
+        let scope = projects_in_scope(Path::new("/ws"), Path::new("/ws"), &all, None);
+        assert_eq!(scope, all);
+    }
+
+    #[test]
+    fn scope_in_a_subdirectory_targets_projects_beneath_it() {
+        let scope = projects_in_scope(
+            Path::new("/ws"),
+            Path::new("/ws/plugins"),
+            &keys(&["app", "plugins/a", "plugins/b", "tools/x"]),
+            None,
+        );
+        assert_eq!(
+            scope,
+            vec!["plugins/a".to_string(), "plugins/b".to_string()]
+        );
+    }
+
+    #[test]
+    fn scope_in_an_empty_subdirectory_is_empty() {
+        let scope = projects_in_scope(
+            Path::new("/ws"),
+            Path::new("/ws/docs"),
+            &keys(&["app", "plugins/a"]),
+            None,
+        );
+        assert!(scope.is_empty());
+    }
+
+    #[test]
+    fn scope_outside_the_workspace_targets_all_projects() {
+        let all = keys(&["app", "api"]);
+        let scope = projects_in_scope(Path::new("/ws"), Path::new("/elsewhere"), &all, None);
+        assert_eq!(scope, all);
+    }
+
+    #[test]
+    fn current_project_of_picks_the_deepest_match() {
+        let mut cfg = MetaConfig::default();
+        cfg.projects
+            .insert("plugins".to_string(), ProjectEntry::Url("u".to_string()));
+        cfg.projects
+            .insert("plugins/a".to_string(), ProjectEntry::Url("u".to_string()));
+        let got = current_project_of(&cfg, Path::new("/ws"), Path::new("/ws/plugins/a/src"));
+        assert_eq!(got, Some("plugins/a".to_string()));
+    }
+
+    #[test]
+    fn scoped_keys_workspace_flag_returns_all_sorted() {
+        let mut cfg = MetaConfig::default();
+        for k in ["b", "a", "plugins/x"] {
+            cfg.projects
+                .insert(k.to_string(), ProjectEntry::Url("u".to_string()));
+        }
+        let keys = scoped_keys(
+            &cfg,
+            Path::new("/ws/plugins"), // would otherwise scope to subtree
+            Some(Path::new("/ws/.meta")),
+            true, // scope_workspace
+        );
+        assert_eq!(keys, keys_sorted(&["a", "b", "plugins/x"]));
+    }
+
+    fn keys_sorted(list: &[&str]) -> Vec<String> {
+        let mut v = keys(list);
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn discover_topmost_returns_outermost_metarepo() {
+        let tmp = tempdir().unwrap();
+        let outer = tmp.path();
+        let inner = outer.join("inner");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(outer.join(".metarepo"), "{}").unwrap();
+        fs::write(inner.join(".metarepo"), "{}").unwrap();
+
+        let nearest = MetaConfig::discover_from(&inner).unwrap().unwrap();
+        assert_eq!(nearest.path, inner.join(".metarepo"));
+
+        let topmost = MetaConfig::discover_topmost_from(&inner).unwrap().unwrap();
+        assert_eq!(topmost.path, outer.join(".metarepo"));
+    }
 
     #[test]
     fn test_meta_config_default() {
@@ -702,6 +923,7 @@ mod tests {
             meta_file_path: Some(meta_file.clone()),
             experimental: false,
             non_interactive: None,
+            scope_workspace: false,
         };
 
         let config_without_meta = RuntimeConfig {
@@ -710,6 +932,7 @@ mod tests {
             meta_file_path: None,
             experimental: false,
             non_interactive: None,
+            scope_workspace: false,
         };
 
         assert!(config_with_meta.has_meta_file());
@@ -728,6 +951,7 @@ mod tests {
             meta_file_path: Some(meta_file.clone()),
             experimental: false,
             non_interactive: None,
+            scope_workspace: false,
         };
 
         assert_eq!(config.meta_root(), Some(temp_dir.path().join("subdir")));

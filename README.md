@@ -131,6 +131,31 @@ See [CLI Reference](.claude/skills/meta-tool/SKILL.md) for full command document
 | `--version` | `-v` | Print version information |
 | `--experimental` | `-x` | Enable experimental features (rules, plugin, mcp) |
 | `--non-interactive` | | Non-interactive mode: `fail` or `defaults` (for CI) |
+| `--config` | `-c` | Use a specific config file, overriding auto-discovery |
+| `--workspace` | `-w` | Operate on every project, ignoring the current directory |
+| `--root` | | Resolve the outermost enclosing metarepo instead of the nearest one |
+
+## Directory-aware scope
+
+Multi-project commands (`git status`/`pull`, `exec`, `run`, `project list`/`tree`,
+and `worktree`) act on a set of projects determined by your current directory:
+
+- **inside a project** → just that project
+- **inside a subdirectory** that contains projects → the projects beneath it
+- **at the workspace root** → every project
+
+```bash
+cd plugins/
+meta git status        # only the projects under plugins/
+meta -w git status     # every project (run from anywhere)
+```
+
+Use `--workspace`/`-w` to force the whole workspace from anywhere, or
+`--project`/`--projects` (where supported) to target specific projects. For a
+metarepo nested inside another, `--root` drives the **outermost** one (combine
+with `--workspace` to span all of its projects). Commands that are inherently
+whole-workspace or target a named project — `git clone`/`update`, `project
+add`/`remove`/`rename` — are not directory-scoped.
 
 ## Advanced Configuration
 

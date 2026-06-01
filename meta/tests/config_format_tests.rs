@@ -25,7 +25,7 @@ fn explicit_config_override_loads_arbitrary_path() {
 
     // create_runtime_config_full bypasses discovery when an override is set.
     // We pass it directly here (the CLI does the same after parsing --config).
-    let rc = create_runtime_config_full(false, None, Some(path.clone())).unwrap();
+    let rc = create_runtime_config_full(false, None, Some(path.clone()), false, false).unwrap();
     assert_eq!(rc.meta_file_path, Some(path));
     assert!(rc.meta_config.projects.contains_key("alpha"));
 }
@@ -34,7 +34,7 @@ fn explicit_config_override_loads_arbitrary_path() {
 fn explicit_override_rejects_unreadable_path() {
     let tmp = TempDir::new().unwrap();
     let missing = tmp.path().join("nope.yaml");
-    let err = create_runtime_config_full(false, None, Some(missing)).err();
+    let err = create_runtime_config_full(false, None, Some(missing), false, false).err();
     assert!(
         err.is_some(),
         "missing override path should produce an error"
@@ -89,7 +89,9 @@ fn discover_errors_when_multiple_configs_coexist() {
     std::env::remove_var("METAREPO_CONFIG");
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
-    let err = create_runtime_config_full(false, None, None).err().unwrap();
+    let err = create_runtime_config_full(false, None, None, false, false)
+        .err()
+        .unwrap();
     std::env::set_current_dir(orig).unwrap();
 
     let msg = err.to_string();

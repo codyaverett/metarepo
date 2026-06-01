@@ -148,8 +148,9 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
 
     let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
 
-    // Get current project context
-    let current_project = config.current_project();
+    // Directory-aware scope: when no explicit project is given, run only in the
+    // in-scope projects that define the script.
+    let scope = config.scoped_project_keys();
 
     // Parse environment variables
     let mut env_vars = HashMap::new();
@@ -190,7 +191,7 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
         &script_name,
         &projects,
         &base_path,
-        current_project.as_deref(),
+        &scope,
         parallel,
         existing_only,
         git_only,

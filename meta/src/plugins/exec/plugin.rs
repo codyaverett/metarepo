@@ -166,13 +166,14 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                 }
             }
 
-            // If no projects specified, check for current project context
+            // If no projects specified, fall back to the directory-aware scope:
+            // inside a project -> that project; inside a subdirectory -> the
+            // projects beneath it; at the workspace root (or with --workspace)
+            // -> all. Explicit --project/--projects above override this.
             if selected_projects.is_empty() {
-                if let Some(current) = runtime_config.current_project() {
-                    selected_projects.push(current);
-                } else {
-                    // No context and no projects specified - show help
-                    println!("No project context found. Use --project, --projects, or --all to specify targets.");
+                selected_projects = runtime_config.scoped_project_keys();
+                if selected_projects.is_empty() {
+                    println!("No projects in this directory. Use --workspace to run across the whole workspace, or --project/--projects to target specific projects.");
                     return Ok(());
                 }
             }

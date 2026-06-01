@@ -121,6 +121,23 @@ pub struct RuntimeConfigDto {
     pub working_dir: PathBuf,
     pub meta_file_path: Option<PathBuf>,
     pub experimental: bool,
+    /// Whether the user requested whole-workspace scope (`--workspace`/`-w`).
+    /// Defaults to `false` so older hosts/plugins remain compatible.
+    #[serde(default)]
+    pub scope_workspace: bool,
+}
+
+impl RuntimeConfigDto {
+    /// Resolve the project keys an external plugin should operate on, applying
+    /// the same directory-aware rules as the host. See [`crate::scoped_keys`].
+    pub fn scoped_project_keys(&self) -> Vec<String> {
+        crate::scoped_keys(
+            &self.meta_config,
+            &self.working_dir,
+            self.meta_file_path.as_deref(),
+            self.scope_workspace,
+        )
+    }
 }
 
 impl From<&RuntimeConfig> for RuntimeConfigDto {
@@ -130,6 +147,7 @@ impl From<&RuntimeConfig> for RuntimeConfigDto {
             working_dir: config.working_dir.clone(),
             meta_file_path: config.meta_file_path.clone(),
             experimental: config.experimental,
+            scope_workspace: config.scope_workspace,
         }
     }
 }
@@ -142,6 +160,7 @@ impl From<RuntimeConfigDto> for RuntimeConfig {
             meta_file_path: dto.meta_file_path,
             experimental: dto.experimental,
             non_interactive: None,
+            scope_workspace: dto.scope_workspace,
         }
     }
 }
@@ -254,6 +273,7 @@ mod tests {
             meta_file_path: None,
             experimental: false,
             non_interactive: None,
+            scope_workspace: false,
         };
         let dto: RuntimeConfigDto = (&config).into();
         assert_eq!(dto.working_dir, config.working_dir);

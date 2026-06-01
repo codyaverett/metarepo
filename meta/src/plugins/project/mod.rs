@@ -883,7 +883,7 @@ fn update_gitignore(base_path: &Path, project_path: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn list_projects(base_path: &Path) -> Result<()> {
+pub fn list_projects(base_path: &Path, scope: &[String]) -> Result<()> {
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -892,7 +892,9 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
         ));
     }
 
-    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
+    // Restrict to the directory-aware scope resolved by the caller.
+    config.projects.retain(|k, _| scope.iter().any(|s| s == k));
 
     if config.projects.is_empty() {
         println!(
@@ -1015,7 +1017,7 @@ pub fn list_projects(base_path: &Path) -> Result<()> {
 }
 
 /// List projects in minimal format (just names)
-pub fn list_projects_minimal(base_path: &Path) -> Result<()> {
+pub fn list_projects_minimal(base_path: &Path, scope: &[String]) -> Result<()> {
     // Find and load the .meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -1024,7 +1026,8 @@ pub fn list_projects_minimal(base_path: &Path) -> Result<()> {
         ));
     }
 
-    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
+    config.projects.retain(|k, _| scope.iter().any(|s| s == k));
 
     if config.projects.is_empty() {
         return Ok(());
@@ -1042,7 +1045,7 @@ pub fn list_projects_minimal(base_path: &Path) -> Result<()> {
 }
 
 /// Display projects in a tree structure
-pub fn show_project_tree(base_path: &Path) -> Result<()> {
+pub fn show_project_tree(base_path: &Path, scope: &[String]) -> Result<()> {
     // Load the root meta file
     let meta_file_path = base_path.join(".meta");
     if !meta_file_path.exists() {
@@ -1051,7 +1054,8 @@ pub fn show_project_tree(base_path: &Path) -> Result<()> {
         ));
     }
 
-    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
+    config.projects.retain(|k, _| scope.iter().any(|s| s == k));
 
     if config.projects.is_empty() {
         println!(
