@@ -1,0 +1,33 @@
+# Example meta module manifest.
+#
+# A module is a single repo that bundles the command capability it adds (a plugin)
+# and the Claude Code automation that drives it (skills). meta discovers this file at
+# the repo root and, on confirmation, registers the plugin and installs the skills.
+#
+# See docs/MODULES.md for the full design and field semantics.
+
+[module]
+name = "example"
+version = "0.1.0"
+description = "Example meta module bundling a manifest plugin and its skills"
+author = "metarepo"
+repository = "https://github.com/codyaverett/metarepo"
+min_meta_version = "0.27.0"
+
+# Plugin(s) this module provides.
+# This entry points at an existing plugin.manifest.* (a manifest plugin) inside the
+# repo. The path is relative to the repo root and resolves inside the module.
+[[module.plugins]]
+manifest = "plugin/plugin.manifest.toml"
+
+# To ship a protocol/SDK plugin instead of a manifest plugin, drop `manifest` and use:
+#   binary   = "target/release/metarepo-plugin-example"
+#   protocol = true
+
+# Skill(s) this module ships. Each `path` is a directory containing a SKILL.md.
+# Installed through the existing skill path, subject to the audit gate.
+[[module.skills]]
+path = "skills/example-skill"
+
+[[module.skills]]
+path = "skills/example-helper"
