@@ -7,6 +7,16 @@
     ".DS_Store"
   ],
   "projects": {
+    ".claude": "local",
+    ".github": "local",
+    "docs": "local",
+    "examples": "local",
+    "fuzz": "local",
+    "meta": "local",
+    "meta-core": "local",
+    "metarepo-plugin-sdk": "local",
+    "plugins": "local",
+    "scripts": "local",
     "plugins/containers": {
       "url": "git@github.com:codyaverett/metarepo-container.git",
       "aliases": [],
