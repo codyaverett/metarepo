@@ -170,13 +170,15 @@ impl MetarepoCli {
         let discover_root = matches.get_flag("root");
 
         // Load runtime configuration
-        let config = create_runtime_config_full(
+        let mut config = create_runtime_config_full(
             false,
             non_interactive,
             config_override,
             scope_workspace,
             discover_root,
         )?;
+        // Aggregate declared plugin settings so `meta config` can list them.
+        config.settings_catalog = self.registry.borrow().collect_settings();
 
         // Route to appropriate plugin
         match matches.subcommand() {
@@ -218,13 +220,14 @@ impl MetarepoCli {
         let discover_root = matches.get_flag("root");
 
         // Load runtime configuration with experimental flag
-        let config = create_runtime_config_full(
+        let mut config = create_runtime_config_full(
             true,
             non_interactive,
             config_override,
             scope_workspace,
             discover_root,
         )?;
+        config.settings_catalog = self.registry.borrow().collect_settings();
 
         tracing::debug!("Experimental features enabled");
 

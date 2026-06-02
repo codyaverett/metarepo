@@ -652,6 +652,7 @@ mod tests {
             experimental: false,
             non_interactive: None,
             scope_workspace: false,
+            settings_catalog: Vec::new(),
         };
 
         // Handle the command - the plugin will look for subcommands in the matches

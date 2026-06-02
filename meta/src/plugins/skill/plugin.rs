@@ -125,6 +125,29 @@ impl MetaPlugin for SkillPlugin {
         "skill"
     }
 
+    fn settings(&self) -> Vec<metarepo_core::ConfigSetting> {
+        use metarepo_core::{ConfigSetting, ConfigValueType};
+        vec![
+            ConfigSetting::new(
+                "skill.dest",
+                "Default install directory for skills (overridden by --dest)",
+                ConfigValueType::String,
+            ),
+            ConfigSetting::new(
+                "skill.adapt-command",
+                "AI command used by --adapt",
+                ConfigValueType::String,
+            )
+            .with_default("claude"),
+            ConfigSetting::new(
+                "skill.adapt-args",
+                "Args template for the adapt command ({prompt} is substituted)",
+                ConfigValueType::StringList,
+            )
+            .with_default("-p, {prompt}, --permission-mode, acceptEdits"),
+        ]
+    }
+
     fn register_commands(&self, app: Command) -> Command {
         app.subcommand(skill_command())
     }

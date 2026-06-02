@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 // New plugin system modules
 pub mod config_format;
+pub mod config_setting;
 pub mod interactive;
 mod module_manifest;
 mod plugin_base;
@@ -16,6 +17,7 @@ pub mod security;
 pub mod tui;
 
 pub use config_format::{ConfigFormat, CANONICAL_FILENAME, KNOWN_FILENAMES, LEGACY_FILENAME};
+pub use config_setting::{ConfigSetting, ConfigValueType};
 pub use interactive::{
     is_interactive, prompt_confirm, prompt_multiselect, prompt_select, prompt_text, prompt_url,
     NonInteractiveMode,
@@ -56,6 +58,14 @@ pub trait MetaPlugin: Send + Sync {
         false
     }
 
+    /// Declare the configuration settings this plugin understands. The
+    /// `meta config` command aggregates these across all plugins so users can
+    /// list, get, and set them without hand-editing `.meta`. Each key is dotted
+    /// and namespaced by the plugin (e.g. `skill.dest`). Default: none.
+    fn settings(&self) -> Vec<ConfigSetting> {
+        Vec::new()
+    }
+
     /// The version the plugin reports about itself (protocol `Info` handshake or
     /// manifest `[plugin].version`), if any. Built-in plugins return `None`;
     /// external plugins override this so the loader can enforce the version
@@ -76,6 +86,10 @@ pub struct RuntimeConfig {
     /// When true, multi-project commands operate on every project regardless of
     /// the current directory (set by the global `--workspace`/`-w` flag).
     pub scope_workspace: bool,
+    /// Aggregated configuration settings declared by all registered plugins
+    /// (see [`MetaPlugin::settings`]). Populated by the host before dispatch so
+    /// the `config` command can list/validate them. Empty by default.
+    pub settings_catalog: Vec<ConfigSetting>,
 }
 
 impl RuntimeConfig {
@@ -740,6 +754,59 @@ impl MetaConfig {
         }
         false
     }
+
+    /// Read a value at a dotted key path (e.g. `skill.dest`) from the config,
+    /// navigating the serialized JSON representation. Returns `None` if any
+    /// segment is missing or null.
+    pub fn get_dotted(&self, key: &str) -> Option<serde_json::Value> {
+        let json = serde_json::to_value(self).ok()?;
+        let mut current = &json;
+        for part in key.split('.') {
+            match current.get(part) {
+                Some(v) if !v.is_null() => current = v,
+                _ => return None,
+            }
+        }
+        Some(current.clone())
+    }
+
+    /// Return a copy of the config with `value` set at a dotted key path,
+    /// creating intermediate objects as needed (so `skill.dest` works even when
+    /// the `[skill]` block is absent). Fails only if the result no longer
+    /// deserializes into a valid [`MetaConfig`].
+    pub fn with_dotted_set(&self, key: &str, value: serde_json::Value) -> Result<MetaConfig> {
+        let mut json = serde_json::to_value(self)?;
+        let parts: Vec<&str> = key.split('.').collect();
+
+        // Ensure the root is an object we can index into.
+        if !json.is_object() {
+            json = serde_json::Value::Object(serde_json::Map::new());
+        }
+
+        let mut current = &mut json;
+        for part in &parts[..parts.len() - 1] {
+            // Replace a missing or null intermediate with a fresh object.
+            let slot = current
+                .as_object_mut()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Cannot set '{}': '{}' is not an object", key, part)
+                })?
+                .entry(part.to_string())
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            if slot.is_null() {
+                *slot = serde_json::Value::Object(serde_json::Map::new());
+            }
+            current = slot;
+        }
+
+        let last = parts[parts.len() - 1];
+        current
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("Cannot set '{}': parent is not an object", key))?
+            .insert(last.to_string(), value);
+
+        Ok(serde_json::from_value(json)?)
+    }
 }
 
 #[cfg(test)]
@@ -750,6 +817,42 @@ mod tests {
 
     fn keys(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn dotted_set_creates_missing_nested_block() {
+        // `skill` block is absent on a default config.
+        let cfg = MetaConfig::default();
+        assert!(cfg.get_dotted("skill.dest").is_none());
+
+        let updated = cfg
+            .with_dotted_set("skill.dest", serde_json::json!("~/.claude/skills"))
+            .unwrap();
+
+        assert_eq!(
+            updated.get_dotted("skill.dest"),
+            Some(serde_json::json!("~/.claude/skills"))
+        );
+        assert_eq!(
+            updated.skill.as_ref().and_then(|s| s.dest.as_deref()),
+            Some("~/.claude/skills")
+        );
+    }
+
+    #[test]
+    fn dotted_get_returns_none_for_null_segment() {
+        let cfg = MetaConfig::default();
+        // `worktree_init` defaults to null → treated as unset.
+        assert!(cfg.get_dotted("worktree_init").is_none());
+    }
+
+    #[test]
+    fn dotted_set_rejects_invalid_shape() {
+        let cfg = MetaConfig::default();
+        // `default_bare` is a bool; setting a nested key under it can't
+        // deserialize back into MetaConfig.
+        let err = cfg.with_dotted_set("default_bare.x", serde_json::json!(1));
+        assert!(err.is_err());
     }
 
     #[test]
@@ -1044,6 +1147,7 @@ mod tests {
             experimental: false,
             non_interactive: None,
             scope_workspace: false,
+            settings_catalog: Vec::new(),
         };
 
         let config_without_meta = RuntimeConfig {
@@ -1053,6 +1157,7 @@ mod tests {
             experimental: false,
             non_interactive: None,
             scope_workspace: false,
+            settings_catalog: Vec::new(),
         };
 
         assert!(config_with_meta.has_meta_file());
@@ -1072,6 +1177,7 @@ mod tests {
             experimental: false,
             non_interactive: None,
             scope_workspace: false,
+            settings_catalog: Vec::new(),
         };
 
         assert_eq!(config.meta_root(), Some(temp_dir.path().join("subdir")));

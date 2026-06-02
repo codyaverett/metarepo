@@ -161,6 +161,7 @@ impl From<RuntimeConfigDto> for RuntimeConfig {
             experimental: dto.experimental,
             non_interactive: None,
             scope_workspace: dto.scope_workspace,
+            settings_catalog: Vec::new(),
         }
     }
 }
@@ -274,6 +275,7 @@ mod tests {
             experimental: false,
             non_interactive: None,
             scope_workspace: false,
+            settings_catalog: Vec::new(),
         };
         let dto: RuntimeConfigDto = (&config).into();
         assert_eq!(dto.working_dir, config.working_dir);

@@ -60,6 +60,8 @@ pub fn create_runtime_config_full(
         experimental,
         non_interactive,
         scope_workspace,
+        // Populated by the CLI after the plugin registry is available.
+        settings_catalog: Vec::new(),
     })
 }
 

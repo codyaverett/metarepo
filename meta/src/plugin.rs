@@ -140,6 +140,16 @@ impl PluginRegistry {
         self.plugins.get(name).map(|plugin| plugin.as_ref())
     }
 
+    /// Aggregate the configuration settings declared by every registered
+    /// plugin, sorted by key. Feeds `RuntimeConfig::settings_catalog` so the
+    /// `config` command can list and validate them.
+    pub fn collect_settings(&self) -> Vec<metarepo_core::ConfigSetting> {
+        let mut settings: Vec<metarepo_core::ConfigSetting> =
+            self.plugins.values().flat_map(|p| p.settings()).collect();
+        settings.sort_by(|a, b| a.key.cmp(&b.key));
+        settings
+    }
+
     pub fn list_plugins(&self) -> Vec<&str> {
         let mut plugin_names: Vec<&str> = self.plugins.keys().map(|k| k.as_str()).collect();
         // Sort by length (shortest first), then alphabetically

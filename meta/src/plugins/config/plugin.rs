@@ -145,58 +145,83 @@ impl ConfigPlugin {
         Ok(())
     }
 
+    /// List every configurable setting declared by registered plugins, with its
+    /// type, description, default, and current value.
+    fn handle_list(&self, config: &RuntimeConfig) -> Result<()> {
+        if config.settings_catalog.is_empty() {
+            println!("No configurable settings are declared by the active plugins.");
+            return Ok(());
+        }
+
+        println!("{}", "Configurable settings:".bold());
+        for setting in &config.settings_catalog {
+            let current = config
+                .meta_config
+                .get_dotted(&setting.key)
+                .map(|v| match v {
+                    serde_json::Value::String(s) => s,
+                    other => other.to_string(),
+                });
+
+            let value_display = match (&current, &setting.default) {
+                (Some(v), _) => v.clone(),
+                (None, Some(d)) => format!("{} (default)", d),
+                (None, None) => "(unset)".to_string(),
+            };
+
+            println!(
+                "  {} [{}]",
+                setting.key.cyan(),
+                setting.value_type.label().bright_black()
+            );
+            println!("      {}", setting.description);
+            println!("      current: {}", value_display.green());
+        }
+
+        Ok(())
+    }
+
     fn handle_get(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         let key = matches.get_one::<String>("key").unwrap();
 
-        // Parse the key path (e.g., "default_bare" or "projects.myproject.url")
-        let parts: Vec<&str> = key.split('.').collect();
-
-        // Convert config to a JSON value for easy navigation
-        let config_json = serde_json::to_value(&config.meta_config)?;
-
-        let mut current = &config_json;
-        for part in &parts {
-            current = current
-                .get(part)
-                .ok_or_else(|| anyhow!("Key '{}' not found in config", key))?;
+        if let Some(value) = config.meta_config.get_dotted(key) {
+            println!("{}", serde_json::to_string_pretty(&value)?);
+            return Ok(());
         }
 
-        // Pretty print the value
-        println!("{}", serde_json::to_string_pretty(current)?);
+        // Unset: if it's a declared setting, surface its default instead of erroring.
+        if let Some(setting) = config.settings_catalog.iter().find(|s| &s.key == key) {
+            match &setting.default {
+                Some(d) => {
+                    println!("{}  (default, not set)", d);
+                    return Ok(());
+                }
+                None => return Err(anyhow!("'{}' is not set and has no default", key)),
+            }
+        }
 
-        Ok(())
+        Err(anyhow!("Key '{}' not found in config", key))
     }
 
     fn handle_set(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         let key = matches.get_one::<String>("key").unwrap();
         let value_str = matches.get_one::<String>("value").unwrap();
 
-        // Load the config as a mutable JSON value
-        let mut config_json = serde_json::to_value(&config.meta_config)?;
+        // If the key is a declared setting, validate the value against its type.
+        // Otherwise fall back to free-form JSON-or-string parsing (still
+        // nested-key safe) so arbitrary config paths keep working.
+        let value = match config.settings_catalog.iter().find(|s| &s.key == key) {
+            Some(setting) => setting
+                .value_type
+                .parse(value_str)
+                .map_err(|e| anyhow!("Invalid value for '{}': {}", key, e))?,
+            None => serde_json::from_str(value_str)
+                .unwrap_or_else(|_| serde_json::Value::String(value_str.to_string())),
+        };
 
-        // Parse the key path
-        let parts: Vec<&str> = key.split('.').collect();
-
-        // Navigate to the parent object
-        let mut current = &mut config_json;
-        for (i, part) in parts.iter().enumerate() {
-            if i == parts.len() - 1 {
-                // Last part - set the value
-                // Try to parse as JSON first, fallback to string
-                let value: serde_json::Value = serde_json::from_str(value_str)
-                    .unwrap_or_else(|_| serde_json::Value::String(value_str.to_string()));
-
-                current[part] = value;
-            } else {
-                // Navigate deeper
-                current = current
-                    .get_mut(part)
-                    .ok_or_else(|| anyhow!("Key path '{}' not found", parts[..=i].join(".")))?;
-            }
-        }
-
-        // Convert back to MetaConfig and save
-        let updated_config: MetaConfig = serde_json::from_value(config_json)?;
+        // Apply with intermediate objects created as needed (so `skill.dest`
+        // works even when the `[skill]` block does not exist yet).
+        let updated_config = config.meta_config.with_dotted_set(key, value)?;
 
         let meta_file = config
             .meta_file_path
@@ -240,9 +265,9 @@ impl MetaPlugin for ConfigPlugin {
     }
 
     fn register_commands(&self, app: Command) -> Command {
-        app.subcommand(
-            Command::new("config")
+        let config_cmd = Command::new("config")
                 .about("Manage .meta configuration files")
+                .version(env!("CARGO_PKG_VERSION"))
                 .visible_alias("c")
                 .subcommand_required(false)
                 .subcommand(
@@ -290,8 +315,14 @@ impl MetaPlugin for ConfigPlugin {
                             Arg::new("value")
                                 .required(true)
                                 .value_name("VALUE")
+                                .allow_hyphen_values(true)
                                 .help("Value to set"),
                         ),
+                )
+                .subcommand(
+                    Command::new("list")
+                        .about("List configurable settings declared by plugins (key, type, default, current)")
+                        .visible_alias("ls"),
                 )
                 .subcommand(
                     Command::new("validate")
@@ -344,8 +375,12 @@ impl MetaPlugin for ConfigPlugin {
                                 .action(ArgAction::SetTrue)
                                 .help("Overwrite the destination if it already exists"),
                         ),
-                ),
-        )
+                );
+        // The global `--version` arg propagates (global=true) into every
+        // subcommand and uses ArgAction::Version, which clap asserts requires a
+        // version on each command. Stamp the package version across the whole
+        // config subtree so no subcommand trips that assert.
+        app.subcommand(config_cmd.mut_subcommands(|c| c.version(env!("CARGO_PKG_VERSION"))))
     }
 
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
@@ -354,6 +389,7 @@ impl MetaPlugin for ConfigPlugin {
             Some(("show", sub_matches)) => self.handle_show(sub_matches, config),
             Some(("get", sub_matches)) => self.handle_get(sub_matches, config),
             Some(("set", sub_matches)) => self.handle_set(sub_matches, config),
+            Some(("list", _)) => self.handle_list(config),
             Some(("validate", sub_matches)) => self.handle_validate(sub_matches, config),
             Some(("migrate", sub_matches)) => self.handle_migrate(sub_matches, config),
             _ => {
