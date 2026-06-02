@@ -40,7 +40,7 @@ tokio = { workspace = true }
 
 # Rules plugin dependencies
 serde_yaml = "0.9"
-toml = "0.8"
+toml = "1.1"
 glob = "0.3"
 walkdir = "2.4"
 regex = "1.10"
