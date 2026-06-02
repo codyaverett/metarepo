@@ -4,7 +4,7 @@ use crate::plugins::shared::detect_default_branch;
 use crate::plugins::worktree::list_worktrees;
 use anyhow::Result;
 use clap::ArgMatches;
-use metarepo_core::{arg, command, plugin, BasePlugin, MetaPlugin, RuntimeConfig};
+use metarepo_core::{arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
 use std::path::Path;
 use std::process::Command;
 
@@ -102,9 +102,8 @@ fn handle_clone(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let target_path = config.working_dir.join(repo_name);
     clone_repository(url, &target_path, false)?;
 
-    // After cloning, look for .meta file and clone child repos
-    let meta_file = target_path.join(".meta");
-    if meta_file.exists() {
+    // After cloning, look for a workspace config and clone child repos
+    if MetaConfig::config_in_dir(&target_path).is_some() {
         std::env::set_current_dir(&target_path)?;
         clone_missing_repos()?;
     }

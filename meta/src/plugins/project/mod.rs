@@ -23,6 +23,29 @@ pub use self::plugin::ProjectPlugin;
 mod convert;
 mod plugin;
 
+/// Locate the workspace config file inside `base_path`, honoring every
+/// supported filename/format (`.meta`, `.metarepo`, `.metarepo.yaml`, ...)
+/// rather than the legacy `.meta` name alone. Returns the discovered path;
+/// `MetaConfig::load_from_file` / `save_to_file` then detect the format from
+/// that filename, so existing load/save calls keep working unchanged.
+fn locate_workspace_config(base_path: &Path) -> Result<PathBuf> {
+    Ok(MetaConfig::locate_in(base_path)?.path)
+}
+
+/// Whether `dir` directly contains any recognized metarepo config file. Used to
+/// detect whether a child project is itself a meta repository, regardless of
+/// which supported config filename it uses.
+fn dir_has_meta_config(dir: &Path) -> bool {
+    MetaConfig::config_in_dir(dir).is_some()
+}
+
+/// Load the metarepo config directly inside `dir`, if `dir` is itself a meta
+/// repository. Returns `None` when no recognized config is present or it fails
+/// to parse (best-effort, for tree display of nested repos).
+fn load_dir_meta_config(dir: &Path) -> Option<MetaConfig> {
+    MetaConfig::config_in_dir(dir).and_then(|found| MetaConfig::load_from_file(found.path).ok())
+}
+
 /// Context for tracking nested repository imports
 pub struct ImportContext {
     /// Set of repository URLs that have been visited
@@ -154,20 +177,15 @@ pub fn import_project_with_options(
         metarepo_core::validate_project_url(src).ok(); // tolerate local paths
     }
 
-    // Find and load the .meta file
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    // Find and load the workspace config
+    let meta_file_path = locate_workspace_config(base_path)?;
 
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
 
     // Check if project already exists in config
     if config.projects.contains_key(project_path) {
         return Err(anyhow::anyhow!(
-            "Project '{}' already exists in .meta file",
+            "Project '{}' already exists in workspace config",
             project_path
         ));
     }
@@ -516,7 +534,7 @@ pub fn import_project_with_options(
         println!(
             "     {} {}",
             "└".bright_black(),
-            "Updated .meta file (not added to .gitignore)"
+            "Updated workspace config (not added to .gitignore)"
                 .italic()
                 .bright_black()
         );
@@ -533,7 +551,9 @@ pub fn import_project_with_options(
         println!(
             "     {} {}",
             "└".bright_black(),
-            "Updated .meta file and .gitignore".italic().bright_black()
+            "Updated workspace config and .gitignore"
+                .italic()
+                .bright_black()
         );
     }
     println!();
@@ -574,12 +594,7 @@ pub fn import_project_recursive_with_options(
     bare: bool,
 ) -> Result<()> {
     // Load the root meta config
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = locate_workspace_config(base_path)?;
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
 
@@ -621,11 +636,11 @@ fn process_nested_repositories(
     context: &mut ImportContext,
     nested_config: &NestedConfig,
 ) -> Result<()> {
-    // Check if this project has a .meta file (is a meta repository)
-    let nested_meta_path = project_path.join(".meta");
-    if !nested_meta_path.exists() {
+    // Check if this project has a config file (is a meta repository)
+    let Some(nested) = MetaConfig::config_in_dir(project_path) else {
         return Ok(()); // Not a meta repository, nothing to do
-    }
+    };
+    let nested_meta_path = nested.path;
 
     println!(
         "\n  {} {}",
@@ -884,13 +899,8 @@ fn update_gitignore(base_path: &Path, project_path: &str) -> Result<()> {
 }
 
 pub fn list_projects(base_path: &Path, scope: &[String]) -> Result<()> {
-    // Find and load the .meta file
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    // Find and load the workspace config
+    let meta_file_path = locate_workspace_config(base_path)?;
 
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
     // Restrict to the directory-aware scope resolved by the caller.
@@ -1018,13 +1028,8 @@ pub fn list_projects(base_path: &Path, scope: &[String]) -> Result<()> {
 
 /// List projects in minimal format (just names)
 pub fn list_projects_minimal(base_path: &Path, scope: &[String]) -> Result<()> {
-    // Find and load the .meta file
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    // Find and load the workspace config
+    let meta_file_path = locate_workspace_config(base_path)?;
 
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
     config.projects.retain(|k, _| scope.iter().any(|s| s == k));
@@ -1047,12 +1052,7 @@ pub fn list_projects_minimal(base_path: &Path, scope: &[String]) -> Result<()> {
 /// Display projects in a tree structure
 pub fn show_project_tree(base_path: &Path, scope: &[String]) -> Result<()> {
     // Load the root meta file
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = locate_workspace_config(base_path)?;
 
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
     config.projects.retain(|k, _| scope.iter().any(|s| s == k));
@@ -1122,7 +1122,7 @@ pub fn show_project_tree(base_path: &Path, scope: &[String]) -> Result<()> {
                 is_meta
             } else {
                 // This is an intermediate, check if it's a meta repo itself
-                base_path.join(first).join(".meta").exists()
+                dir_has_meta_config(&base_path.join(first))
             };
 
             let is_dir = !rest.is_empty() && !is_this_meta;
@@ -1152,12 +1152,12 @@ pub fn show_project_tree(base_path: &Path, scope: &[String]) -> Result<()> {
         // If this node is a meta repo, load its nested projects
         if node.is_meta && node.children.is_empty() {
             let project_path = base_path.join(&node.name);
-            if let Ok(nested_config) = MetaConfig::load_from_file(project_path.join(".meta")) {
+            if let Some(nested_config) = load_dir_meta_config(&project_path) {
                 for nested_name in nested_config.projects.keys() {
                     insert_path_into_subtree(
                         &mut node.children,
                         nested_name,
-                        project_path.join(nested_name).join(".meta").exists(),
+                        dir_has_meta_config(&project_path.join(nested_name)),
                         &format!("{}/{}", node.name, nested_name),
                         base_path,
                     );
@@ -1189,15 +1189,14 @@ pub fn show_project_tree(base_path: &Path, scope: &[String]) -> Result<()> {
             let is_this_meta = if rest.is_empty() {
                 is_meta
             } else {
-                base_path
+                let intermediate = base_path
                     .join(
                         full_path.split('/').collect::<Vec<_>>()
                             [0..full_path.split('/').count() - rest.split('/').count()]
                             .join("/"),
                     )
-                    .join(first)
-                    .join(".meta")
-                    .exists()
+                    .join(first);
+                dir_has_meta_config(&intermediate)
             };
 
             let is_dir = !rest.is_empty() && !is_this_meta;
@@ -1220,13 +1219,13 @@ pub fn show_project_tree(base_path: &Path, scope: &[String]) -> Result<()> {
         // If this node is a meta repo and we haven't loaded its children yet
         if node.is_meta && node.children.is_empty() {
             let project_path = base_path.join(full_path);
-            if let Ok(nested_config) = MetaConfig::load_from_file(project_path.join(".meta")) {
+            if let Some(nested_config) = load_dir_meta_config(&project_path) {
                 for nested_name in nested_config.projects.keys() {
                     let nested_full_path = format!("{}/{}", full_path, nested_name);
                     insert_path_into_subtree(
                         &mut node.children,
                         nested_name,
-                        base_path.join(&nested_full_path).join(".meta").exists(),
+                        dir_has_meta_config(&base_path.join(&nested_full_path)),
                         &nested_full_path,
                         base_path,
                     );
@@ -1241,7 +1240,7 @@ pub fn show_project_tree(base_path: &Path, scope: &[String]) -> Result<()> {
 
     for (name, _url) in sorted_projects {
         let project_path = base_path.join(name);
-        let is_meta = project_path.join(".meta").exists();
+        let is_meta = dir_has_meta_config(&project_path);
         insert_path_into_tree(&mut root_nodes, name, is_meta, base_path);
     }
 
@@ -1320,12 +1319,7 @@ pub fn show_project_tree(base_path: &Path, scope: &[String]) -> Result<()> {
 /// Update all projects (pull latest changes)
 pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) -> Result<()> {
     // Load the meta file
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = locate_workspace_config(base_path)?;
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
 
@@ -1383,7 +1377,7 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
                         updated += 1;
 
                         // If recursive and this is a meta repo, update nested projects
-                        if recursive && project_path.join(".meta").exists() {
+                        if recursive && dir_has_meta_config(&project_path) {
                             let current_depth = depth.unwrap_or(3);
                             if current_depth > 0 {
                                 println!(
@@ -1516,20 +1510,15 @@ fn pull_repository(repo: &Repository) -> Result<()> {
 }
 
 pub fn remove_project(project_name: &str, base_path: &Path, force: bool) -> Result<()> {
-    // Find and load the .meta file
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    // Find and load the workspace config
+    let meta_file_path = locate_workspace_config(base_path)?;
 
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
 
     // Check if project exists in config
     if !config.projects.contains_key(project_name) {
         return Err(anyhow::anyhow!(
-            "Project '{}' not found in .meta file",
+            "Project '{}' not found in workspace config",
             project_name
         ));
     }
@@ -1671,7 +1660,7 @@ pub fn remove_project(project_name: &str, base_path: &Path, force: bool) -> Resu
     println!(
         "     {} {}",
         "└".bright_black(),
-        "Removed from .meta file".italic().bright_black()
+        "Removed from workspace config".italic().bright_black()
     );
 
     // Optionally remove the directory
@@ -1725,20 +1714,15 @@ fn remove_from_gitignore(base_path: &Path, project_name: &str) -> Result<()> {
 
 /// Update gitignore for a project that now has a remote
 pub fn update_project_gitignore(project_name: &str, base_path: &Path) -> Result<()> {
-    // Load the .meta file
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    // Load the workspace config
+    let meta_file_path = locate_workspace_config(base_path)?;
 
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
 
     // Check if project exists in config
     if !config.projects.contains_key(project_name) {
         return Err(anyhow::anyhow!(
-            "Project '{}' not found in .meta file",
+            "Project '{}' not found in workspace config",
             project_name
         ));
     }
@@ -1814,20 +1798,15 @@ pub fn update_project_gitignore(project_name: &str, base_path: &Path) -> Result<
 
 /// Rename a project in the workspace
 pub fn rename_project(old_name: &str, new_name: &str, base_path: &Path) -> Result<()> {
-    // Load the .meta file
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    // Load the workspace config
+    let meta_file_path = locate_workspace_config(base_path)?;
 
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
 
     // Check if old project exists
     if !config.projects.contains_key(old_name) {
         return Err(anyhow::anyhow!(
-            "Project '{}' not found in .meta file",
+            "Project '{}' not found in workspace config",
             old_name
         ));
     }
@@ -1835,7 +1814,7 @@ pub fn rename_project(old_name: &str, new_name: &str, base_path: &Path) -> Resul
     // Check if new name is already taken
     if config.projects.contains_key(new_name) {
         return Err(anyhow::anyhow!(
-            "Project '{}' already exists in .meta file",
+            "Project '{}' already exists in workspace config",
             new_name
         ));
     }
@@ -1904,7 +1883,11 @@ pub fn rename_project(old_name: &str, new_name: &str, base_path: &Path) -> Resul
     config.projects.remove(old_name);
     config.projects.insert(new_name.to_string(), project_entry);
     config.save_to_file(&meta_file_path)?;
-    println!("     {} {}", "✅".green(), "Updated .meta file".green());
+    println!(
+        "     {} {}",
+        "✅".green(),
+        "Updated workspace config".green()
+    );
 
     // Rename the directory if it exists
     if old_path.exists() {

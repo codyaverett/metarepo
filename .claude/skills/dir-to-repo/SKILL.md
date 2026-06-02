@@ -88,12 +88,11 @@ Run `.github/scripts/dir-to-repo.sh --help` for the full flag list.
   project add` takes a *relative project name* within the workspace (the dir
   containing `.meta`/`.metarepo`), not an arbitrary path. A directory outside the
   workspace is still git-initialized, but registration is skipped with a warning.
-- **Registration reads `.meta` at the workspace root.** `meta project add`
-  currently only honors a `.meta` file, not the `.metarepo` that `meta init`
-  writes by default (tracked as issue #72). When `meta project add` cannot find a
-  `.meta` file, the script warns and continues — the local repo is fully created
-  regardless. Use `--no-register`, or add a `.meta` workspace config, until #72
-  lands.
+- **Registration needs a workspace config at the root.** `meta project add`
+  honors any supported config filename (`.meta`, `.metarepo`,
+  `.metarepo.yaml`, ...) — see issue #72, now fixed. If no workspace config is
+  found, the script warns and continues; the local repo is fully created
+  regardless. Use `--no-register` to skip registration entirely.
 - **`meta` binary discovery** — the script uses `meta` on `PATH`, else
   `target/debug/meta` / `target/release/meta`, else `$META_BIN`. Build the binary
   (`cargo build`) or install it if registration is needed.

@@ -26,12 +26,7 @@ pub fn run_script(
     streaming: bool,
     env_vars: &HashMap<String, String>,
 ) -> Result<()> {
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
 
@@ -442,12 +437,7 @@ fn resolve_project_identifier(config: &MetaConfig, identifier: &str) -> Option<S
 
 /// List all available scripts
 pub fn list_scripts(base_path: &Path, project: Option<&str>) -> Result<()> {
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
 

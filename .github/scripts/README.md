@@ -389,8 +389,8 @@ echo '{"dir":"./my-folder","remote":true,"public":false,"register":true}' \
 - The script never overwrites an existing `.gitignore`, skips directories that
   are already repos, and refuses directories nested inside another repo.
 - Workspace registration requires the directory to live inside the workspace
-  root and currently a `.meta` config file (see issue #72 for the `.metarepo`
-  limitation). Use `--no-register` to skip registration entirely.
+  root, which must contain a supported config file (`.meta`, `.metarepo`, ...).
+  Use `--no-register` to skip registration entirely.
 - A throwaway initial commit is created with signing disabled
   (`-c commit.gpgsign=false`) so the script never blocks on a signing prompt.
 

@@ -567,12 +567,7 @@ pub fn remove_worktrees(
     force: bool,
     scope: &[String],
 ) -> Result<()> {
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
 
@@ -708,12 +703,7 @@ pub fn remove_worktrees(
 /// project shows just that project, inside a subdirectory the projects beneath
 /// it, and at the workspace root every project.
 pub fn list_all_worktrees(base_path: &Path, scope_projects: &[String]) -> Result<()> {
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
     let project_iter = validate_scope(&config, scope_projects)?;
@@ -820,12 +810,7 @@ pub fn list_all_worktrees(base_path: &Path, scope_projects: &[String]) -> Result
 
 /// Prune stale worktrees across the given set of projects.
 pub fn prune_worktrees(base_path: &Path, dry_run: bool, scope_projects: &[String]) -> Result<()> {
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
     let project_iter = validate_scope(&config, scope_projects)?;
@@ -969,12 +954,7 @@ pub fn clean_worktrees(
     opts: CleanOptions,
     non_interactive: metarepo_core::NonInteractiveMode,
 ) -> Result<()> {
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
     let config = MetaConfig::load_from_file(&meta_file_path)?;
 
     let mut candidates: Vec<CleanCandidate> = Vec::new();
@@ -1204,12 +1184,7 @@ fn print_clean_skips(skipped: &[CleanSkip]) {
 /// scoped) workspace, mirroring [`prune_worktrees`] in shape so the two can be
 /// composed into a future maintenance command.
 pub fn repair_worktrees(base_path: &Path, scope_projects: &[String], dry_run: bool) -> Result<()> {
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
 
     let config = MetaConfig::load_from_file(&meta_file_path)?;
     let project_iter = validate_scope(&config, scope_projects)?;

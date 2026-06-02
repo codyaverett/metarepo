@@ -67,19 +67,22 @@ if [[ -d "$TESTROOT/batch/a/.git" && -d "$TESTROOT/batch/b/.git" ]]; then ok "a 
 echo
 
 # --- Test 5: workspace registration ----------------------------------------
-# NOTE: `meta project add` currently only reads a `.meta` config file (it does
-# not honor `.metarepo`, which `meta init` now writes by default). Registration
-# is therefore validated against a `.meta` workspace here. See the tracked issue
-# for the underlying `.metarepo` limitation.
-echo "5. Workspace registration (.meta workspace)..."
+# Registration is validated against a `.metarepo` workspace (what `meta init`
+# writes by default). Fixed in #72 — meta project add now honors `.metarepo`.
+echo "5. Workspace registration (.metarepo workspace)..."
 if [[ -x "$META_BIN" ]]; then
     ws="$TESTROOT/ws"
     mkdir -p "$ws"
-    printf '{\n  "projects": {}\n}\n' > "$ws/.meta"
-    mkdir -p "$ws/loose"
-    echo hi > "$ws/loose/file.txt"
-    "$SCRIPT" "$ws/loose" >/dev/null 2>&1 || true
-    if grep -q "loose" "$ws/.meta" 2>/dev/null; then ok "registered in .meta workspace config"; else bad "not found in $ws/.meta"; fi
+    (cd "$ws" && "$META_BIN" init >/dev/null 2>&1 || "$META_BIN" init --non-interactive defaults >/dev/null 2>&1) || true
+    cfg="$ws/.metarepo"; [[ -e "$ws/.meta" ]] && cfg="$ws/.meta"
+    if [[ -e "$cfg" ]]; then
+        mkdir -p "$ws/loose"
+        echo hi > "$ws/loose/file.txt"
+        "$SCRIPT" "$ws/loose" >/dev/null 2>&1 || true
+        if grep -q "loose" "$cfg" 2>/dev/null; then ok "registered in $(basename "$cfg") workspace config"; else bad "not found in $cfg"; fi
+    else
+        echo "  (skipped: meta init produced no config)"
+    fi
 else
     echo "  (skipped: meta binary not available)"
 fi

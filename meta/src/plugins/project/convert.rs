@@ -8,12 +8,7 @@ use std::process::Command;
 /// Convert a normal repository to a bare repository with worktrees
 pub fn convert_to_bare(project_name: &str, base_path: &Path) -> Result<()> {
     // Load configuration
-    let meta_file_path = base_path.join(".meta");
-    if !meta_file_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No .meta file found. Run 'meta init' first."
-        ));
-    }
+    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
 
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
 

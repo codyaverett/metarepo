@@ -593,6 +593,39 @@ impl MetaConfig {
         Self::discover_from(&cwd).ok().flatten().map(|d| d.path)
     }
 
+    /// Locate the workspace config in (or above) `base_path`, honoring every
+    /// supported filename/format rather than the legacy `.meta` name alone.
+    /// Errors with a "run meta init" message when none is found, and surfaces
+    /// the multi-file conflict from [`discover_from`](Self::discover_from).
+    /// Command handlers that receive an already-resolved workspace root should
+    /// use this instead of hand-rolling `base_path.join(".meta")`.
+    pub fn locate_in(base_path: &Path) -> Result<DiscoveredConfig> {
+        match Self::discover_from(base_path) {
+            Ok(Some(found)) => Ok(found),
+            Ok(None) => Err(anyhow::anyhow!(
+                "No metarepo config file found. Run 'meta init' first."
+            )),
+            Err(e) => Err(anyhow::anyhow!("{}", e)),
+        }
+    }
+
+    /// The recognized metarepo config file directly inside `dir`, if any. Looks
+    /// only in `dir` itself (no walking up), so it answers "is this directory a
+    /// meta repository?" regardless of which supported config filename it uses.
+    pub fn config_in_dir(dir: &Path) -> Option<DiscoveredConfig> {
+        for name in KNOWN_FILENAMES {
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                let format = ConfigFormat::from_path(&candidate).unwrap_or(ConfigFormat::Json);
+                return Some(DiscoveredConfig {
+                    path: candidate,
+                    format,
+                });
+            }
+        }
+        None
+    }
+
     pub fn load() -> Result<Self> {
         let cwd = std::env::current_dir()?;
         match Self::discover_from(&cwd) {
@@ -898,6 +931,59 @@ mod tests {
 
         // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    // Regression for #72: workspace-config resolution must honor `.metarepo`
+    // (and other supported filenames), not just the legacy `.meta`.
+    #[test]
+    fn locate_in_finds_metarepo_config() {
+        let temp_dir = tempdir().unwrap();
+        let path = temp_dir.path().join(".metarepo");
+        MetaConfig::default().save_to_file(&path).unwrap();
+
+        let found = MetaConfig::locate_in(temp_dir.path()).unwrap();
+        assert_eq!(found.path, path);
+        assert_eq!(found.format, ConfigFormat::Json);
+    }
+
+    #[test]
+    fn locate_in_errors_when_no_config_present() {
+        let temp_dir = tempdir().unwrap();
+        let err = MetaConfig::locate_in(temp_dir.path()).err().unwrap();
+        assert!(err.to_string().contains("meta init"));
+    }
+
+    #[test]
+    fn config_in_dir_detects_each_supported_filename() {
+        for name in [".meta", ".metarepo", ".metarepo.yaml"] {
+            let temp_dir = tempdir().unwrap();
+            // `.metarepo.yaml` must be valid YAML; the extensionless names parse
+            // as JSON. Empty objects are valid in both.
+            let body = if name.ends_with(".yaml") {
+                "{}\n"
+            } else {
+                "{}"
+            };
+            fs::write(temp_dir.path().join(name), body).unwrap();
+
+            let found = MetaConfig::config_in_dir(temp_dir.path());
+            assert!(found.is_some(), "should detect {name}");
+            assert_eq!(found.unwrap().path, temp_dir.path().join(name));
+        }
+    }
+
+    #[test]
+    fn config_in_dir_does_not_walk_up() {
+        let temp_dir = tempdir().unwrap();
+        let child = temp_dir.path().join("child");
+        fs::create_dir_all(&child).unwrap();
+        MetaConfig::default()
+            .save_to_file(temp_dir.path().join(".metarepo"))
+            .unwrap();
+
+        // The config lives in the parent; a dir-local check on the child must
+        // not find it (unlike discover_from, which walks up).
+        assert!(MetaConfig::config_in_dir(&child).is_none());
     }
 
     #[test]
