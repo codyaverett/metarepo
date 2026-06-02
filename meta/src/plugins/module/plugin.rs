@@ -81,7 +81,7 @@ impl MetaPlugin for ModulePlugin {
                 scan::run(path)
             }
             _ => {
-                module_command().print_help()?;
+                metarepo_core::with_standard_help(module_command()).print_help()?;
                 println!();
                 Ok(())
             }

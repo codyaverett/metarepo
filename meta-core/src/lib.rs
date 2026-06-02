@@ -28,7 +28,8 @@ pub use plugin_base::{
     MarkdownHelpFormatter, PluginMetadata, TerminalHelpFormatter, YamlHelpFormatter,
 };
 pub use plugin_builder::{
-    arg, command, plugin, ArgBuilder, BuiltPlugin, CommandBuilder, PluginBuilder,
+    arg, command, plugin, with_standard_help, ArgBuilder, BuiltPlugin, CommandBuilder,
+    PluginBuilder,
 };
 pub use plugin_manifest::{
     ArgValueType, Dependency, Example, ExecutionConfig, ManifestArg, ManifestCommand, PluginConfig,

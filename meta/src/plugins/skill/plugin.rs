@@ -226,7 +226,7 @@ impl MetaPlugin for SkillPlugin {
             }
             // No subcommand: show usage, like the other meta commands do.
             _ => {
-                skill_command().print_help()?;
+                metarepo_core::with_standard_help(skill_command()).print_help()?;
                 println!();
                 Ok(())
             }

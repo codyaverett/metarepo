@@ -51,16 +51,6 @@ impl MetarepoCli {
             .valid(clap::builder::styling::AnsiColor::BrightGreen.on_default())
             .invalid(clap::builder::styling::AnsiColor::BrightRed.on_default());
 
-        let help_template = "\
-{about-with-newline}
-{usage-heading} {usage}
-
-\x1b[1;96mOptions:\x1b[0m
-{options}
-
-\x1b[1;96mCommands:\x1b[0m
-{subcommands}{after-help}";
-
         let mut app = Command::new("meta")
             .version(env!("CARGO_PKG_VERSION"))
             .about("A tool for managing multi-project systems and libraries")
@@ -69,8 +59,7 @@ impl MetarepoCli {
             .color(ColorChoice::Always)
             .disable_help_subcommand(true)
             .subcommand_precedence_over_arg(true)
-            .disable_version_flag(true)
-            .help_template(help_template);
+            .disable_version_flag(true);
 
         // First add all subcommands from plugins
         app = self
@@ -137,7 +126,9 @@ impl MetarepoCli {
                     .global(true)
             );
 
-        app
+        // Apply the standard help layout (Options before Commands) to the whole
+        // command tree so every subcommand matches the top-level ordering.
+        metarepo_core::with_standard_help(app)
     }
 
     pub fn run(&self, args: Vec<String>) -> Result<()> {

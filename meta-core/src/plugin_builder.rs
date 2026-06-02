@@ -402,6 +402,31 @@ impl ArgBuilder {
     }
 }
 
+/// Apply the standard meta help layout to a command and all of its
+/// subcommands, recursively.
+///
+/// clap's default help renders the Commands section *before* Options, but the
+/// top-level `meta` command shows Options first and Commands last. This helper
+/// makes every subcommand match that ordering: Usage, Arguments (if any),
+/// Options, then Commands (if any). Empty sections are omitted so leaf commands
+/// don't print a stray "Commands:" header.
+pub fn with_standard_help(cmd: Command) -> Command {
+    // Recurse into children first so the whole tree is consistent.
+    let cmd = cmd.mut_subcommands(with_standard_help);
+
+    let mut template = String::from("{about-with-newline}\n{usage-heading} {usage}\n");
+    if cmd.get_positionals().next().is_some() {
+        template.push_str("\n\x1b[1;96mArguments:\x1b[0m\n{positionals}\n");
+    }
+    template.push_str("\n\x1b[1;96mOptions:\x1b[0m\n{options}\n");
+    if cmd.has_subcommands() {
+        template.push_str("\n\x1b[1;96mCommands:\x1b[0m\n{subcommands}");
+    }
+    template.push_str("{after-help}");
+
+    cmd.help_template(template)
+}
+
 /// Convenience function to create a new plugin builder
 pub fn plugin(name: impl Into<String>) -> PluginBuilder {
     PluginBuilder::new(name)
