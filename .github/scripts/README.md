@@ -332,4 +332,71 @@ See the main [Makefile](../../Makefile) for implementation details.
 
 ---
 
+## Other Scripts
+
+Not every script here creates GitHub issues. The following utility script lives
+alongside them.
+
+### Directory → Git Repository (`dir-to-repo.sh`)
+
+Convert loose local directories into their own git repositories: `git init`, a
+default `.gitignore`, an initial commit, an optional GitHub remote (via `gh`),
+and optional registration as a project in the surrounding metarepo workspace
+(via `meta project add`).
+
+**Single directory:**
+
+```bash
+# Local-only, registered into the workspace
+.github/scripts/dir-to-repo.sh ./my-folder
+
+# Pure git init, no workspace registration
+.github/scripts/dir-to-repo.sh ./my-folder --no-register
+
+# Create and push a public GitHub remote
+.github/scripts/dir-to-repo.sh ./my-folder --remote --public
+```
+
+**Batch (every loose subdir of a parent; already-repos are skipped):**
+
+```bash
+.github/scripts/dir-to-repo.sh --scan ./packages
+.github/scripts/dir-to-repo.sh --all          # same as --scan .
+```
+
+**JSON / automation (emits only `converted:` summary lines):**
+
+```bash
+echo '{"dir":"./my-folder","remote":true,"public":false,"register":true}' \
+  | .github/scripts/dir-to-repo.sh --json --silent
+```
+
+| Flag | Effect |
+|------|--------|
+| `<dir>` | Single directory to convert |
+| `--scan <parent>` | Batch: convert each loose subdir of `<parent>` |
+| `--all` | Shorthand for `--scan .` |
+| `--remote`, `--push` | Create a GitHub repo (gh) and push (private) |
+| `--public` | Make the created GitHub repo public (implies `--remote`) |
+| `--no-register` | Skip `meta project add` |
+| `--gitignore-template <name>` | Select a `.gitignore` template (default: `default`) |
+| `--json` | Read input from JSON stdin |
+| `--silent` | Suppress non-error output |
+| `--help`, `-h` | Show help |
+
+**Notes:**
+
+- The script never overwrites an existing `.gitignore`, skips directories that
+  are already repos, and refuses directories nested inside another repo.
+- Workspace registration requires the directory to live inside the workspace
+  root and currently a `.meta` config file (see issue #72 for the `.metarepo`
+  limitation). Use `--no-register` to skip registration entirely.
+- A throwaway initial commit is created with signing disabled
+  (`-c commit.gpgsign=false`) so the script never blocks on a signing prompt.
+
+Run `.github/scripts/dir-to-repo.sh --help` for the full reference. Available via
+`make dir-to-repo DIR=./my-folder`.
+
+---
+
 **Questions or issues?** Open a [discussion](https://github.com/caavere/metarepo/discussions) or create an issue!

@@ -57,6 +57,9 @@ help:
 	@echo "  $(GREEN)make issue-idea$(NC)    - Quick idea capture"
 	@echo "  $(GREEN)make list-issues$(NC)   - List recent issues"
 	@echo ""
+	@echo "$(YELLOW)Repository Tools:$(NC)"
+	@echo "  $(GREEN)make dir-to-repo DIR=path$(NC) - Convert a directory into a git repo"
+	@echo ""
 	@echo "$(YELLOW)Install Paths:$(NC)"
 	@echo "  Binary: $(CYAN)$(INSTALL_PATH)/$(BINARY_NAME)$(NC)"
 	@echo ""
@@ -216,6 +219,17 @@ issue-idea:
 	fi
 	@echo "$(CYAN)💡 Quick idea capture$(NC)"
 	@read -p "Idea: " idea && .github/scripts/new-idea.sh "$$idea"
+
+# Convert a local directory into its own git repository
+.PHONY: dir-to-repo
+dir-to-repo:
+	@if [ -z "$(DIR)" ]; then \
+		echo "$(RED)❌ DIR is required.$(NC)"; \
+		echo "$(CYAN)Usage: make dir-to-repo DIR=./my-folder$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)🌱 Converting $(DIR) into a git repository...$(NC)"
+	@.github/scripts/dir-to-repo.sh "$(DIR)"
 
 # List recent issues
 .PHONY: list-issues
