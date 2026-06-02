@@ -13,6 +13,7 @@ pub mod registry;
 pub mod scan;
 pub mod search;
 pub mod skill_file;
+pub mod source;
 pub mod steal;
 
 // Bundled meta-tool Claude Code skill. Canonical copy lives inside the crate at

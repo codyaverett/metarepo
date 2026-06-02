@@ -124,8 +124,15 @@ pub fn enable(repo: &Path, meta_file: &Path, force: bool, overwrite: bool) -> Re
         let src_str = src
             .to_str()
             .ok_or_else(|| anyhow!("non-UTF-8 skill path: {}", src.display()))?;
-        steal::run(src_str, None, force, overwrite)
-            .with_context(|| format!("installing skill from {}", s.path))?;
+        steal::run(
+            src_str,
+            None,
+            force,
+            overwrite,
+            steal::SelectOpts::default(),
+            metarepo_core::NonInteractiveMode::Defaults,
+        )
+        .with_context(|| format!("installing skill from {}", s.path))?;
     }
 
     // --- Record the module for list/disable. ---

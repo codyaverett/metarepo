@@ -141,7 +141,25 @@ impl MetaPlugin for SkillPlugin {
                     .map(String::as_str)
                     .expect("path is required");
                 let dest = m.get_one::<String>("dest").map(String::as_str);
-                steal::run(path, dest, m.get_flag("force"), m.get_flag("overwrite"))
+                let select = steal::SelectOpts {
+                    all: m.get_flag("all"),
+                    names: m
+                        .get_many::<String>("name")
+                        .map(|vals| vals.cloned().collect())
+                        .unwrap_or_default(),
+                    preview: m.get_flag("preview"),
+                };
+                let non_interactive = config
+                    .non_interactive
+                    .unwrap_or(metarepo_core::NonInteractiveMode::Defaults);
+                steal::run(
+                    path,
+                    dest,
+                    m.get_flag("force"),
+                    m.get_flag("overwrite"),
+                    select,
+                    non_interactive,
+                )
             }
             // No subcommand: show usage, like the other meta commands do.
             _ => {
@@ -280,17 +298,50 @@ fn skill_command() -> Command {
         )
         .subcommand(
             Command::new("steal")
-                .about("Copy an external skill into a local skills directory (audit-gated)")
+                .about("Copy external skills into a local skills directory (audit-gated)")
+                .long_about(
+                    "Copy one or more skills into a skills directory, audit-gated.\n\
+                     The source may be a single skill (a directory with a SKILL.md, or a\n\
+                     SKILL.md path), a directory tree containing many skills, or a git URL\n\
+                     (cloned shallowly). When more than one skill is found you pick which\n\
+                     to take: interactively (multi-select + preview) in a terminal, or with\n\
+                     --all / --name when scripted.\n\n\
+                     Examples:\n  \
+                       meta skill steal ./path/to/skill        Copy one local skill\n  \
+                       meta skill steal ./skills               Pick from a local tree\n  \
+                       meta skill steal https://github.com/o/r.git   Clone and pick\n  \
+                       meta skill steal <git-url> --preview    Preview every skill, copy none\n  \
+                       meta skill steal <git-url> --all        Copy every skill found\n  \
+                       meta skill steal <git-url> --name foo --name bar  Copy by name",
+                )
                 .version(env!("CARGO_PKG_VERSION"))
                 .arg(
                     Arg::new("path")
-                        .help("Path to the source skill directory or SKILL.md")
+                        .help("A local skill/dir, a directory of skills, or a git URL")
                         .required(true),
                 )
                 .arg(
                     Arg::new("dest")
                         .long("dest")
                         .help("Destination skills root (defaults to first existing candidate)"),
+                )
+                .arg(
+                    Arg::new("all")
+                        .long("all")
+                        .action(ArgAction::SetTrue)
+                        .help("Steal every skill found in the source"),
+                )
+                .arg(
+                    Arg::new("name")
+                        .long("name")
+                        .action(ArgAction::Append)
+                        .help("Steal the skill(s) with this name (repeatable)"),
+                )
+                .arg(
+                    Arg::new("preview")
+                        .long("preview")
+                        .action(ArgAction::SetTrue)
+                        .help("Print a preview of every skill found and copy nothing"),
                 )
                 .arg(
                     Arg::new("force")

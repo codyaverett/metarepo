@@ -36,7 +36,7 @@ The `skill` plugin now covers the full lifecycle of working with skills:
 | The bundled meta-tool skill | `install`, `update`, `status` (default), `remove` |
 | Finding skills | `scan`, `locations`, `search` |
 | Vetting skills | `audit` |
-| Importing skills | `steal` (local), `add` (skills.sh) |
+| Importing skills | `steal` (local path or git URL), `add` (skills.sh) |
 
 ## Subcommands
 
@@ -79,24 +79,46 @@ meta skill locations
 
 ### steal
 
-Copy an external skill into a local skills directory. This is the "copy" half of
-the workflow: `scan` finds skills, `audit` vets them, and `steal` brings a chosen
-one in. The skill lands at `<dest-root>/<name>`, where `<name>` comes from the
-frontmatter (falling back to the source directory name).
+Copy one or more external skills into a local skills directory, audit-gated. The
+source can be:
+
+- a **single skill** — a directory containing a `SKILL.md`, or a `SKILL.md` path;
+- a **directory tree** containing many skills;
+- a **git URL** — cloned shallowly (`git clone --depth 1`), then treated as a tree.
+
+When the source holds more than one skill you choose which to take: interactively
+(multi-select with per-skill preview) in a terminal, or with `--all` / `--name`
+when scripted. Each chosen skill lands at `<dest-root>/<name>`, where `<name>`
+comes from the frontmatter (falling back to the source directory name), and each
+copy passes the audit gate independently.
 
 ```bash
-meta skill steal ~/Downloads/some-skill              # copy into the default dest
+meta skill steal ~/Downloads/some-skill                 # copy one local skill
+meta skill steal ./skills                               # pick from a local tree
+meta skill steal https://github.com/owner/repo.git      # clone, pick, copy
+meta skill steal https://github.com/owner/repo.git --preview   # preview all, copy none
+meta skill steal https://github.com/owner/repo.git --all       # copy every skill
+meta skill steal <git-url> --name foo --name bar        # copy named skills (scriptable)
 meta skill steal ~/Downloads/some-skill --dest ~/.claude/skills
-meta skill steal ~/Downloads/some-skill --overwrite  # replace an existing copy
-meta skill steal ~/Downloads/some-skill --force      # copy despite HIGH findings
+meta skill steal ~/Downloads/some-skill --overwrite     # replace an existing copy
+meta skill steal ~/Downloads/some-skill --force         # copy despite HIGH findings
 ```
 
 Flags:
 
 - `--dest <dir>` — destination skills root. Defaults to the first existing
   candidate from `meta skill locations` (else the workspace `./.claude/skills`).
-- `--overwrite` — replace an existing skill of the same name (refuses otherwise).
+- `--all` — steal every skill found in the source.
+- `--name <name>` — steal the skill(s) with this name (repeatable). Matches the
+  frontmatter name or the source directory name (case-insensitive).
+- `--preview` — print a preview (audit findings + body excerpt) of every skill
+  found and copy nothing.
+- `--overwrite` — replace an existing skill of the same name (skips it otherwise).
 - `--force` / `-f` — proceed even when the audit reports HIGH-severity findings.
+
+In a non-interactive run (no TTY) against a multi-skill source, you must pass
+`--all` or `--name`; otherwise `steal` errors and lists the skills it found. A
+git source requires `git` on `PATH`.
 
 ### search
 

@@ -16,12 +16,12 @@ use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
 use super::http;
 use super::skill_file::Skill;
+use super::source;
 use super::steal;
 
 const DETAIL_URL: &str = "https://skills.sh/api/v1/skills";
@@ -96,7 +96,15 @@ pub fn run(id: &str, dest_root: Option<&str>, force: bool, overwrite: bool) -> R
     let dir = skill_dir
         .to_str()
         .ok_or_else(|| anyhow!("resolved skill path is not valid UTF-8"))?;
-    steal::run(dir, dest_root, force, overwrite)
+    // The registry resolves to exactly one skill dir, so steal copies it directly.
+    steal::run(
+        dir,
+        dest_root,
+        force,
+        overwrite,
+        steal::SelectOpts::default(),
+        metarepo_core::NonInteractiveMode::Defaults,
+    )
 }
 
 /// Keyed path: pull exact files from the authenticated detail endpoint.
@@ -145,7 +153,7 @@ fn write_files(dir: &Path, files: &[FileEntry]) -> Result<()> {
 fn resolve_via_github(parsed: &ParsedId, tmp: &Path) -> Result<PathBuf> {
     let repo_dir = tmp.join("repo");
     let repo_url = format!("https://github.com/{}.git", parsed.source);
-    shallow_clone(&repo_url, &repo_dir)?;
+    source::shallow_clone(&repo_url, &repo_dir)?;
 
     let mut skills = collect_skill_dirs(&repo_dir);
     if skills.is_empty() {
@@ -256,31 +264,6 @@ fn slugify(s: &str) -> String {
         }
     }
     out.trim_matches('-').to_string()
-}
-
-/// Shallow `git clone --depth 1` into `dest`.
-fn shallow_clone(url: &str, dest: &Path) -> Result<()> {
-    let out = Command::new("git")
-        .args(["clone", "--depth", "1", "--quiet", url])
-        .arg(dest)
-        .output();
-    let out = match out {
-        Ok(o) => o,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(anyhow!(
-                "git is required to install skills from GitHub but was not found on PATH (or set SKILLS_SH_API_KEY)"
-            ));
-        }
-        Err(e) => return Err(e).context("running git clone"),
-    };
-    if !out.status.success() {
-        return Err(anyhow!(
-            "git clone of {} failed: {}",
-            url,
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
