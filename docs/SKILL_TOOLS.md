@@ -109,16 +109,18 @@ meta skill steal ~/Downloads/some-skill --force         # copy despite HIGH find
 
 Flags:
 
-- `--dest <dir>` — destination skills root. Defaults to the first existing
-  candidate from `meta skill locations` (else the workspace `./.claude/skills`).
+- `--dest <dir>` — destination skills root. Resolution order: `--dest` > the
+  configured `[skill] dest` (see below) > `$CLAUDE_SKILLS_HOME` > `./.claude/skills`
+  > `~/.claude/skills`.
 - `--all` — steal every skill found in the source.
 - `--name <name>` — steal the skill(s) with this name (repeatable). Matches the
   frontmatter name or the source directory name (case-insensitive).
 - `--preview` — print a preview (audit findings + body excerpt) of every skill
   found and copy nothing.
-- `--adapt [purpose]` — after installing, run a **headless Claude** (`claude -p`)
-  to adapt each stolen skill to this repo. `--adapt` alone tailors to the repo;
-  `--adapt "fit our CI"` adds a purpose. Skipped if `claude` is not on `PATH`.
+- `--adapt [purpose]` — after installing, run a **headless AI command** to adapt
+  each stolen skill to this repo. `--adapt` alone tailors to the repo; `--adapt
+  "fit our CI"` adds a purpose. The command defaults to Claude but is configurable
+  (see `[skill]` below). Skipped if that command is not on `PATH`.
 - `--overwrite` — replace an existing skill of the same name (skips it otherwise).
 - `--force` / `-f` — proceed even when the audit reports HIGH-severity findings.
 
@@ -136,13 +138,45 @@ survives even with no Claude available):
 Audit findings now report `file:line` so you can jump straight to the risky line.
 
 **Adaptation (`--adapt`).** The skill is backed up (to the OS temp dir under
-`meta-skill-backups/`), then `claude -p <prompt> --permission-mode acceptEdits`
-runs with the working directory set to the installed skill so Claude can edit its
-files in place — tailoring them to the repo's name, detected languages, and
-layout, plus any purpose you give. The adapted skill is re-audited afterward; if
-that introduces a new HIGH-severity pattern it is reported and the backup path is
-printed for manual rollback. This is opt-in and lets Claude modify files in the
-installed skill directory.
+`meta-skill-backups/`), then the configured adapt command runs with the working
+directory set to the installed skill so the agent can edit its files in place —
+tailoring them to the repo's name, detected languages, and layout, plus any
+purpose you give. The adapted skill is re-audited afterward; if that introduces a
+new HIGH-severity pattern it is reported and the backup path is printed for manual
+rollback. This is opt-in and lets the agent modify files in the installed skill
+directory.
+
+### Configuration — `[skill]` in `.meta`
+
+Both the default install location and the adapt command are configurable per
+workspace via a `[skill]` block. `meta skill locations` prints the resolved values.
+
+```toml
+[skill]
+# Default install dir for stolen skills (tilde-expanded). Overridden by --dest.
+dest = "~/.config/agent-skills"
+
+# The AI command run by --adapt. Defaults to Claude when unset.
+# `{prompt}` is replaced with the generated adaptation prompt; the command runs
+# with its working directory set to the installed skill so it can edit files.
+adapt-command = "claude"
+adapt-args = ["-p", "{prompt}", "--permission-mode", "acceptEdits"]
+```
+
+Use a different agent by overriding `adapt-command`/`adapt-args`:
+
+```toml
+# codex
+adapt-command = "codex"
+adapt-args = ["exec", "{prompt}"]
+
+# opencode
+adapt-command = "opencode"
+adapt-args = ["run", "{prompt}"]
+```
+
+(JSON/YAML `.meta` work too; the keys are `skill.dest`, `skill.adapt-command`,
+`skill.adapt-args`.)
 
 In a non-interactive run (no TTY) against a multi-skill source, you must pass
 `--all` or `--name`; otherwise `steal` errors and lists the skills it found. A

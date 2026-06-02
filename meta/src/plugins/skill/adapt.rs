@@ -8,10 +8,54 @@
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use metarepo_core::SkillSettings;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::audit::{audit_skill, has_high, print_findings};
+
+/// The external AI command used by `--adapt`, with a `{prompt}` placeholder in
+/// its args. Defaults to `claude -p {prompt} --permission-mode acceptEdits`;
+/// override via the `[skill]` block in `.meta` to use codex / opencode / etc.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdaptCommand {
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+impl Default for AdaptCommand {
+    fn default() -> Self {
+        Self {
+            command: "claude".to_string(),
+            args: vec![
+                "-p".to_string(),
+                "{prompt}".to_string(),
+                "--permission-mode".to_string(),
+                "acceptEdits".to_string(),
+            ],
+        }
+    }
+}
+
+impl AdaptCommand {
+    /// Resolve the adapt command from `[skill]` config, falling back to the
+    /// claude default for any field left unset.
+    pub fn from_settings(settings: Option<&SkillSettings>) -> Self {
+        let default = Self::default();
+        match settings {
+            Some(s) => Self {
+                command: s.adapt_command.clone().unwrap_or(default.command),
+                args: s.adapt_args.clone().unwrap_or(default.args),
+            },
+            None => default,
+        }
+    }
+}
+
+/// Substitute the built `prompt` for every `{prompt}` placeholder in `args`.
+fn render_args(args: &[String], prompt: &str) -> Vec<String> {
+    args.iter().map(|a| a.replace("{prompt}", prompt)).collect()
+}
 
 /// Lightweight description of the repo a skill is being adapted for.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -22,12 +66,19 @@ pub struct RepoContext {
 }
 
 /// Adapt the installed skill at `skill_dir` to `repo_root` (+ optional purpose)
-/// using a headless Claude. No-op (with a notice) when `claude` is not on PATH.
-pub fn adapt_skill(skill_dir: &Path, repo_root: &Path, purpose: Option<&str>) -> Result<()> {
-    if !claude_available() {
+/// using the configured headless AI command. No-op (with a notice) when that
+/// command is not on PATH.
+pub fn adapt_skill(
+    skill_dir: &Path,
+    repo_root: &Path,
+    purpose: Option<&str>,
+    cmd: &AdaptCommand,
+) -> Result<()> {
+    if which(&cmd.command).is_none() {
         println!(
-            "  {} claude not found on PATH — skipping adaptation",
-            "·".bright_black()
+            "  {} '{}' not found on PATH — skipping adaptation",
+            "·".bright_black(),
+            cmd.command
         );
         return Ok(());
     }
@@ -52,27 +103,27 @@ pub fn adapt_skill(skill_dir: &Path, repo_root: &Path, purpose: Option<&str>) ->
         .with_context(|| format!("backing up skill to {}", backup.display()))?;
 
     println!(
-        "  {} Adapting '{}' with headless claude…",
+        "  {} Adapting '{}' with {}…",
         "✦".cyan(),
         skill_dir
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default()
+            .unwrap_or_default(),
+        cmd.command
     );
 
-    // Run Claude headless, allowing it to edit files within the skill dir.
-    let status = Command::new("claude")
+    // Run the configured AI command, allowing it to edit files within the skill
+    // dir (cwd). Args carry the prompt via the `{prompt}` placeholder.
+    let status = Command::new(&cmd.command)
         .current_dir(skill_dir)
-        .arg("-p")
-        .arg(&prompt)
-        .arg("--permission-mode")
-        .arg("acceptEdits")
+        .args(render_args(&cmd.args, &prompt))
         .status()
-        .context("running claude")?;
+        .with_context(|| format!("running {}", cmd.command))?;
     if !status.success() {
         println!(
-            "  {} claude exited with {} — skill left as installed (backup at {})",
+            "  {} {} exited with {} — skill left as installed (backup at {})",
             "⚠".yellow(),
+            cmd.command,
             status,
             backup.display()
         );
@@ -113,14 +164,17 @@ fn backup_dir(skill_dir: &Path) -> PathBuf {
     std::env::temp_dir().join("meta-skill-backups").join(name)
 }
 
-/// Whether the `claude` CLI is on PATH.
-fn claude_available() -> bool {
-    // `claude --version` is cheap and side-effect free.
-    Command::new("claude")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+/// Locate `cmd` on `PATH`, returning its full path. An absolute/relative path
+/// that exists is accepted as-is.
+fn which(cmd: &str) -> Option<PathBuf> {
+    let p = Path::new(cmd);
+    if p.is_absolute() || cmd.contains('/') {
+        return p.is_file().then(|| p.to_path_buf());
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(cmd))
+        .find(|cand| cand.is_file())
 }
 
 /// Gather a light description of `root`: its name, detected languages, and a few
@@ -278,22 +332,68 @@ mod tests {
     }
 
     #[test]
-    fn adapt_skips_when_claude_missing() {
-        // This test environment has no `claude` on PATH; adapt_skill should be a
-        // no-op that leaves the skill untouched and writes no backup.
-        if claude_available() {
-            return; // can't assert the skip path when claude exists
-        }
+    fn adapt_skips_when_command_missing() {
+        // Point at a command that cannot exist; adapt_skill must be a no-op that
+        // leaves the skill untouched and writes no backup.
         let tmp = tempdir().unwrap();
         let skill = tmp.path().join("demo");
         fs::create_dir_all(&skill).unwrap();
         let original = "---\nname: demo\n---\nbody";
         fs::write(skill.join("SKILL.md"), original).unwrap();
-        adapt_skill(&skill, tmp.path(), None).unwrap();
-        // Skip path: the skill is left untouched.
+        let cmd = AdaptCommand {
+            command: "definitely-not-a-real-binary-xyz".into(),
+            args: vec!["{prompt}".into()],
+        };
+        adapt_skill(&skill, tmp.path(), None, &cmd).unwrap();
         assert_eq!(
             fs::read_to_string(skill.join("SKILL.md")).unwrap(),
             original
         );
+        assert!(!backup_dir(&skill).exists());
+    }
+
+    #[test]
+    fn render_args_substitutes_prompt() {
+        let args = vec![
+            "-p".to_string(),
+            "{prompt}".to_string(),
+            "--flag".to_string(),
+        ];
+        let out = render_args(&args, "hello world");
+        assert_eq!(out, vec!["-p", "hello world", "--flag"]);
+    }
+
+    #[test]
+    fn from_settings_overrides_and_defaults() {
+        // None → claude defaults.
+        let d = AdaptCommand::from_settings(None);
+        assert_eq!(d.command, "claude");
+        assert!(d.args.contains(&"{prompt}".to_string()));
+
+        // Partial override: command set, args fall back to default.
+        let s = SkillSettings {
+            dest: None,
+            adapt_command: Some("codex".into()),
+            adapt_args: None,
+        };
+        let c = AdaptCommand::from_settings(Some(&s));
+        assert_eq!(c.command, "codex");
+        assert_eq!(c.args, AdaptCommand::default().args);
+
+        // Full override.
+        let s2 = SkillSettings {
+            dest: None,
+            adapt_command: Some("opencode".into()),
+            adapt_args: Some(vec!["run".into(), "{prompt}".into()]),
+        };
+        let c2 = AdaptCommand::from_settings(Some(&s2));
+        assert_eq!(c2.command, "opencode");
+        assert_eq!(c2.args, vec!["run", "{prompt}"]);
+    }
+
+    #[test]
+    fn which_finds_known_and_misses_bogus() {
+        assert!(which("sh").is_some());
+        assert!(which("definitely-not-a-real-binary-xyz").is_none());
     }
 }

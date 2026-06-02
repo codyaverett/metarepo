@@ -336,6 +336,31 @@ pub struct MetaConfig {
     pub default_bare: Option<bool>, // Global default for bare repository clones
     #[serde(rename = "plugins-integrity", default)]
     pub plugins_integrity: Option<String>, // "off" (default) | "required"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill: Option<SkillSettings>, // `meta skill` configuration
+}
+
+/// Configuration for the `meta skill` commands (the `[skill]` block in `.meta`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct SkillSettings {
+    /// Default install dir for stolen skills (tilde-expanded). Overridden by `--dest`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dest: Option<String>,
+    /// AI command used by `--adapt` (default: `claude`).
+    #[serde(
+        rename = "adapt-command",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub adapt_command: Option<String>,
+    /// Args template for the adapt command; `{prompt}` is replaced with the
+    /// built prompt at run time.
+    #[serde(
+        rename = "adapt-args",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub adapt_args: Option<Vec<String>>,
 }
 
 impl Default for MetaConfig {
@@ -357,6 +382,7 @@ impl Default for MetaConfig {
             worktree_init: None,
             default_bare: None,
             plugins_integrity: None,
+            skill: None,
         }
     }
 }
@@ -1078,6 +1104,38 @@ mod tests {
                 "{} roundtrip lost projects",
                 filename
             );
+        }
+    }
+
+    #[test]
+    fn skill_block_roundtrips_and_is_optional() {
+        // Absent block ⇒ None, and is not serialized.
+        let tmp = tempdir().unwrap();
+        let bare = tmp.path().join(".metarepo");
+        MetaConfig::default()
+            .save_to_file_with_format(&bare, ConfigFormat::Json)
+            .unwrap();
+        assert!(MetaConfig::load_from_file(&bare).unwrap().skill.is_none());
+        assert!(!std::fs::read_to_string(&bare).unwrap().contains("skill"));
+
+        // Present block round-trips across formats.
+        for (filename, format) in [
+            (".metarepo", ConfigFormat::Json),
+            (".metarepo.yaml", ConfigFormat::Yaml),
+            (".metarepo.toml", ConfigFormat::Toml),
+        ] {
+            let path = tmp.path().join(filename);
+            let config = MetaConfig {
+                skill: Some(SkillSettings {
+                    dest: Some("~/.config/agent-skills".into()),
+                    adapt_command: Some("codex".into()),
+                    adapt_args: Some(vec!["exec".into(), "{prompt}".into()]),
+                }),
+                ..Default::default()
+            };
+            config.save_to_file_with_format(&path, format).unwrap();
+            let loaded = MetaConfig::load_from_file(&path).unwrap();
+            assert_eq!(loaded.skill, config.skill, "{filename} lost [skill]");
         }
     }
 

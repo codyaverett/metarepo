@@ -93,6 +93,7 @@ fn create_default_config() -> MetaConfig {
         worktree_init: None,
         default_bare: None,
         plugins_integrity: None,
+        skill: None,
     }
 }
 

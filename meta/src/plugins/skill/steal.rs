@@ -31,9 +31,11 @@ pub struct SelectOpts {
     pub names: Vec<String>,
     /// Print a full preview of every found skill and copy nothing.
     pub preview: bool,
-    /// When `Some`, adapt each stolen skill with a headless Claude. `Some("")`
-    /// adapts to the current repo only; `Some(purpose)` adds a free-text goal.
+    /// When `Some`, adapt each stolen skill with a headless AI command.
+    /// `Some("")` adapts to the current repo only; `Some(purpose)` adds a goal.
     pub adapt: Option<String>,
+    /// The AI command used for `--adapt` (resolved from `[skill]` config).
+    pub adapt_cmd: adapt::AdaptCommand,
 }
 
 /// `meta skill steal <source>`: resolve the source, discover its skills, pick
@@ -164,7 +166,7 @@ fn adapt_dest(dest_skill_dir: &Path, select: &SelectOpts) {
     };
     let purpose = Some(adapt_arg.as_str()).filter(|s| !s.trim().is_empty());
     let repo_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    if let Err(e) = adapt::adapt_skill(dest_skill_dir, &repo_root, purpose) {
+    if let Err(e) = adapt::adapt_skill(dest_skill_dir, &repo_root, purpose, &select.adapt_cmd) {
         eprintln!("  {} adaptation failed: {}", "!".red(), e);
     }
 }

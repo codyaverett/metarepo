@@ -1,11 +1,60 @@
 use super::{
-    audit, bundled_version, install, installed_version, is_installed, locations, registry, remove,
-    scan, search, steal, update, SkillAction,
+    adapt, audit, bundled_version, install, installed_version, is_installed, locations, registry,
+    remove, scan, search, steal, update, SkillAction,
 };
 use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use colored::Colorize;
 use metarepo_core::{BasePlugin, MetaPlugin, RuntimeConfig};
+
+/// Resolve the install destination: `--dest` flag, else the configured
+/// `[skill] dest` (tilde-expanded), else `None` (the env/cwd/home chain applies).
+fn resolved_dest(flag: Option<&str>, config: &RuntimeConfig) -> Option<String> {
+    if let Some(d) = flag {
+        return Some(expand_tilde(d));
+    }
+    config
+        .meta_config
+        .skill
+        .as_ref()
+        .and_then(|s| s.dest.as_deref())
+        .map(expand_tilde)
+}
+
+/// Expand a leading `~/` to `$HOME`.
+fn expand_tilde(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            return format!("{home}/{rest}");
+        }
+    }
+    p.to_string()
+}
+
+/// Print the resolved `[skill]` configuration under `meta skill locations`.
+fn print_skill_config(config: &RuntimeConfig) {
+    let cmd = adapt::AdaptCommand::from_settings(config.meta_config.skill.as_ref());
+    println!("\n{}", "Skill configuration (.meta [skill]):".bold());
+    let dest = config
+        .meta_config
+        .skill
+        .as_ref()
+        .and_then(|s| s.dest.as_deref());
+    match dest {
+        Some(d) => println!("  {:<14} {} → {}", "default dest", d, expand_tilde(d)),
+        None => println!(
+            "  {:<14} {}",
+            "default dest",
+            "(unset — uses the resolution order above)".dimmed()
+        ),
+    }
+    println!(
+        "  {:<14} {} {}",
+        "adapt command",
+        cmd.command,
+        cmd.args.join(" ")
+    );
+}
 
 /// Manages the bundled meta-tool Claude Code skill (install/update/status/remove).
 pub struct SkillPlugin;
@@ -115,7 +164,11 @@ impl MetaPlugin for SkillPlugin {
                     .expect("path is required");
                 audit::run(path)
             }
-            Some(("locations", _)) => locations::run(),
+            Some(("locations", _)) => {
+                locations::run()?;
+                print_skill_config(config);
+                Ok(())
+            }
             Some(("search", m)) => {
                 let query = m
                     .get_one::<String>("query")
@@ -132,15 +185,21 @@ impl MetaPlugin for SkillPlugin {
                     .get_one::<String>("id")
                     .map(String::as_str)
                     .expect("id is required");
-                let dest = m.get_one::<String>("dest").map(String::as_str);
-                registry::run(id, dest, m.get_flag("force"), m.get_flag("overwrite"))
+                // Honor the configured default dest when --dest is absent.
+                let dest = resolved_dest(m.get_one::<String>("dest").map(String::as_str), config);
+                registry::run(
+                    id,
+                    dest.as_deref(),
+                    m.get_flag("force"),
+                    m.get_flag("overwrite"),
+                )
             }
             Some(("steal", m)) => {
                 let path = m
                     .get_one::<String>("path")
                     .map(String::as_str)
                     .expect("path is required");
-                let dest = m.get_one::<String>("dest").map(String::as_str);
+                let dest = resolved_dest(m.get_one::<String>("dest").map(String::as_str), config);
                 let select = steal::SelectOpts {
                     all: m.get_flag("all"),
                     names: m
@@ -149,13 +208,16 @@ impl MetaPlugin for SkillPlugin {
                         .unwrap_or_default(),
                     preview: m.get_flag("preview"),
                     adapt: m.get_one::<String>("adapt").cloned(),
+                    adapt_cmd: adapt::AdaptCommand::from_settings(
+                        config.meta_config.skill.as_ref(),
+                    ),
                 };
                 let non_interactive = config
                     .non_interactive
                     .unwrap_or(metarepo_core::NonInteractiveMode::Defaults);
                 steal::run(
                     path,
-                    dest,
+                    dest.as_deref(),
                     m.get_flag("force"),
                     m.get_flag("overwrite"),
                     select,
