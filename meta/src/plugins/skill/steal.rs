@@ -11,16 +11,16 @@
 
 use anyhow::{anyhow, Context, Result};
 use colored::Colorize;
-use metarepo_core::{is_interactive, prompt_multiselect, NonInteractiveMode};
+use metarepo_core::{is_interactive, NonInteractiveMode};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
 use super::audit::{audit_skill, has_high, print_findings};
-use super::git;
 use super::locations::default_dest_root;
 use super::skill_file::Skill;
 use super::source::{self, FoundSkill};
+use super::{adapt, git, picker};
 
 /// How to choose skills when a source contains more than one.
 #[derive(Debug, Default, Clone)]
@@ -31,6 +31,9 @@ pub struct SelectOpts {
     pub names: Vec<String>,
     /// Print a full preview of every found skill and copy nothing.
     pub preview: bool,
+    /// When `Some`, adapt each stolen skill with a headless Claude. `Some("")`
+    /// adapts to the current repo only; `Some(purpose)` adds a free-text goal.
+    pub adapt: Option<String>,
 }
 
 /// `meta skill steal <source>`: resolve the source, discover its skills, pick
@@ -63,7 +66,10 @@ pub fn run(
 
     // 2. A source that is itself a single skill skips discovery entirely.
     if is_single_skill(&root) {
-        return copy_one(&root, dest_root, force, overwrite).map(|_| ());
+        if let Some(dest) = copy_one(&root, dest_root, force, overwrite)? {
+            maybe_adapt(&dest, &select);
+        }
+        return Ok(());
     }
 
     let found = source::discover_skills(&root);
@@ -72,15 +78,35 @@ pub fn run(
             "no SKILL.md found in {}",
             display_source(source, &root)
         )),
-        1 => copy_one(&found[0].dir, dest_root, force, overwrite).map(|_| ()),
+        1 => {
+            if let Some(dest) = copy_one(&found[0].dir, dest_root, force, overwrite)? {
+                maybe_adapt(&dest, &select);
+            }
+            Ok(())
+        }
         _ => select_and_copy(
             &found,
+            &root,
+            source,
             dest_root,
             force,
             overwrite,
             &select,
             non_interactive,
         ),
+    }
+}
+
+/// If `--adapt` was requested, run the headless-Claude adaptation on a freshly
+/// installed skill, adapting to the current working directory (the repo).
+fn maybe_adapt(dest_skill_dir: &Path, select: &SelectOpts) {
+    let Some(adapt_arg) = &select.adapt else {
+        return;
+    };
+    let purpose = Some(adapt_arg.as_str()).filter(|s| !s.trim().is_empty());
+    let repo_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if let Err(e) = adapt::adapt_skill(dest_skill_dir, &repo_root, purpose) {
+        eprintln!("  {} adaptation failed: {}", "!".red(), e);
     }
 }
 
@@ -91,26 +117,20 @@ fn is_single_skill(path: &Path) -> bool {
 }
 
 /// Resolve the picked subset of `found` and copy each, reporting a summary.
+#[allow(clippy::too_many_arguments)]
 fn select_and_copy(
     found: &[FoundSkill],
+    root: &Path,
+    source: &str,
     dest_root: Option<&str>,
     force: bool,
     overwrite: bool,
     select: &SelectOpts,
-    non_interactive: NonInteractiveMode,
+    _non_interactive: NonInteractiveMode,
 ) -> Result<()> {
-    println!("{}", format!("found {} skills:", found.len()).bold());
-    for f in found {
-        let flag = match audit_skill(&f.dir) {
-            Ok((_, findings)) if has_high(&findings) => " [HIGH]".red().to_string(),
-            _ => String::new(),
-        };
-        let desc = f.description.as_deref().unwrap_or("");
-        println!("  {} {}{} — {}", "•".cyan(), f.name.bold(), flag, desc);
-    }
-
     // --preview: dump details for everything and stop.
     if select.preview {
+        println!("{}", format!("found {} skills:", found.len()).bold());
         for f in found {
             preview(f);
         }
@@ -119,12 +139,17 @@ fn select_and_copy(
     }
 
     // Decide which skills to take.
+    let from_picker = !select.all && select.names.is_empty() && is_interactive();
     let chosen: Vec<&FoundSkill> = if select.all {
         found.iter().collect()
     } else if !select.names.is_empty() {
         select_by_name(found, &select.names)?
     } else if is_interactive() {
-        select_interactively(found, non_interactive)?
+        let picked = picker::pick(
+            &header_lines(source, root, found.len()),
+            picker_items(found),
+        )?;
+        picked.into_iter().filter_map(|i| found.get(i)).collect()
     } else {
         return Err(anyhow!(
             "{} skills found but no selection given. Re-run interactively, or pass --all or --name <name>. Available: {}",
@@ -133,16 +158,24 @@ fn select_and_copy(
         ));
     };
 
+    if chosen.is_empty() {
+        println!("{}", "nothing selected".dimmed());
+        return Ok(());
+    }
+
     // Copy each, continuing past skips/failures.
     let mut stolen = 0usize;
     let mut skipped = 0usize;
     for f in chosen {
-        if is_interactive() && !select.all && select.names.is_empty() {
+        if from_picker {
             preview(f);
         }
         match copy_one(&f.dir, dest_root, force, overwrite) {
-            Ok(true) => stolen += 1,
-            Ok(false) => skipped += 1,
+            Ok(Some(dest)) => {
+                stolen += 1;
+                maybe_adapt(&dest, select);
+            }
+            Ok(None) => skipped += 1,
             Err(e) => {
                 eprintln!("  {} {}: {}", "!".red(), f.name, e);
                 skipped += 1;
@@ -151,6 +184,39 @@ fn select_and_copy(
     }
     println!("\n{}", format!("{stolen} stolen, {skipped} skipped").bold());
     Ok(())
+}
+
+/// Static descriptor lines shown atop the picker.
+fn header_lines(source: &str, root: &Path, count: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(prov) = git::derive(root) {
+        lines.push(format!("repo:   {}", prov.url));
+        lines.push(format!("commit: {}", prov.commit));
+        if prov.subpath != "." {
+            lines.push(format!("path:   {}", prov.subpath));
+        }
+    } else {
+        lines.push(format!("source: {source}"));
+    }
+    lines.push(format!("skills: {count}"));
+    lines
+}
+
+/// Build picker rows, flagging HIGH-severity skills.
+fn picker_items(found: &[FoundSkill]) -> Vec<picker::PickerItem> {
+    found
+        .iter()
+        .map(|f| {
+            let high = audit_skill(&f.dir)
+                .map(|(_, findings)| has_high(&findings))
+                .unwrap_or(false);
+            picker::PickerItem {
+                name: f.name.clone(),
+                description: f.description.clone().unwrap_or_default(),
+                high,
+            }
+        })
+        .collect()
 }
 
 /// Map `--name` values to found skills (case-insensitive on name or dir name).
@@ -182,33 +248,6 @@ fn select_by_name<'a>(found: &'a [FoundSkill], names: &[String]) -> Result<Vec<&
     Ok(chosen)
 }
 
-/// Multi-select prompt; returns the chosen skills in found order.
-fn select_interactively(
-    found: &[FoundSkill],
-    non_interactive: NonInteractiveMode,
-) -> Result<Vec<&FoundSkill>> {
-    let labels: Vec<String> = found
-        .iter()
-        .map(|f| match &f.description {
-            Some(d) if !d.is_empty() => format!("{} — {}", f.name, d),
-            _ => f.name.clone(),
-        })
-        .collect();
-    let picked = prompt_multiselect(
-        "Select skills to steal",
-        labels.clone(),
-        vec![],
-        non_interactive,
-    )?;
-    let picked_set: std::collections::HashSet<&str> = picked.iter().map(String::as_str).collect();
-    Ok(found
-        .iter()
-        .zip(labels.iter())
-        .filter(|(_, label)| picked_set.contains(label.as_str()))
-        .map(|(f, _)| f)
-        .collect())
-}
-
 /// Print a full preview of one skill: name, description, audit, body excerpt.
 fn preview(f: &FoundSkill) {
     println!("\n{} {}", "Skill:".bold(), f.name.cyan().bold());
@@ -231,9 +270,15 @@ fn preview(f: &FoundSkill) {
     }
 }
 
-/// Copy one skill directory into the destination, audit-gated. Returns whether
-/// the copy happened (`false` when an existing skill is left in place).
-fn copy_one(src: &Path, dest_root: Option<&str>, force: bool, overwrite: bool) -> Result<bool> {
+/// Copy one skill directory into the destination, audit-gated. Returns the
+/// installed skill directory on success, or `None` when an existing skill is
+/// left in place.
+fn copy_one(
+    src: &Path,
+    dest_root: Option<&str>,
+    force: bool,
+    overwrite: bool,
+) -> Result<Option<PathBuf>> {
     let (skill, findings) = audit_skill(src)?;
     let name = skill.display_name();
 
@@ -259,7 +304,7 @@ fn copy_one(src: &Path, dest_root: Option<&str>, force: bool, overwrite: bool) -
                 "·".yellow(),
                 dest.display()
             );
-            return Ok(false);
+            return Ok(None);
         }
         std::fs::remove_dir_all(&dest)
             .with_context(|| format!("removing existing {}", dest.display()))?;
@@ -288,7 +333,7 @@ fn copy_one(src: &Path, dest_root: Option<&str>, force: bool, overwrite: bool) -
             "⚠".yellow()
         );
     }
-    Ok(true)
+    Ok(Some(dest))
 }
 
 /// Recursively copy a skill directory, skipping VCS/build noise. Returns the

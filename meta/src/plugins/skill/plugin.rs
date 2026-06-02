@@ -148,6 +148,7 @@ impl MetaPlugin for SkillPlugin {
                         .map(|vals| vals.cloned().collect())
                         .unwrap_or_default(),
                     preview: m.get_flag("preview"),
+                    adapt: m.get_one::<String>("adapt").cloned(),
                 };
                 let non_interactive = config
                     .non_interactive
@@ -312,7 +313,8 @@ fn skill_command() -> Command {
                        meta skill steal https://github.com/o/r.git   Clone and pick\n  \
                        meta skill steal <git-url> --preview    Preview every skill, copy none\n  \
                        meta skill steal <git-url> --all        Copy every skill found\n  \
-                       meta skill steal <git-url> --name foo --name bar  Copy by name",
+                       meta skill steal <git-url> --name foo --name bar  Copy by name\n  \
+                       meta skill steal <git-url> --adapt \"fit this repo\"  Adapt via headless claude",
                 )
                 .version(env!("CARGO_PKG_VERSION"))
                 .arg(
@@ -342,6 +344,16 @@ fn skill_command() -> Command {
                         .long("preview")
                         .action(ArgAction::SetTrue)
                         .help("Print a preview of every skill found and copy nothing"),
+                )
+                .arg(
+                    Arg::new("adapt")
+                        .long("adapt")
+                        .num_args(0..=1)
+                        .default_missing_value("")
+                        .help(
+                            "After install, run a headless claude to adapt each skill to this repo. \
+                             Optionally give a purpose: --adapt \"fit our CI\"",
+                        ),
                 )
                 .arg(
                     Arg::new("force")

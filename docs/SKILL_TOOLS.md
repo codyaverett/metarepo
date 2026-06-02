@@ -86,11 +86,14 @@ source can be:
 - a **directory tree** containing many skills;
 - a **git URL** — cloned shallowly (`git clone --depth 1`), then treated as a tree.
 
-When the source holds more than one skill you choose which to take: interactively
-(multi-select with per-skill preview) in a terminal, or with `--all` / `--name`
-when scripted. Each chosen skill lands at `<dest-root>/<name>`, where `<name>`
-comes from the frontmatter (falling back to the source directory name), and each
-copy passes the audit gate independently.
+When the source holds more than one skill you choose which to take. In a terminal
+this opens a full-screen **picker**: a static header describing the source repo
+(`url@commit`), a scrollable `Skill | Description` table where selected rows are
+highlighted with a `✓` (HIGH-risk skills flagged `⚠`), type-to-filter, and mouse
+click/scroll. Space toggles, `a` toggles all, enter confirms, esc cancels. When
+scripted (no TTY) use `--all` / `--name` instead. Each chosen skill lands at
+`<dest-root>/<name>`, where `<name>` comes from the frontmatter (falling back to
+the source directory name), and each copy passes the audit gate independently.
 
 ```bash
 meta skill steal ~/Downloads/some-skill                 # copy one local skill
@@ -113,8 +116,20 @@ Flags:
   frontmatter name or the source directory name (case-insensitive).
 - `--preview` — print a preview (audit findings + body excerpt) of every skill
   found and copy nothing.
+- `--adapt [purpose]` — after installing, run a **headless Claude** (`claude -p`)
+  to adapt each stolen skill to this repo. `--adapt` alone tailors to the repo;
+  `--adapt "fit our CI"` adds a purpose. Skipped if `claude` is not on `PATH`.
 - `--overwrite` — replace an existing skill of the same name (skips it otherwise).
 - `--force` / `-f` — proceed even when the audit reports HIGH-severity findings.
+
+**Adaptation (`--adapt`).** The skill is backed up (to the OS temp dir under
+`meta-skill-backups/`), then `claude -p <prompt> --permission-mode acceptEdits`
+runs with the working directory set to the installed skill so Claude can edit its
+files in place — tailoring them to the repo's name, detected languages, and
+layout, plus any purpose you give. The adapted skill is re-audited afterward; if
+that introduces a new HIGH-severity pattern it is reported and the backup path is
+printed for manual rollback. This is opt-in and lets Claude modify files in the
+installed skill directory.
 
 In a non-interactive run (no TTY) against a multi-skill source, you must pass
 `--all` or `--name`; otherwise `steal` errors and lists the skills it found. A
