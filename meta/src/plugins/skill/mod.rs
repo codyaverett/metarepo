@@ -11,6 +11,7 @@ pub mod audit;
 pub mod git;
 pub mod http;
 pub mod locations;
+pub mod mark;
 pub mod picker;
 pub mod registry;
 pub mod scan;

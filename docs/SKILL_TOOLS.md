@@ -122,6 +122,19 @@ Flags:
 - `--overwrite` — replace an existing skill of the same name (skips it otherwise).
 - `--force` / `-f` — proceed even when the audit reports HIGH-severity findings.
 
+**Review marking.** Whenever a stolen skill has audit findings, steal records a
+review trail in the installed copy (independent of `--force`/`--adapt`, so it
+survives even with no Claude available):
+
+- a sidecar `.meta-review.md` listing each finding as `file:line [SEVERITY]
+  message` with the offending line quoted; and
+- inline comment markers (`<!-- meta:review [HIGH] … -->`, or `#`/`//` per file
+  type) inserted directly above each flagged line in comment-safe files. Files
+  where a stray comment would corrupt them (json/yaml/toml/unknown) are left
+  untouched — they still appear in the sidecar.
+
+Audit findings now report `file:line` so you can jump straight to the risky line.
+
 **Adaptation (`--adapt`).** The skill is backed up (to the OS temp dir under
 `meta-skill-backups/`), then `claude -p <prompt> --permission-mode acceptEdits`
 runs with the working directory set to the installed skill so Claude can edit its

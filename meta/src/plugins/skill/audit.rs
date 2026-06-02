@@ -9,11 +9,21 @@ use walkdir::WalkDir;
 
 use super::skill_file::Skill;
 
+/// Filenames written by steal itself — never audited (they quote finding text
+/// and would otherwise self-flag).
+pub const REVIEW_FILE: &str = ".meta-review.md";
+const SOURCE_FILE: &str = ".meta-source.toml";
+/// Tag embedded in inline review markers so a re-audit ignores them.
+pub const MARKER_TAG: &str = "meta:review";
+
 #[derive(Debug)]
 pub struct Finding {
     pub severity: Severity,
+    /// Path relative to the skill root (e.g. `SKILL.md`, `scripts/run.sh`).
     pub file: String,
     pub message: String,
+    /// 1-based line the pattern matched on, when known.
+    pub line: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +41,7 @@ impl Severity {
             Severity::Low => s.blue(),
         }
     }
-    fn label(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self {
             Severity::High => "HIGH",
             Severity::Medium => "MED ",
@@ -62,10 +72,14 @@ pub fn print_findings(findings: &[Finding]) {
     }
     println!("\n{}", format!("{} finding(s):", findings.len()).bold());
     for f in findings {
+        let loc = match f.line {
+            Some(l) => format!("{}:{}", f.file, l),
+            None => f.file.clone(),
+        };
         println!(
             "  [{}] {} — {}",
             f.severity.paint(f.severity.label()),
-            f.file.dimmed(),
+            loc.dimmed(),
             f.message
         );
     }
@@ -81,32 +95,73 @@ pub fn run(path: &str) -> Result<()> {
 }
 
 fn audit_frontmatter(skill: &Skill, findings: &mut Vec<Finding>) {
-    let file = skill.skill_md.display().to_string();
     if skill.frontmatter.name.is_none() {
         findings.push(Finding {
             severity: Severity::Low,
-            file: file.clone(),
+            file: "SKILL.md".into(),
             message: "missing `name` in frontmatter".into(),
+            line: None,
         });
     }
     if skill.frontmatter.description.is_none() {
         findings.push(Finding {
             severity: Severity::Low,
-            file: file.clone(),
+            file: "SKILL.md".into(),
             message: "missing `description` in frontmatter".into(),
+            line: None,
         });
     }
     if let Some(tools) = &skill.frontmatter.allowed_tools {
         let s = format!("{:?}", tools).to_lowercase();
         if s.contains("bash(*)") || s == "string(\"*\")" || s.contains("\"*\"") {
+            // Locate the `allowed-tools` line in the SKILL.md frontmatter.
+            let line = std::fs::read_to_string(&skill.skill_md).ok().and_then(|c| {
+                c.lines()
+                    .position(|l| l.to_lowercase().contains("allowed-tools"))
+                    .map(|i| i + 1)
+            });
             findings.push(Finding {
                 severity: Severity::High,
-                file,
+                file: "SKILL.md".into(),
                 message: "allowed-tools grants unrestricted access (wildcard)".into(),
+                line,
             });
         }
     }
 }
+
+/// Content patterns flagged by the audit, paired with severity and a message.
+const PATTERNS: &[(Severity, &str, &str)] = &[
+    (Severity::High, "curl ", "curl invocation (network fetch)"),
+    (Severity::High, "wget ", "wget invocation (network fetch)"),
+    (
+        Severity::High,
+        "| sh",
+        "piping into shell (remote-exec pattern)",
+    ),
+    (
+        Severity::High,
+        "| bash",
+        "piping into bash (remote-exec pattern)",
+    ),
+    (Severity::High, "rm -rf", "destructive rm -rf"),
+    (Severity::High, "sudo ", "sudo invocation"),
+    (Severity::High, "eval ", "eval (dynamic code execution)"),
+    (
+        Severity::Medium,
+        "chmod +x",
+        "chmod +x (makes file executable)",
+    ),
+    (Severity::Medium, "git push", "git push"),
+    (Severity::Medium, "--no-verify", "bypasses git hooks"),
+    (
+        Severity::Medium,
+        "aws_secret",
+        "possible credential reference",
+    ),
+    (Severity::Medium, "api_key", "possible credential reference"),
+    (Severity::Medium, "ssh ", "ssh invocation"),
+];
 
 fn audit_tree(root: &Path, findings: &mut Vec<Finding>) {
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
@@ -115,6 +170,14 @@ fn audit_tree(root: &Path, findings: &mut Vec<Finding>) {
             continue;
         }
         let rel = p.strip_prefix(root).unwrap_or(p).display().to_string();
+
+        // Never audit steal's own bookkeeping files (they quote finding text).
+        if matches!(
+            p.file_name().and_then(|n| n.to_str()),
+            Some(REVIEW_FILE) | Some(SOURCE_FILE)
+        ) {
+            continue;
+        }
 
         // Executable scripts shipped with a skill are worth a heads-up.
         #[cfg(unix)]
@@ -126,6 +189,7 @@ fn audit_tree(root: &Path, findings: &mut Vec<Finding>) {
                         severity: Severity::Medium,
                         file: rel.clone(),
                         message: "executable file shipped with skill".into(),
+                        line: None,
                     });
                 }
             }
@@ -134,47 +198,23 @@ fn audit_tree(root: &Path, findings: &mut Vec<Finding>) {
         let Ok(content) = std::fs::read_to_string(p) else {
             continue;
         };
-        let lower = content.to_lowercase();
 
-        let patterns: &[(Severity, &str, &str)] = &[
-            (Severity::High, "curl ", "curl invocation (network fetch)"),
-            (Severity::High, "wget ", "wget invocation (network fetch)"),
-            (
-                Severity::High,
-                "| sh",
-                "piping into shell (remote-exec pattern)",
-            ),
-            (
-                Severity::High,
-                "| bash",
-                "piping into bash (remote-exec pattern)",
-            ),
-            (Severity::High, "rm -rf", "destructive rm -rf"),
-            (Severity::High, "sudo ", "sudo invocation"),
-            (Severity::High, "eval ", "eval (dynamic code execution)"),
-            (
-                Severity::Medium,
-                "chmod +x",
-                "chmod +x (makes file executable)",
-            ),
-            (Severity::Medium, "git push", "git push"),
-            (Severity::Medium, "--no-verify", "bypasses git hooks"),
-            (
-                Severity::Medium,
-                "aws_secret",
-                "possible credential reference",
-            ),
-            (Severity::Medium, "api_key", "possible credential reference"),
-            (Severity::Medium, "ssh ", "ssh invocation"),
-        ];
-
-        for (sev, needle, msg) in patterns {
-            if lower.contains(needle) {
-                findings.push(Finding {
-                    severity: *sev,
-                    file: rel.clone(),
-                    message: (*msg).into(),
-                });
+        // Scan per line so each finding carries a line number. Skip our own
+        // inline review markers so they don't re-flag.
+        for (idx, raw) in content.lines().enumerate() {
+            if raw.contains(MARKER_TAG) {
+                continue;
+            }
+            let lower = raw.to_lowercase();
+            for (sev, needle, msg) in PATTERNS {
+                if lower.contains(needle) {
+                    findings.push(Finding {
+                        severity: *sev,
+                        file: rel.clone(),
+                        message: (*msg).into(),
+                        line: Some(idx + 1),
+                    });
+                }
             }
         }
     }

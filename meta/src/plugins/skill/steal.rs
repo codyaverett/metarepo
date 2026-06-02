@@ -20,7 +20,7 @@ use super::audit::{audit_skill, has_high, print_findings};
 use super::locations::default_dest_root;
 use super::skill_file::Skill;
 use super::source::{self, FoundSkill};
-use super::{adapt, git, picker};
+use super::{adapt, git, mark, picker};
 
 /// How to choose skills when a source contains more than one.
 #[derive(Debug, Default, Clone)]
@@ -412,6 +412,22 @@ fn copy_one(
     );
     if !source_note.is_empty() {
         println!("{}", source_note.dimmed());
+    }
+
+    // Mark risky lines for review in the installed copy. Runs regardless of
+    // --force/--adapt so the review trail survives with no Claude available.
+    if !findings.is_empty() {
+        match mark::mark_review(&dest, &findings) {
+            Ok(n) if n > 0 => println!(
+                "  {} marked {} finding(s) for review (see {}/{})",
+                "⚑".yellow(),
+                n,
+                name,
+                super::audit::REVIEW_FILE
+            ),
+            Ok(_) => {}
+            Err(e) => eprintln!("  {} could not mark findings: {}", "!".yellow(), e),
+        }
     }
 
     Ok(CopyOutcome::Installed { dest })
