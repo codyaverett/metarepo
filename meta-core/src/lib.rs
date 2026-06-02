@@ -362,14 +362,14 @@ impl Default for MetaConfig {
 }
 
 /// A located metarepo config file along with its detected format. Returned by
-/// [`MetaConfig::discover`] and consumable directly by [`MetaConfig::load_from_file`].
+/// [`MetaConfig::discover_from`] and consumable directly by [`MetaConfig::load_from_file`].
 #[derive(Debug, Clone)]
 pub struct DiscoveredConfig {
     pub path: PathBuf,
     pub format: ConfigFormat,
 }
 
-/// Errors surfaced by [`MetaConfig::discover`]. Separated out as its own enum
+/// Errors surfaced by [`MetaConfig::discover_from`]. Separated out as its own enum
 /// so the CLI can render a tailored message for the multi-file case.
 #[derive(Debug)]
 pub enum ConfigDiscoveryError {
