@@ -5,3 +5,7 @@ target/
 test-repo
 work/first
 plugins/containers
+
+# Python build artifacts (e.g. vendored skill scripts)
+__pycache__/
+*.py[cod]
