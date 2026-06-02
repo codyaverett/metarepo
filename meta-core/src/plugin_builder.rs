@@ -154,7 +154,7 @@ impl BuiltPlugin {
             plugin_cmd = plugin_cmd.subcommand(cmd_builder.build());
         }
 
-        plugin_cmd
+        with_standard_help(plugin_cmd)
     }
 }
 

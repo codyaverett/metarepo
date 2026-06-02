@@ -9,3 +9,4 @@ plugins/containers
 # Python build artifacts (e.g. vendored skill scripts)
 __pycache__/
 *.py[cod]
+# Meta repository ignores
