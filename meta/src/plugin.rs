@@ -30,6 +30,7 @@ impl PluginRegistry {
         // Register built-in workspace plugins
         self.register(Box::new(plugins::init::InitPlugin::new()));
         self.register(Box::new(plugins::skill::SkillPlugin::new()));
+        self.register(Box::new(plugins::module::ModulePlugin::new()));
         self.register(Box::new(plugins::git::GitPlugin::new()));
         self.register(Box::new(plugins::project::ProjectPlugin::new()));
         self.register(Box::new(plugins::config::ConfigPlugin::new()));

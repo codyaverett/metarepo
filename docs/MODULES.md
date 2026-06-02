@@ -1,8 +1,8 @@
 # Meta Modules
 
-> **Status:** design proposal (v0.1). Describes a packaging layer over the existing
-> plugin and skill systems. No runtime support is implemented yet — see
-> [Out of scope](#out-of-scope) for what a follow-up implementation pass would add.
+> **Status:** implemented (v1). The `meta module` commands and `meta project add`
+> discovery described below are live. See [Out of scope](#out-of-scope) for the pieces
+> intentionally deferred.
 
 A **module** is a single repository that bundles everything it needs to extend a
 metarepo workspace: the command capability it adds (a **plugin**) and the Claude Code
@@ -137,29 +137,53 @@ my-module/
 A skill-only module omits `plugin/`; a plugin-only module omits `skills/`. The directory
 names `plugin/` and `skills/` are convention only — the manifest paths are authoritative.
 
+## Commands
+
+```
+meta module status <repo>      Preview what enabling a module would wire up (dry run)
+meta module enable <repo>      Stage the module's plugin(s) and install its skill(s)
+meta module disable <name>     Reverse an enable
+meta module list               List enabled modules
+meta module scan <dir>         Walk a directory and list module manifests found
+```
+
+`enable` accepts `--force` (install skills despite HIGH-severity audit findings) and
+`--overwrite` (replace already-registered plugins/skills of the same name).
+
 ## Discovery & lifecycle
 
-> Not yet implemented. This is the intended behavior for the implementation pass.
+1. A repo is added as a project via `meta project add`. After the add, meta checks the
+   repo root for a `meta.module.*` manifest.
+2. If found, meta surfaces the module (name, version, the plugins and skills it would wire
+   up). In a TTY it **asks for confirmation** before changing anything; non-interactively
+   it just prints the `meta module enable <repo>` command to run. Discovery is passive;
+   activation is always explicit.
+3. On `enable`, for each declared item:
+   - **plugin** — the plugin's files are **staged** into
+     `<workspace>/.meta-modules/<module>/<plugin>/` (a copy, so the workspace owns them and
+     integrity applies), and a `file:` spec is recorded in the `.meta` `plugins` map. The
+     staged path is an allowed root for the plugin path policy (`validate_plugin_path`), so
+     the plugin then loads through the unchanged external-plugin machinery on the next run.
+   - **skill** — the `SKILL.md` directory is installed through the existing skill `steal`
+     path, which runs the audit gate: HIGH-severity findings (e.g. `curl … | sh`, `rm -rf`,
+     wildcard `allowed-tools`) block the install unless `--force` is passed. See
+     [SKILL_TOOLS.md](SKILL_TOOLS.md) for the audit severities.
+4. meta records the module under a new `.meta` `modules` map (`name -> repo-relative path`)
+   so it can be listed and disabled. `disable` re-derives the contributed names from the
+   manifest at that path and removes the staged plugins, their `plugins`/lockfile entries,
+   the installed skills, and the `modules` entry.
 
-1. A repo is added as a project in `.meta` (or `meta sync` runs over existing projects).
-2. meta checks the repo root for a `meta.module.*` manifest.
-3. If found, meta surfaces the module (name, version, the plugins and skills it would
-   wire up) and **asks for confirmation** before changing anything. Discovery is passive;
-   activation is explicit.
-4. On confirm, for each declared item:
-   - **plugin** — resolve its path inside the repo, validate it against the existing
-     plugin path policy (`validate_plugin_path`), then register it the same way a
-     workspace-level manifest or protocol plugin is registered.
-   - **skill** — install the `SKILL.md` directory through the existing skill install
-     path, which runs the audit gate: HIGH-severity findings (e.g. `curl … | sh`,
-     `rm -rf`, wildcard `allowed-tools`) block the install unless `--force` is passed.
-     See [SKILL_TOOLS.md](SKILL_TOOLS.md) for the audit severities.
-5. meta records the activation in `.meta` so the module's plugin loads on subsequent runs,
-   composed with the existing `plugins` block. (Exact storage key is an implementation
-   detail deferred to the follow-up pass.)
+A module's plugin commands nest under the plugin's own name, exactly as a standalone
+manifest plugin would — e.g. an `example` plugin with an `example-hello` command runs as
+`meta example example-hello`.
 
-If `min_meta_version` is set and the running meta is older, meta declines to wire up the
-module and reports the required version.
+If `min_meta_version` is set and the running meta is older, `enable`/`status` report the
+required version and refuse to wire the module up.
+
+> Staging uses `.meta-modules/`, **not** `.metarepo/`: the canonical config filename is
+> `.metarepo`, so a `.metarepo/` directory would shadow the config during discovery and be
+> impossible to create when the config is itself a `.metarepo` file. (Config discovery now
+> also matches config *files* only, so a like-named directory is never treated as config.)
 
 ## Relationship to existing systems
 
@@ -183,14 +207,14 @@ already have.
 
 ## Out of scope
 
-Deferred to a follow-up implementation plan once this design is approved:
+Intentionally deferred:
 
-- Rust changes: a `MetaModuleManifest` parser, the discovery hook on add/sync, the
-  `meta module` subcommands (e.g. `list`, `enable`, `disable`), and the `.meta`
-  activation key.
-- Module-level version pinning and checksum integrity, mirroring
+- Module-level version pinning of its own (module plugins reuse the existing plugin
+  lockfile, but there is no `modules`-level pin or `.meta.lock` equivalent yet). See
   [PLUGIN_INTEGRITY.md](PLUGIN_INTEGRITY.md).
-- A module publishing/registry story beyond "it is a git repo in the workspace."
+- A `meta module init` scaffolder and a publishing/registry story beyond "it is a git
+  repo in the workspace."
+- A `meta sync` discovery sweep — discovery currently hooks `meta project add` only.
 
 See also: [PLUGIN_DEVELOPMENT.md](PLUGIN_DEVELOPMENT.md),
 [PLUGIN_PROTOCOL_V1.md](PLUGIN_PROTOCOL_V1.md),

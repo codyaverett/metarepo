@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 // New plugin system modules
 pub mod config_format;
 pub mod interactive;
+mod module_manifest;
 mod plugin_base;
 mod plugin_builder;
 mod plugin_manifest;
@@ -18,6 +19,9 @@ pub use config_format::{ConfigFormat, CANONICAL_FILENAME, KNOWN_FILENAMES, LEGAC
 pub use interactive::{
     is_interactive, prompt_confirm, prompt_multiselect, prompt_select, prompt_text, prompt_url,
     NonInteractiveMode,
+};
+pub use module_manifest::{
+    MetaModuleManifest, ModuleInfo, ModulePluginRef, ModuleSkillRef, MODULE_MANIFEST_FILENAMES,
 };
 pub use plugin_base::{
     ArgumentInfo, BasePlugin, CommandInfo, HelpFormat, HelpFormatter, JsonHelpFormatter,
@@ -318,6 +322,8 @@ pub struct MetaConfig {
     pub projects: HashMap<String, ProjectEntry>, // Now supports both String and ProjectMetadata
     #[serde(default)]
     pub plugins: Option<HashMap<String, String>>, // name -> version/path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modules: Option<HashMap<String, String>>, // module name -> repo-relative path
     #[serde(default)]
     pub nested: Option<NestedConfig>, // nested repository configuration
     #[serde(default)]
@@ -344,6 +350,7 @@ impl Default for MetaConfig {
             ],
             projects: HashMap::new(),
             plugins: None,
+            modules: None,
             nested: None,
             aliases: None,
             scripts: None,
@@ -518,7 +525,7 @@ impl MetaConfig {
             let mut found: Vec<PathBuf> = Vec::new();
             for name in KNOWN_FILENAMES {
                 let candidate = current.join(name);
-                if candidate.exists() {
+                if candidate.is_file() {
                     found.push(candidate);
                 }
             }
@@ -558,7 +565,7 @@ impl MetaConfig {
             let mut found: Vec<PathBuf> = Vec::new();
             for name in KNOWN_FILENAMES {
                 let candidate = current.join(name);
-                if candidate.exists() {
+                if candidate.is_file() {
                     found.push(candidate);
                 }
             }
@@ -615,7 +622,7 @@ impl MetaConfig {
     pub fn config_in_dir(dir: &Path) -> Option<DiscoveredConfig> {
         for name in KNOWN_FILENAMES {
             let candidate = dir.join(name);
-            if candidate.exists() {
+            if candidate.is_file() {
                 let format = ConfigFormat::from_path(&candidate).unwrap_or(ConfigFormat::Json);
                 return Some(DiscoveredConfig {
                     path: candidate,

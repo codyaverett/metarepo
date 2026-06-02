@@ -1,0 +1,20 @@
+# Manifest plugin shipped by the example module. meta registers these commands
+# and execs ./greet.sh when they run. See docs/PLUGIN_DEVELOPMENT.md.
+
+[plugin]
+name = "example"
+version = "0.1.0"
+description = "Example command provided by the example meta module"
+
+[[commands]]
+name = "example-hello"
+description = "Print a greeting from the example module"
+
+[[commands.args]]
+name = "name"
+help = "Who to greet"
+required = true
+takes_value = true
+
+[config.execution]
+binary = "./greet.sh"

@@ -35,6 +35,7 @@ impl ExternalPlugin {
     ///   - `$HOME/.config/metarepo/plugins`
     ///   - `$HOME/.cargo/bin` (where `cargo install metarepo-plugin-*` lands)
     ///   - `<workspace>/.metarepo/plugins` (per-repo plugins, if used)
+    ///   - `<workspace>/.meta-modules` (plugins staged from enabled meta modules)
     ///
     /// The `METAREPO_PLUGIN_ALLOW_ANY_PATH=1` env var lets developers opt out
     /// of the restriction for local plugin development.
@@ -65,6 +66,7 @@ impl ExternalPlugin {
         }
         if let Ok(cwd) = std::env::current_dir() {
             allowed.push(cwd.join(".metarepo/plugins"));
+            allowed.push(cwd.join(".meta-modules"));
         }
 
         for root in &allowed {

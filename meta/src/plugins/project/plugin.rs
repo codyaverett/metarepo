@@ -300,6 +300,12 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     } else {
         import_project_with_options(&path, source, &base_path, init_git, use_bare)?;
     }
+
+    // If the added repo declares itself a meta module, surface it (and, in a
+    // TTY, offer to enable it). Activation is always explicit.
+    let repo_root = base_path.join(&path);
+    crate::plugins::module::offer_enable_after_add(&repo_root, config, non_interactive);
+
     Ok(())
 }
 
