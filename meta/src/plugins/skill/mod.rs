@@ -5,6 +5,13 @@ use std::path::{Path, PathBuf};
 mod plugin;
 pub use self::plugin::SkillPlugin;
 
+// Discover/audit/copy external skills (adapted from galaxy-gateway/steal-skill).
+pub mod audit;
+pub mod locations;
+pub mod scan;
+pub mod skill_file;
+pub mod steal;
+
 // Bundled meta-tool Claude Code skill. Canonical copy lives inside the crate at
 // src/plugins/skill/assets/meta-tool/ so it is packaged by `cargo publish`; the
 // workspace `.claude/skills/meta-tool/` symlinks to it. Included at compile time

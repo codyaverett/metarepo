@@ -1,5 +1,6 @@
 use super::{
-    bundled_version, install, installed_version, is_installed, remove, update, SkillAction,
+    audit, bundled_version, install, installed_version, is_installed, locations, remove, scan,
+    steal, update, SkillAction,
 };
 use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -76,49 +77,7 @@ impl MetaPlugin for SkillPlugin {
     }
 
     fn register_commands(&self, app: Command) -> Command {
-        app.subcommand(
-            Command::new("skill")
-                .about("Manage the bundled Claude Code meta-tool skill")
-                .version(env!("CARGO_PKG_VERSION"))
-                .long_about(
-                    "Install and maintain the bundled meta-tool Claude Code skill under\n\
-                     .claude/skills/meta-tool/.\n\n\
-                     Examples:\n  \
-                       meta skill              Show installed vs bundled version\n  \
-                       meta skill install      Install the skill (no-op if present)\n  \
-                       meta skill install -f   Reinstall, overwriting the current copy\n  \
-                       meta skill update       Refresh when the bundled version is newer\n  \
-                       meta skill remove       Delete the installed skill",
-                )
-                .subcommand_required(false)
-                .subcommand(
-                    Command::new("install")
-                        .about("Install the skill into .claude/skills/meta-tool/")
-                        .version(env!("CARGO_PKG_VERSION"))
-                        .arg(
-                            Arg::new("force")
-                                .long("force")
-                                .short('f')
-                                .action(ArgAction::SetTrue)
-                                .help("Overwrite the skill even if already installed"),
-                        ),
-                )
-                .subcommand(
-                    Command::new("update")
-                        .about("Refresh the skill if the bundled version is newer")
-                        .version(env!("CARGO_PKG_VERSION")),
-                )
-                .subcommand(
-                    Command::new("status")
-                        .about("Show installed vs bundled skill version")
-                        .version(env!("CARGO_PKG_VERSION")),
-                )
-                .subcommand(
-                    Command::new("remove")
-                        .about("Delete the installed skill")
-                        .version(env!("CARGO_PKG_VERSION")),
-                ),
-        )
+        app.subcommand(skill_command())
     }
 
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
@@ -141,9 +100,142 @@ impl MetaPlugin for SkillPlugin {
                 }
                 Ok(())
             }
-            _ => handle_status(config),
+            Some(("status", _)) => handle_status(config),
+            Some(("scan", m)) => {
+                let path = m
+                    .get_one::<String>("path")
+                    .map(String::as_str)
+                    .unwrap_or(".");
+                scan::run(path)
+            }
+            Some(("audit", m)) => {
+                let path = m
+                    .get_one::<String>("path")
+                    .map(String::as_str)
+                    .expect("path is required");
+                audit::run(path)
+            }
+            Some(("locations", _)) => locations::run(),
+            Some(("steal", m)) => {
+                let path = m
+                    .get_one::<String>("path")
+                    .map(String::as_str)
+                    .expect("path is required");
+                let dest = m.get_one::<String>("dest").map(String::as_str);
+                steal::run(path, dest, m.get_flag("force"), m.get_flag("overwrite"))
+            }
+            // No subcommand: show usage, like the other meta commands do.
+            _ => {
+                skill_command().print_help()?;
+                println!();
+                Ok(())
+            }
         }
     }
+}
+
+/// Build the `skill` command tree. Shared by command registration and the
+/// no-argument help path so both stay in sync.
+fn skill_command() -> Command {
+    Command::new("skill")
+        .about("Manage the bundled Claude Code meta-tool skill")
+        .version(env!("CARGO_PKG_VERSION"))
+        .long_about(
+            "Install and maintain the bundled meta-tool Claude Code skill under\n\
+                     .claude/skills/meta-tool/, and discover, audit, and copy other\n\
+                     Claude Code skills between repos.\n\n\
+                     Examples:\n  \
+                       meta skill              Show installed vs bundled version\n  \
+                       meta skill install      Install the skill (no-op if present)\n  \
+                       meta skill install -f   Reinstall, overwriting the current copy\n  \
+                       meta skill update       Refresh when the bundled version is newer\n  \
+                       meta skill remove       Delete the installed skill\n  \
+                       meta skill scan ~/Projects  List skills found under a path\n  \
+                       meta skill audit <path>     Flag risky patterns in a skill\n  \
+                       meta skill locations        Show skill destination dirs\n  \
+                       meta skill steal <path>     Copy a skill in (audit-gated)",
+        )
+        .subcommand_required(false)
+        .subcommand(
+            Command::new("install")
+                .about("Install the skill into .claude/skills/meta-tool/")
+                .version(env!("CARGO_PKG_VERSION"))
+                .arg(
+                    Arg::new("force")
+                        .long("force")
+                        .short('f')
+                        .action(ArgAction::SetTrue)
+                        .help("Overwrite the skill even if already installed"),
+                ),
+        )
+        .subcommand(
+            Command::new("update")
+                .about("Refresh the skill if the bundled version is newer")
+                .version(env!("CARGO_PKG_VERSION")),
+        )
+        .subcommand(
+            Command::new("status")
+                .about("Show installed vs bundled skill version")
+                .version(env!("CARGO_PKG_VERSION")),
+        )
+        .subcommand(
+            Command::new("remove")
+                .about("Delete the installed skill")
+                .version(env!("CARGO_PKG_VERSION")),
+        )
+        .subcommand(
+            Command::new("scan")
+                .about("Walk a directory and list the skills found")
+                .version(env!("CARGO_PKG_VERSION"))
+                .arg(
+                    Arg::new("path")
+                        .help("Directory to scan (defaults to current dir)")
+                        .default_value("."),
+                ),
+        )
+        .subcommand(
+            Command::new("audit")
+                .about("Inspect a skill and flag risky patterns")
+                .version(env!("CARGO_PKG_VERSION"))
+                .arg(
+                    Arg::new("path")
+                        .help("Path to a skill directory or SKILL.md")
+                        .required(true),
+                ),
+        )
+        .subcommand(
+            Command::new("locations")
+                .about("Print candidate skill destination directories")
+                .version(env!("CARGO_PKG_VERSION")),
+        )
+        .subcommand(
+            Command::new("steal")
+                .about("Copy an external skill into a local skills directory (audit-gated)")
+                .version(env!("CARGO_PKG_VERSION"))
+                .arg(
+                    Arg::new("path")
+                        .help("Path to the source skill directory or SKILL.md")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("dest")
+                        .long("dest")
+                        .help("Destination skills root (defaults to first existing candidate)"),
+                )
+                .arg(
+                    Arg::new("force")
+                        .long("force")
+                        .short('f')
+                        .action(ArgAction::SetTrue)
+                        .help("Copy even when the audit reports HIGH-severity findings"),
+                )
+                .arg(
+                    Arg::new("overwrite")
+                        .long("overwrite")
+                        .action(ArgAction::SetTrue)
+                        .help("Replace an existing skill of the same name"),
+                ),
+        )
 }
 
 impl BasePlugin for SkillPlugin {
