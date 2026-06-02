@@ -283,17 +283,35 @@ bump-version:
 .PHONY: publish-core
 publish-core:
 	@echo "$(CYAN)📦 Publishing metarepo-core...$(NC)"
-	@cd meta-core && cargo publish && echo "$(GREEN)✅ Published metarepo-core$(NC)" || echo "$(YELLOW)⚠️  metarepo-core publish failed (see error above)$(NC)"
+	@VERSION=$$(grep '^version' meta-core/Cargo.toml | head -1 | cut -d'"' -f2); \
+	if cd meta-core && cargo publish; then \
+		echo "$(GREEN)✅ Published metarepo-core $$VERSION$(NC)"; \
+		echo "   $(CYAN)https://crates.io/crates/metarepo-core/$$VERSION$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  metarepo-core publish failed (see error above)$(NC)"; \
+	fi
 
 .PHONY: publish-sdk
 publish-sdk:
 	@echo "$(CYAN)📦 Publishing metarepo-plugin-sdk...$(NC)"
-	@cd metarepo-plugin-sdk && cargo publish && echo "$(GREEN)✅ Published metarepo-plugin-sdk$(NC)" || echo "$(YELLOW)⚠️  metarepo-plugin-sdk publish failed (see error above)$(NC)"
+	@VERSION=$$(grep '^version' metarepo-plugin-sdk/Cargo.toml | head -1 | cut -d'"' -f2); \
+	if cd metarepo-plugin-sdk && cargo publish; then \
+		echo "$(GREEN)✅ Published metarepo-plugin-sdk $$VERSION$(NC)"; \
+		echo "   $(CYAN)https://crates.io/crates/metarepo-plugin-sdk/$$VERSION$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  metarepo-plugin-sdk publish failed (see error above)$(NC)"; \
+	fi
 
 .PHONY: publish-main
 publish-main:
 	@echo "$(CYAN)📦 Publishing metarepo (main package with built-in plugins)...$(NC)"
-	@cd meta && cargo publish && echo "$(GREEN)✅ Published metarepo$(NC)" || echo "$(YELLOW)⚠️  metarepo publish failed (see error above)$(NC)"
+	@VERSION=$$(grep '^version' meta/Cargo.toml | head -1 | cut -d'"' -f2); \
+	if cd meta && cargo publish; then \
+		echo "$(GREEN)✅ Published metarepo $$VERSION$(NC)"; \
+		echo "   $(CYAN)https://crates.io/crates/metarepo/$$VERSION$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  metarepo publish failed (see error above)$(NC)"; \
+	fi
 
 # Smart publish - only publishes packages that aren't already published
 .PHONY: publish
@@ -309,21 +327,21 @@ publish: check-versions
 	echo "Published versions: metarepo-core=$$CORE_PUBLISHED, metarepo-plugin-sdk=$$SDK_PUBLISHED, metarepo=$$META_PUBLISHED"; \
 	if [ "$$CORE_VERSION" != "$$CORE_PUBLISHED" ]; then \
 		echo "$(CYAN)Publishing metarepo-core $$CORE_VERSION...$(NC)"; \
-		cd meta-core && cargo publish && echo "$(GREEN)✅ Published metarepo-core $$CORE_VERSION$(NC)" || echo "$(RED)❌ Failed to publish metarepo-core$(NC)"; \
+		if cd meta-core && cargo publish; then echo "$(GREEN)✅ Published metarepo-core $$CORE_VERSION$(NC)"; echo "   $(CYAN)https://crates.io/crates/metarepo-core/$$CORE_VERSION$(NC)"; else echo "$(RED)❌ Failed to publish metarepo-core$(NC)"; fi; \
 		sleep 10; \
 	else \
 		echo "$(YELLOW)metarepo-core $$CORE_VERSION already published$(NC)"; \
 	fi; \
 	if [ "$$SDK_VERSION" != "$$SDK_PUBLISHED" ]; then \
 		echo "$(CYAN)Publishing metarepo-plugin-sdk $$SDK_VERSION...$(NC)"; \
-		cd metarepo-plugin-sdk && cargo publish && echo "$(GREEN)✅ Published metarepo-plugin-sdk $$SDK_VERSION$(NC)" || echo "$(RED)❌ Failed to publish metarepo-plugin-sdk$(NC)"; \
+		if cd metarepo-plugin-sdk && cargo publish; then echo "$(GREEN)✅ Published metarepo-plugin-sdk $$SDK_VERSION$(NC)"; echo "   $(CYAN)https://crates.io/crates/metarepo-plugin-sdk/$$SDK_VERSION$(NC)"; else echo "$(RED)❌ Failed to publish metarepo-plugin-sdk$(NC)"; fi; \
 		sleep 10; \
 	else \
 		echo "$(YELLOW)metarepo-plugin-sdk $$SDK_VERSION already published$(NC)"; \
 	fi; \
 	if [ "$$META_VERSION" != "$$META_PUBLISHED" ]; then \
 		echo "$(CYAN)Publishing metarepo $$META_VERSION...$(NC)"; \
-		cd meta && cargo publish && echo "$(GREEN)✅ Published metarepo $$META_VERSION$(NC)" || echo "$(RED)❌ Failed to publish metarepo$(NC)"; \
+		if cd meta && cargo publish; then echo "$(GREEN)✅ Published metarepo $$META_VERSION$(NC)"; echo "   $(CYAN)https://crates.io/crates/metarepo/$$META_VERSION$(NC)"; else echo "$(RED)❌ Failed to publish metarepo$(NC)"; fi; \
 	else \
 		echo "$(YELLOW)metarepo $$META_VERSION already published$(NC)"; \
 	fi
@@ -357,7 +375,8 @@ publish-all: check-versions
 	@echo "$(CYAN)Starting publish sequence...$(NC)"
 	@echo "$(BLUE)[1/3] Publishing metarepo-core...$(NC)"
 	@if cd meta-core && cargo publish; then \
-		echo "$(GREEN)✅ Published metarepo-core$(NC)"; \
+		echo "$(GREEN)✅ Published metarepo-core $$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)$(NC)"; \
+		echo "   $(CYAN)https://crates.io/crates/metarepo-core/$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)$(NC)"; \
 		sleep 10; \
 	else \
 		echo "$(YELLOW)⚠️  metarepo-core v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) publish failed (see error above)$(NC)"; \
@@ -365,7 +384,8 @@ publish-all: check-versions
 	fi
 	@echo "$(BLUE)[2/3] Publishing metarepo-plugin-sdk...$(NC)"
 	@if cd metarepo-plugin-sdk && cargo publish; then \
-		echo "$(GREEN)✅ Published metarepo-plugin-sdk$(NC)"; \
+		echo "$(GREEN)✅ Published metarepo-plugin-sdk $$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)$(NC)"; \
+		echo "   $(CYAN)https://crates.io/crates/metarepo-plugin-sdk/$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)$(NC)"; \
 		sleep 10; \
 	else \
 		echo "$(YELLOW)⚠️  metarepo-plugin-sdk v$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2) publish failed (see error above)$(NC)"; \
@@ -373,7 +393,8 @@ publish-all: check-versions
 	fi
 	@echo "$(BLUE)[3/3] Publishing metarepo (main package with built-in plugins)...$(NC)"
 	@if cd meta && cargo publish; then \
-		echo "$(GREEN)✅ Published metarepo$(NC)"; \
+		echo "$(GREEN)✅ Published metarepo $$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)$(NC)"; \
+		echo "   $(CYAN)https://crates.io/crates/metarepo/$$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)$(NC)"; \
 		echo ""; \
 		echo "$(GREEN)🎉 Successfully published metarepo!$(NC)"; \
 	else \
