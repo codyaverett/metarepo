@@ -17,6 +17,7 @@ use tempfile::TempDir;
 use walkdir::WalkDir;
 
 use super::audit::{audit_skill, has_high, print_findings};
+use super::git;
 use super::locations::default_dest_root;
 use super::skill_file::Skill;
 use super::source::{self, FoundSkill};
@@ -271,6 +272,16 @@ fn copy_one(src: &Path, dest_root: Option<&str>, force: bool, overwrite: bool) -
         count,
         dest.display()
     );
+
+    // Record + report provenance when the source skill lives in a git repo
+    // (a local checkout, or the shallow clone steal made from a URL).
+    if let Some(prov) = git::derive(&skill.root) {
+        if let Err(e) = prov.write_file(&dest) {
+            eprintln!("  {} could not record provenance: {}", "!".yellow(), e);
+        }
+        println!("  {} source: {}", "ⓘ".cyan(), prov.summary());
+    }
+
     if has_high(&findings) {
         println!(
             "  {} Copied despite HIGH findings (--force) — review before use",

@@ -120,6 +120,14 @@ In a non-interactive run (no TTY) against a multi-skill source, you must pass
 `--all` or `--name`; otherwise `steal` errors and lists the skills it found. A
 git source requires `git` on `PATH`.
 
+**Provenance.** When the source skill lives inside a git repository — a git-URL
+clone, or a local checkout — `steal` records where it came from: it prints a
+`source: <url>@<commit> (<subpath>)` line and writes a `.meta-source.toml` into
+the copied skill with the remote `url`, the `commit` SHA, the skill's `subpath`
+within the repo, and a `dirty` flag (true when the working tree had uncommitted
+changes). This keeps a stolen skill traceable and re-fetchable. Sources not under
+git are copied without a provenance file.
+
 ### search
 
 Search the [skills.sh](https://skills.sh) registry for Claude Code skills. Uses

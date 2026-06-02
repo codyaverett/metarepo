@@ -7,6 +7,7 @@ pub use self::plugin::SkillPlugin;
 
 // Discover/audit/copy external skills (adapted from galaxy-gateway/steal-skill).
 pub mod audit;
+pub mod git;
 pub mod http;
 pub mod locations;
 pub mod registry;
