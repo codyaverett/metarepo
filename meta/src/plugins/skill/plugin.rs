@@ -1,6 +1,6 @@
 use super::{
-    audit, bundled_version, install, installed_version, is_installed, locations, remove, scan,
-    steal, update, SkillAction,
+    audit, bundled_version, install, installed_version, is_installed, locations, registry, remove,
+    scan, search, steal, update, SkillAction,
 };
 use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -116,6 +116,25 @@ impl MetaPlugin for SkillPlugin {
                 audit::run(path)
             }
             Some(("locations", _)) => locations::run(),
+            Some(("search", m)) => {
+                let query = m
+                    .get_one::<String>("query")
+                    .map(String::as_str)
+                    .expect("query is required");
+                let limit = m
+                    .get_one::<String>("limit")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(25);
+                search::run(query, limit)
+            }
+            Some(("add", m)) => {
+                let id = m
+                    .get_one::<String>("id")
+                    .map(String::as_str)
+                    .expect("id is required");
+                let dest = m.get_one::<String>("dest").map(String::as_str);
+                registry::run(id, dest, m.get_flag("force"), m.get_flag("overwrite"))
+            }
             Some(("steal", m)) => {
                 let path = m
                     .get_one::<String>("path")
@@ -153,7 +172,9 @@ fn skill_command() -> Command {
                        meta skill scan ~/Projects  List skills found under a path\n  \
                        meta skill audit <path>     Flag risky patterns in a skill\n  \
                        meta skill locations        Show skill destination dirs\n  \
-                       meta skill steal <path>     Copy a skill in (audit-gated)",
+                       meta skill steal <path>     Copy a local skill in (audit-gated)\n  \
+                       meta skill search react     Search skills.sh for skills\n  \
+                       meta skill add <id>         Install a skill from skills.sh (audit-gated)",
         )
         .subcommand_required(false)
         .subcommand(
@@ -207,6 +228,55 @@ fn skill_command() -> Command {
             Command::new("locations")
                 .about("Print candidate skill destination directories")
                 .version(env!("CARGO_PKG_VERSION")),
+        )
+        .subcommand(
+            Command::new("search")
+                .about("Search the skills.sh registry for skills")
+                .version(env!("CARGO_PKG_VERSION"))
+                .arg(
+                    Arg::new("query")
+                        .help("Search terms (at least 2 characters)")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("limit")
+                        .long("limit")
+                        .help("Maximum results to show (default 25)"),
+                ),
+        )
+        .subcommand(
+            Command::new("add")
+                .about("Install a skill from skills.sh by id (audit-gated)")
+                .long_about(
+                    "Install a skill from the skills.sh registry by its owner/repo/skill id\n\
+                     (find one with meta skill search). Resolves files via the skills.sh API\n\
+                     when SKILLS_SH_API_KEY is set, otherwise by cloning the source GitHub repo,\n\
+                     then audits the skill and copies it into a skills directory.",
+                )
+                .version(env!("CARGO_PKG_VERSION"))
+                .arg(
+                    Arg::new("id")
+                        .help("Skill id, e.g. owner/repo/skill")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("dest")
+                        .long("dest")
+                        .help("Destination skills root (defaults to first existing candidate)"),
+                )
+                .arg(
+                    Arg::new("force")
+                        .long("force")
+                        .short('f')
+                        .action(ArgAction::SetTrue)
+                        .help("Install even when the audit reports HIGH-severity findings"),
+                )
+                .arg(
+                    Arg::new("overwrite")
+                        .long("overwrite")
+                        .action(ArgAction::SetTrue)
+                        .help("Replace an existing skill of the same name"),
+                ),
         )
         .subcommand(
             Command::new("steal")

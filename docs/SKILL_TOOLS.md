@@ -15,6 +15,9 @@ parser, and one install location.
   - [audit](#audit)
   - [locations](#locations)
   - [steal](#steal)
+  - [search](#search)
+  - [add](#add)
+- [Installing from skills.sh](#installing-from-skillssh)
 - [The audit safety gate](#the-audit-safety-gate)
 - [Risk patterns flagged by audit](#risk-patterns-flagged-by-audit)
 - [How this maps to the upstream steal-skill](#how-this-maps-to-the-upstream-steal-skill)
@@ -31,9 +34,9 @@ The `skill` plugin now covers the full lifecycle of working with skills:
 | Concern | Subcommands |
 | --- | --- |
 | The bundled meta-tool skill | `install`, `update`, `status` (default), `remove` |
-| Finding skills | `scan`, `locations` |
+| Finding skills | `scan`, `locations`, `search` |
 | Vetting skills | `audit` |
-| Importing skills | `steal` |
+| Importing skills | `steal` (local), `add` (skills.sh) |
 
 ## Subcommands
 
@@ -94,6 +97,49 @@ Flags:
   candidate from `meta skill locations` (else the workspace `./.claude/skills`).
 - `--overwrite` — replace an existing skill of the same name (refuses otherwise).
 - `--force` / `-f` — proceed even when the audit reports HIGH-severity findings.
+
+### search
+
+Search the [skills.sh](https://skills.sh) registry for Claude Code skills. Uses
+the public, unauthenticated search endpoint.
+
+```bash
+meta skill search react              # top matches for "react"
+meta skill search "next js" --limit 50
+```
+
+Each result prints its install count and canonical `owner/repo/skill` id. Install
+a result with `meta skill add <id>`.
+
+### add
+
+Install a skill from skills.sh by its id (audit-gated, like `steal`).
+
+```bash
+meta skill add vercel-labs/agent-skills/vercel-react-best-practices
+meta skill add <id> --dest ~/.claude/skills --overwrite
+meta skill add <id> --force          # install despite HIGH findings
+```
+
+Flags mirror `steal`: `--dest`, `--overwrite`, `--force`/`-f`.
+
+## Installing from skills.sh
+
+`add` resolves a skill's files one of two ways, chosen automatically:
+
+- **Keyed** — when `SKILLS_SH_API_KEY` (an `sk_live_...` key from skills.sh) is
+  set, files are fetched from the authenticated `/api/v1/skills/{id}` endpoint.
+  This is exact and reliable.
+- **Keyless** (default) — the skill's source GitHub repo is shallow-cloned and
+  the matching skill directory is located by fuzzy-matching the registry slug
+  against the repo's skill directories and frontmatter names. The skills.sh slug
+  does not map 1:1 to a repo path (for example `vercel-react-best-practices`
+  lives at `skills/react-best-practices/`), so on an ambiguous or missing match
+  `add` lists the skills it found and suggests setting `SKILLS_SH_API_KEY`.
+
+Either way the resolved skill is run through the same [audit gate](#the-audit-safety-gate)
+as `steal` before anything is written. Keyless install requires `git`; both paths
+require `curl` for the skills.sh HTTP calls.
 
 ## The audit safety gate
 
