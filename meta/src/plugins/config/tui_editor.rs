@@ -67,13 +67,25 @@ fn parse_script_node_type(node_type: &str) -> Option<ScriptRef> {
     })
 }
 
-/// Where a newly added script should live.
+/// `node_type` for a project's URL field.
+fn project_url_node_type(proj: &str) -> String {
+    format!("url:project:{proj}")
+}
+
+/// The project a URL node belongs to, or `None`.
+fn parse_project_url_node_type(node_type: &str) -> Option<&str> {
+    node_type.strip_prefix("url:project:")
+}
+
+/// Where a newly added entry should live.
 #[derive(Debug, Clone)]
 enum AddContext {
     /// A workspace-global script.
     GlobalScript,
     /// A script under the named project.
     ProjectScript(String),
+    /// A new project in the workspace.
+    NewProject,
 }
 
 /// Config editor using menuconfig-style TUI
@@ -90,7 +102,9 @@ pub struct ConfigEditor {
     edited_settings: HashSet<String>,
     /// `node_type`s of script nodes whose command was edited this session.
     edited_scripts: HashSet<String>,
-    /// When `Some`, a name-input prompt is open to add a new script in the given
+    /// Project names whose URL was edited this session.
+    edited_urls: HashSet<String>,
+    /// When `Some`, a name-input prompt is open to add an entry in the given
     /// context; the `textarea` holds the name being typed.
     adding: Option<AddContext>,
     /// App state
@@ -114,6 +128,7 @@ impl ConfigEditor {
             settings,
             edited_settings: HashSet::new(),
             edited_scripts: HashSet::new(),
+            edited_urls: HashSet::new(),
             adding: None,
             state: MenuAppState::new(),
             tree_roots,
@@ -145,7 +160,8 @@ impl ConfigEditor {
                 let mut children = Vec::new();
 
                 // URL
-                let mut url_node = TreeNode::with_value("url", &meta.url, "url");
+                let mut url_node =
+                    TreeNode::with_value("url", &meta.url, project_url_node_type(name));
                 url_node.depth = 2;
                 children.push(url_node);
 
@@ -374,6 +390,32 @@ impl ConfigEditor {
             self.edited_scripts.clear();
         }
 
+        if !self.edited_urls.is_empty() {
+            let updates: Vec<(String, String)> = self
+                .tree_roots
+                .iter()
+                .flat_map(|r| r.flatten_all())
+                .filter_map(|node| {
+                    let proj = parse_project_url_node_type(&node.node_type)?;
+                    if !self.edited_urls.contains(proj) {
+                        return None;
+                    }
+                    Some((proj.to_string(), node.value.clone()?))
+                })
+                .collect();
+
+            for (proj, url) in updates {
+                match self.config.projects.get_mut(&proj) {
+                    Some(metarepo_core::ProjectEntry::Metadata(meta)) => meta.url = url,
+                    Some(entry @ metarepo_core::ProjectEntry::Url(_)) => {
+                        *entry = metarepo_core::ProjectEntry::Url(url);
+                    }
+                    None => {}
+                }
+            }
+            self.edited_urls.clear();
+        }
+
         Ok(())
     }
 
@@ -472,6 +514,14 @@ impl ConfigEditor {
             .flat_map(|r| r.flatten(true))
             .nth(self.state.tree_state.selected);
         if let Some(node) = node {
+            // On the Projects section → add a new project.
+            if node.node_type == "section" && node.label == "Projects" {
+                return AddContext::NewProject;
+            }
+            // On a project's URL node → add a script to that project.
+            if let Some(proj) = parse_project_url_node_type(&node.node_type) {
+                return AddContext::ProjectScript(proj.to_string());
+            }
             if let Some(rest) = node.node_type.strip_prefix("script:project:") {
                 if let Some((proj, _)) = rest.rsplit_once(':') {
                     return AddContext::ProjectScript(proj.to_string());
@@ -484,12 +534,13 @@ impl ConfigEditor {
         AddContext::GlobalScript
     }
 
-    /// Open the name-input prompt for adding a script.
+    /// Open the name-input prompt for adding an entry.
     fn start_add(&mut self) {
         let ctx = self.add_context_for_selected();
         let label = match &ctx {
             AddContext::GlobalScript => "global script".to_string(),
             AddContext::ProjectScript(p) => format!("script in {p}"),
+            AddContext::NewProject => "project".to_string(),
         };
         let mut textarea = TextArea::default();
         textarea.set_cursor_line_style(Style::default());
@@ -501,7 +552,7 @@ impl ConfigEditor {
             .set_status(format!("New {label} name — Enter to create, Esc to cancel"));
     }
 
-    /// Create the script entry from the typed name and select it for editing.
+    /// Create the new entry from the typed name and select it for editing.
     fn confirm_add(&mut self) {
         let name = self
             .textarea
@@ -520,12 +571,43 @@ impl ConfigEditor {
             }
         };
 
+        // Adding a project is a different shape than a script entry.
+        if let AddContext::NewProject = ctx {
+            if self.config.projects.contains_key(&name) {
+                self.state
+                    .set_status(format!("Project {name} already exists"));
+                return;
+            }
+            self.config.projects.insert(
+                name.clone(),
+                metarepo_core::ProjectEntry::Metadata(metarepo_core::ProjectMetadata {
+                    url: String::new(),
+                    aliases: Vec::new(),
+                    scripts: std::collections::HashMap::new(),
+                    env: std::collections::HashMap::new(),
+                    worktree_init: None,
+                    bare: None,
+                }),
+            );
+            self.state.modified = true;
+            self.rebuild_tree();
+            // Chain into editing the new project's URL.
+            let url_nt = project_url_node_type(&name);
+            self.expand_and_select(&url_nt);
+            self.start_editing();
+            self.state.set_status(format!(
+                "Enter URL for {name} — Enter to save, Esc to cancel"
+            ));
+            return;
+        }
+
         let target = match &ctx {
             AddContext::GlobalScript => ScriptRef::Global(name.clone()),
             AddContext::ProjectScript(proj) => ScriptRef::Project {
                 proj: proj.clone(),
                 name: name.clone(),
             },
+            AddContext::NewProject => unreachable!("handled above"),
         };
 
         // Reject duplicates / projects that can't hold scripts.
@@ -570,22 +652,37 @@ impl ConfigEditor {
         ));
     }
 
-    /// Delete the selected script entry (in memory; persisted on save).
+    /// Delete the selected script or project entry (in memory; persisted on
+    /// save).
     fn delete_selected(&mut self) {
-        let node_type = self
+        let selected = self
             .tree_roots
             .iter()
             .flat_map(|r| r.flatten(true))
-            .nth(self.state.tree_state.selected)
-            .map(|n| n.node_type.clone());
+            .nth(self.state.tree_state.selected);
+        let (node_type, label) = match selected {
+            Some(n) => (n.node_type.clone(), n.label.clone()),
+            None => return,
+        };
 
-        let Some(target) = node_type.as_deref().and_then(parse_script_node_type) else {
+        // A whole project (the "project" node, labelled with the project key).
+        if node_type == "project" {
+            self.config.projects.remove(&label);
+            self.edited_urls.remove(&label);
+            self.state.modified = true;
+            self.rebuild_tree();
+            self.state.set_status(format!(
+                "Deleted project {label} (unsaved — 's' to write, 'q' to discard)"
+            ));
+            return;
+        }
+
+        let Some(target) = parse_script_node_type(&node_type) else {
             self.state
-                .set_status("Delete only supports script entries for now");
+                .set_status("Delete supports scripts and projects for now");
             return;
         };
 
-        let nt = node_type.unwrap();
         match &target {
             ScriptRef::Global(name) => {
                 if let Some(m) = self.config.scripts.as_mut() {
@@ -601,7 +698,7 @@ impl ConfigEditor {
             }
         }
         // Drop any pending edit for the removed node.
-        self.edited_scripts.remove(&nt);
+        self.edited_scripts.remove(&node_type);
         self.state.modified = true;
         self.rebuild_tree();
         self.state
@@ -687,6 +784,8 @@ impl MenuApp for ConfigEditor {
                 self.edited_settings.insert(key.to_string());
             } else if parse_script_node_type(nt).is_some() {
                 self.edited_scripts.insert(nt.clone());
+            } else if let Some(proj) = parse_project_url_node_type(nt) {
+                self.edited_urls.insert(proj.to_string());
             }
         }
 
@@ -1009,7 +1108,7 @@ impl ConfigEditor {
         panic!("no script node for {node_type}");
     }
 
-    /// Test hook: drive the add-script flow with a typed name.
+    /// Test hook: drive the add flow with a typed name (script or project).
     fn add_script_for_test(&mut self, ctx: AddContext, name: &str) {
         self.adding = Some(ctx);
         self.textarea = Some(TextArea::new(vec![name.to_string()]));
@@ -1017,8 +1116,35 @@ impl ConfigEditor {
         self.confirm_add();
     }
 
+    /// Test hook: set a node's value by `node_type` and route it to the right
+    /// edited set, mirroring `save_edit`'s tracking.
+    fn edit_value_for_test(&mut self, node_type: &str, value: &str) {
+        for ptr in self.tree_roots.iter_mut().flat_map(|r| r.flatten_all_mut()) {
+            // SAFETY: pointers come from this tree and are not aliased here.
+            let node = unsafe { &mut *ptr };
+            if node.node_type == node_type {
+                node.value = Some(value.to_string());
+                if let Some((_, k)) = parse_setting_node_type(node_type) {
+                    self.edited_settings.insert(k.to_string());
+                } else if parse_script_node_type(node_type).is_some() {
+                    self.edited_scripts.insert(node_type.to_string());
+                } else if let Some(p) = parse_project_url_node_type(node_type) {
+                    self.edited_urls.insert(p.to_string());
+                }
+                return;
+            }
+        }
+        panic!("no node for {node_type}");
+    }
+
     /// Test hook: expand the whole tree and select the node with `node_type`.
     fn select_for_test(&mut self, node_type: &str) {
+        self.select_by_test(|n| n.node_type == node_type);
+    }
+
+    /// Test hook: expand the whole tree and select the first node matching
+    /// `pred`.
+    fn select_by_test(&mut self, pred: impl Fn(&TreeNode) -> bool) {
         fn expand(node: &mut TreeNode) {
             node.expanded = true;
             for c in &mut node.children {
@@ -1032,8 +1158,8 @@ impl ConfigEditor {
             .tree_roots
             .iter()
             .flat_map(|r| r.flatten(true))
-            .position(|n| n.node_type == node_type)
-            .unwrap_or_else(|| panic!("no node {node_type}"));
+            .position(pred)
+            .expect("no matching node");
         self.state.tree_state.selected = idx;
     }
 }
@@ -1213,5 +1339,58 @@ mod tests {
         let scripts = reloaded.scripts.unwrap();
         assert!(!scripts.contains_key("a"));
         assert!(scripts.contains_key("b"));
+    }
+
+    #[test]
+    fn edit_project_url_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{"app":{"url":"old"}}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), vec![]).unwrap();
+        editor.edit_value_for_test(&project_url_node_type("app"), "git@new");
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        match reloaded.projects.get("app").unwrap() {
+            metarepo_core::ProjectEntry::Metadata(m) => assert_eq!(m.url, "git@new"),
+            _ => panic!("expected metadata"),
+        }
+    }
+
+    #[test]
+    fn add_project_chains_to_url_and_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), vec![]).unwrap();
+        editor.add_script_for_test(AddContext::NewProject, "newproj");
+        // The flow is now editing the new project's URL.
+        assert!(editor.state.editing);
+        editor.edit_value_for_test(&project_url_node_type("newproj"), "git@x");
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        match reloaded.projects.get("newproj").unwrap() {
+            metarepo_core::ProjectEntry::Metadata(m) => assert_eq!(m.url, "git@x"),
+            _ => panic!("expected metadata"),
+        }
+    }
+
+    #[test]
+    fn delete_project_removes_it_on_save() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{"a":{"url":"x"},"b":{"url":"y"}}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), vec![]).unwrap();
+        editor.select_by_test(|n| n.node_type == "project" && n.label == "a");
+        editor.delete_selected();
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        assert!(!reloaded.projects.contains_key("a"));
+        assert!(reloaded.projects.contains_key("b"));
     }
 }
