@@ -9,7 +9,8 @@ use serde::Deserialize;
 
 use super::http;
 
-const SEARCH_URL: &str = "https://skills.sh/api/search";
+/// Default skills.sh search endpoint, used when `[skill] search-url` is unset.
+pub const DEFAULT_SEARCH_URL: &str = "https://skills.sh/api/search";
 
 /// A single search hit. `id` is the canonical `owner/repo/slug` install id.
 #[derive(Debug, Deserialize)]
@@ -31,10 +32,10 @@ struct SearchResponse {
     skills: Vec<SkillHit>,
 }
 
-/// Query the registry, returning up to `limit` hits.
-pub fn search(query: &str, limit: usize) -> Result<Vec<SkillHit>> {
+/// Query the registry at `base_url`, returning up to `limit` hits.
+pub fn search(query: &str, limit: usize, base_url: &str) -> Result<Vec<SkillHit>> {
     let url = format!(
-        "{SEARCH_URL}?q={}&limit={}",
+        "{base_url}?q={}&limit={}",
         http::encode(query),
         limit.clamp(1, 200)
     );
@@ -48,12 +49,12 @@ fn parse(body: &str) -> Result<Vec<SkillHit>> {
     Ok(resp.skills)
 }
 
-/// `meta skill search <query>` — print matching skills from skills.sh.
-pub fn run(query: &str, limit: usize) -> Result<()> {
+/// `meta skill search <query>` — print matching skills from `base_url`.
+pub fn run(query: &str, limit: usize, base_url: &str) -> Result<()> {
     if query.trim().chars().count() < 2 {
         return Err(anyhow!("search query must be at least 2 characters"));
     }
-    let hits = search(query, limit)?;
+    let hits = search(query, limit, base_url)?;
     if hits.is_empty() {
         println!("  {} No skills found for {}", "·".dimmed(), query.cyan());
         return Ok(());

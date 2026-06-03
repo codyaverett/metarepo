@@ -43,6 +43,7 @@ depends only on this crate.
 
 - Full guide: [`docs/PLUGIN_DEVELOPMENT.md`](https://github.com/codyaverett/metarepo/blob/main/docs/PLUGIN_DEVELOPMENT.md)
 - Wire protocol: [`docs/PLUGIN_PROTOCOL_V1.md`](https://github.com/codyaverett/metarepo/blob/main/docs/PLUGIN_PROTOCOL_V1.md)
+- Configuration: [`docs/PLUGIN_CONFIG.md`](https://github.com/codyaverett/metarepo/blob/main/docs/PLUGIN_CONFIG.md) — declare settings, edit via `meta config`, read with `plugin_config`
 - Reference plugin: [`examples/metarepo-plugin-example`](https://github.com/codyaverett/metarepo/tree/main/examples/metarepo-plugin-example)
 
 ## Testing your plugin

@@ -24,7 +24,8 @@ use super::skill_file::Skill;
 use super::source;
 use super::steal;
 
-const DETAIL_URL: &str = "https://skills.sh/api/v1/skills";
+/// Default skills.sh skill-detail endpoint, used when `[skill] detail-url` is unset.
+pub const DEFAULT_DETAIL_URL: &str = "https://skills.sh/api/v1/skills";
 
 /// A parsed registry id: `owner/repo` source plus the skill `slug`.
 struct ParsedId {
@@ -73,14 +74,25 @@ struct FileEntry {
 }
 
 /// `meta skill add <id>` — install a skill from skills.sh.
-pub fn run(id: &str, dest_root: Option<&str>, force: bool, overwrite: bool) -> Result<()> {
+///
+/// `detail_url` is the resolved skill-detail endpoint and `api_key` the resolved
+/// key (env > config), already chosen by the caller. When `api_key` is set the
+/// keyed path is used, otherwise resolution falls back to GitHub.
+pub fn run(
+    id: &str,
+    dest_root: Option<&str>,
+    force: bool,
+    overwrite: bool,
+    detail_url: &str,
+    api_key: Option<&str>,
+) -> Result<()> {
     let parsed = ParsedId::parse(id)?;
     let tmp = TempDir::new().context("creating temp working dir")?;
 
-    let skill_dir = match std::env::var("SKILLS_SH_API_KEY") {
-        Ok(key) if !key.trim().is_empty() => {
+    let skill_dir = match api_key {
+        Some(key) if !key.trim().is_empty() => {
             println!("  {} Fetching {} from skills.sh", "↓".cyan(), parsed.id);
-            resolve_via_api(&parsed, key.trim(), tmp.path())?
+            resolve_via_api(&parsed, key.trim(), tmp.path(), detail_url)?
         }
         _ => {
             println!(
@@ -108,8 +120,8 @@ pub fn run(id: &str, dest_root: Option<&str>, force: bool, overwrite: bool) -> R
 }
 
 /// Keyed path: pull exact files from the authenticated detail endpoint.
-fn resolve_via_api(parsed: &ParsedId, key: &str, tmp: &Path) -> Result<PathBuf> {
-    let url = format!("{DETAIL_URL}/{}", parsed.id);
+fn resolve_via_api(parsed: &ParsedId, key: &str, tmp: &Path, detail_url: &str) -> Result<PathBuf> {
+    let url = format!("{detail_url}/{}", parsed.id);
     let body = http::get(&url, Some(key))?;
     let detail: DetailResponse =
         serde_json::from_str(&body).context("parsing skills.sh skill detail response")?;

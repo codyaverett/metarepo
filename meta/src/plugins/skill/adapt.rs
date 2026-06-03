@@ -375,6 +375,7 @@ mod tests {
             dest: None,
             adapt_command: Some("codex".into()),
             adapt_args: None,
+            ..Default::default()
         };
         let c = AdaptCommand::from_settings(Some(&s));
         assert_eq!(c.command, "codex");
@@ -385,6 +386,7 @@ mod tests {
             dest: None,
             adapt_command: Some("opencode".into()),
             adapt_args: Some(vec!["run".into(), "{prompt}".into()]),
+            ..Default::default()
         };
         let c2 = AdaptCommand::from_settings(Some(&s2));
         assert_eq!(c2.command, "opencode");

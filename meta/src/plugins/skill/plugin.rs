@@ -31,6 +31,54 @@ fn expand_tilde(p: &str) -> String {
     p.to_string()
 }
 
+/// skills.sh search endpoint: `[skill] search-url`, else the built-in default.
+fn resolved_search_url(config: &RuntimeConfig) -> String {
+    config
+        .meta_config
+        .skill
+        .as_ref()
+        .and_then(|s| s.search_url.clone())
+        .unwrap_or_else(|| search::DEFAULT_SEARCH_URL.to_string())
+}
+
+/// skills.sh skill-detail endpoint: `[skill] detail-url`, else the default.
+fn resolved_detail_url(config: &RuntimeConfig) -> String {
+    config
+        .meta_config
+        .skill
+        .as_ref()
+        .and_then(|s| s.detail_url.clone())
+        .unwrap_or_else(|| registry::DEFAULT_DETAIL_URL.to_string())
+}
+
+/// Default search hit count. Precedence: `--limit` flag > `[skill] search-limit`
+/// > built-in 25.
+fn resolved_search_limit(flag: Option<usize>, config: &RuntimeConfig) -> usize {
+    flag.or_else(|| {
+        config
+            .meta_config
+            .skill
+            .as_ref()
+            .and_then(|s| s.search_limit)
+    })
+    .unwrap_or(25)
+}
+
+/// skills.sh API key. Precedence: `SKILLS_SH_API_KEY` env > `[skill] api-key`.
+/// Env wins so secrets need not live in `.meta`.
+fn resolved_api_key(config: &RuntimeConfig) -> Option<String> {
+    if let Ok(k) = std::env::var("SKILLS_SH_API_KEY") {
+        if !k.trim().is_empty() {
+            return Some(k);
+        }
+    }
+    config
+        .meta_config
+        .skill
+        .as_ref()
+        .and_then(|s| s.api_key.clone())
+}
+
 /// Print the resolved `[skill]` configuration under `meta skill locations`.
 fn print_skill_config(config: &RuntimeConfig) {
     let cmd = adapt::AdaptCommand::from_settings(config.meta_config.skill.as_ref());
@@ -145,6 +193,29 @@ impl MetaPlugin for SkillPlugin {
                 ConfigValueType::StringList,
             )
             .with_default("-p, {prompt}, --permission-mode, acceptEdits"),
+            ConfigSetting::new(
+                "skill.search-url",
+                "skills.sh search endpoint",
+                ConfigValueType::String,
+            )
+            .with_default(search::DEFAULT_SEARCH_URL),
+            ConfigSetting::new(
+                "skill.detail-url",
+                "skills.sh skill-detail endpoint (keyed fetches)",
+                ConfigValueType::String,
+            )
+            .with_default(registry::DEFAULT_DETAIL_URL),
+            ConfigSetting::new(
+                "skill.search-limit",
+                "Default number of hits for skill search",
+                ConfigValueType::Integer,
+            )
+            .with_default("25"),
+            ConfigSetting::new(
+                "skill.api-key",
+                "skills.sh API key (SKILLS_SH_API_KEY env takes precedence)",
+                ConfigValueType::String,
+            ),
         ]
     }
 
@@ -197,11 +268,11 @@ impl MetaPlugin for SkillPlugin {
                     .get_one::<String>("query")
                     .map(String::as_str)
                     .expect("query is required");
-                let limit = m
+                let flag = m
                     .get_one::<String>("limit")
-                    .and_then(|s| s.parse::<usize>().ok())
-                    .unwrap_or(25);
-                search::run(query, limit)
+                    .and_then(|s| s.parse::<usize>().ok());
+                let limit = resolved_search_limit(flag, config);
+                search::run(query, limit, &resolved_search_url(config))
             }
             Some(("add", m)) => {
                 let id = m
@@ -215,6 +286,8 @@ impl MetaPlugin for SkillPlugin {
                     dest.as_deref(),
                     m.get_flag("force"),
                     m.get_flag("overwrite"),
+                    &resolved_detail_url(config),
+                    resolved_api_key(config).as_deref(),
                 )
             }
             Some(("steal", m)) => {

@@ -105,6 +105,13 @@ impl RuntimeConfig {
         self.experimental
     }
 
+    /// Typed access to a plugin's own config block. Delegates to
+    /// [`MetaConfig::plugin_settings`]; available to both in-process plugins and
+    /// (via the wire DTO) external ones.
+    pub fn plugin_config<T: serde::de::DeserializeOwned>(&self, name: &str) -> Option<T> {
+        self.meta_config.plugin_settings(name)
+    }
+
     /// Detect if we're currently inside a project directory and return its name
     pub fn current_project(&self) -> Option<String> {
         let meta_root = self.meta_root()?;
@@ -376,6 +383,32 @@ pub struct SkillSettings {
         skip_serializing_if = "Option::is_none"
     )]
     pub adapt_args: Option<Vec<String>>,
+    /// skills.sh search endpoint (default: `https://skills.sh/api/search`).
+    #[serde(
+        rename = "search-url",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub search_url: Option<String>,
+    /// skills.sh skill-detail endpoint, used for keyed fetches (default:
+    /// `https://skills.sh/api/v1/skills`).
+    #[serde(
+        rename = "detail-url",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub detail_url: Option<String>,
+    /// Default number of hits for `meta skill search` (default: 25).
+    #[serde(
+        rename = "search-limit",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub search_limit: Option<usize>,
+    /// skills.sh API key for keyed fetches. The `SKILLS_SH_API_KEY` env var
+    /// takes precedence over this. Prefer the env var for secrets.
+    #[serde(rename = "api-key", default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
 }
 
 impl Default for MetaConfig {
@@ -755,6 +788,19 @@ impl MetaConfig {
         false
     }
 
+    /// Deserialize a plugin's top-level config block (the table named `name`,
+    /// e.g. `skill`) into a plugin-defined settings struct. Returns `None` when
+    /// the block is absent or null. This is the typed accessor plugins use to
+    /// read their own settings without knowing the `.meta` layout.
+    pub fn plugin_settings<T: serde::de::DeserializeOwned>(&self, name: &str) -> Option<T> {
+        let json = serde_json::to_value(self).ok()?;
+        let block = json.get(name)?;
+        if block.is_null() {
+            return None;
+        }
+        serde_json::from_value(block.clone()).ok()
+    }
+
     /// Read a value at a dotted key path (e.g. `skill.dest`) from the config,
     /// navigating the serialized JSON representation. Returns `None` if any
     /// segment is missing or null.
@@ -837,6 +883,23 @@ mod tests {
             updated.skill.as_ref().and_then(|s| s.dest.as_deref()),
             Some("~/.claude/skills")
         );
+    }
+
+    #[test]
+    fn plugin_settings_deserializes_block() {
+        let cfg = MetaConfig::default()
+            .with_dotted_set("skill.search-limit", serde_json::json!(50))
+            .unwrap()
+            .with_dotted_set("skill.dest", serde_json::json!("~/s"))
+            .unwrap();
+
+        let s: SkillSettings = cfg.plugin_settings("skill").expect("skill block present");
+        assert_eq!(s.search_limit, Some(50));
+        assert_eq!(s.dest.as_deref(), Some("~/s"));
+
+        // Absent block → None.
+        let none: Option<SkillSettings> = MetaConfig::default().plugin_settings("skill");
+        assert!(none.is_none());
     }
 
     #[test]
@@ -1237,6 +1300,7 @@ mod tests {
                     dest: Some("~/.config/agent-skills".into()),
                     adapt_command: Some("codex".into()),
                     adapt_args: Some(vec!["exec".into(), "{prompt}".into()]),
+                    ..Default::default()
                 }),
                 ..Default::default()
             };

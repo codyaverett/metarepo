@@ -1,6 +1,6 @@
 [package]
 name = "metarepo-plugin-sdk"
-version = "0.34.0"
+version = "0.35.0"
 edition = "2021"
 description = "SDK for authoring external plugins for the metarepo CLI: implement a trait, call serve(), and the v1 stdio protocol is handled for you"
 authors = ["Metarepo Contributors"]
@@ -13,7 +13,7 @@ categories = ["development-tools", "command-line-utilities"]
 readme = "README.md"
 
 [dependencies]
-metarepo-core = { version = "0.34.0", path = "../meta-core" }
+metarepo-core = { version = "0.35.0", path = "../meta-core" }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 
