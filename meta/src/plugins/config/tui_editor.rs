@@ -397,12 +397,69 @@ impl ConfigEditor {
     }
 
     /// Rebuild the tree from the current config after a structural change,
-    /// keeping the selection in range.
+    /// preserving which sections are expanded and keeping the selection in range.
     fn rebuild_tree(&mut self) {
+        // Capture expansion state by label-path so add/delete don't collapse the
+        // section the user is working in.
+        let mut expanded: HashSet<String> = HashSet::new();
+        fn capture(node: &TreeNode, prefix: &str, out: &mut HashSet<String>) {
+            let path = format!("{prefix}/{}", node.label);
+            if node.expanded {
+                out.insert(path.clone());
+            }
+            for c in &node.children {
+                capture(c, &path, out);
+            }
+        }
+        for r in &self.tree_roots {
+            capture(r, "", &mut expanded);
+        }
+
         self.tree_roots = Self::build_tree(&self.config, &self.settings);
+
+        fn apply(node: &mut TreeNode, prefix: &str, set: &HashSet<String>) {
+            let path = format!("{prefix}/{}", node.label);
+            if set.contains(&path) {
+                node.expanded = true;
+            }
+            for c in &mut node.children {
+                apply(c, &path, set);
+            }
+        }
+        for r in &mut self.tree_roots {
+            apply(r, "", &expanded);
+        }
+
         let visible = self.tree_roots.iter().flat_map(|r| r.flatten(true)).count();
         if self.state.tree_state.selected >= visible && visible > 0 {
             self.state.tree_state.selected = visible - 1;
+        }
+    }
+
+    /// Expand the ancestors of the node with `node_type` and select it.
+    fn expand_and_select(&mut self, node_type: &str) {
+        fn expand_path(node: &mut TreeNode, target: &str) -> bool {
+            if node.node_type == target {
+                return true;
+            }
+            for c in &mut node.children {
+                if expand_path(c, target) {
+                    node.expanded = true;
+                    return true;
+                }
+            }
+            false
+        }
+        for r in &mut self.tree_roots {
+            expand_path(r, node_type);
+        }
+        if let Some(idx) = self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .position(|n| n.node_type == node_type)
+        {
+            self.state.tree_state.selected = idx;
         }
     }
 
@@ -499,8 +556,18 @@ impl ConfigEditor {
         self.set_script(&target, String::new());
         self.state.modified = true;
         self.rebuild_tree();
-        self.state
-            .set_status(format!("Added {name} — edit its command, then 's' to save"));
+
+        // Chain straight into editing the new entry's command so the user enters
+        // the value in the same flow, without re-finding the node.
+        let new_nt = match &target {
+            ScriptRef::Global(n) => global_script_node_type(n),
+            ScriptRef::Project { proj, name } => project_script_node_type(proj, name),
+        };
+        self.expand_and_select(&new_nt);
+        self.start_editing();
+        self.state.set_status(format!(
+            "Enter command for {name} — Enter to save, Esc to cancel"
+        ));
     }
 
     /// Delete the selected script entry (in memory; persisted on save).
@@ -1089,6 +1156,46 @@ mod tests {
             reloaded.scripts.as_ref().unwrap().get("deploy").unwrap(),
             "echo deploying"
         );
+    }
+
+    #[test]
+    fn add_chains_into_value_editor_on_new_node() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path, vec![]).unwrap();
+        editor.add_script_for_test(AddContext::GlobalScript, "deploy");
+
+        // The editor is now editing the new entry's command directly.
+        assert!(editor.state.editing);
+        assert!(editor.textarea.is_some());
+        assert!(editor.adding.is_none());
+        let selected = editor
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .nth(editor.state.tree_state.selected)
+            .unwrap();
+        assert_eq!(selected.node_type, global_script_node_type("deploy"));
+    }
+
+    #[test]
+    fn delete_keeps_section_expanded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{},"scripts":{"a":"1","b":"2"}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path, vec![]).unwrap();
+        editor.select_for_test(&global_script_node_type("a")); // expands the tree
+        editor.delete_selected();
+
+        let gs = editor
+            .tree_roots
+            .iter()
+            .find(|n| n.label == "Global Scripts")
+            .expect("Global Scripts section");
+        assert!(gs.expanded, "section should stay expanded after delete");
     }
 
     #[test]
