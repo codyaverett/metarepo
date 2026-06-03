@@ -122,6 +122,20 @@ impl<'a> Widget for ContextBar<'a> {
             help_spans.push(Span::raw(":Edit/Toggle "));
 
             help_spans.push(Span::styled(
+                "A",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            help_spans.push(Span::raw(":Add "));
+
+            help_spans.push(Span::styled(
+                "D",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ));
+            help_spans.push(Span::raw(":Del "));
+
+            help_spans.push(Span::styled(
                 "S",
                 Style::default()
                     .fg(Color::Yellow)

@@ -67,17 +67,32 @@ fn parse_script_node_type(node_type: &str) -> Option<ScriptRef> {
     })
 }
 
+/// Where a newly added script should live.
+#[derive(Debug, Clone)]
+enum AddContext {
+    /// A workspace-global script.
+    GlobalScript,
+    /// A script under the named project.
+    ProjectScript(String),
+}
+
 /// Config editor using menuconfig-style TUI
 pub struct ConfigEditor {
     /// Path to the .meta file
     meta_file: PathBuf,
     /// Loaded config
     config: MetaConfig,
+    /// Declared settings catalog (core + plugins + modules), kept for tree
+    /// rebuilds after structural edits (add/remove).
+    settings: Vec<ConfigSetting>,
     /// Dotted keys whose setting value was edited this session (and so should be
     /// written back on save).
     edited_settings: HashSet<String>,
     /// `node_type`s of script nodes whose command was edited this session.
     edited_scripts: HashSet<String>,
+    /// When `Some`, a name-input prompt is open to add a new script in the given
+    /// context; the `textarea` holds the name being typed.
+    adding: Option<AddContext>,
     /// App state
     state: MenuAppState,
     /// Tree representation of the config
@@ -96,8 +111,10 @@ impl ConfigEditor {
         Ok(Self {
             meta_file,
             config,
+            settings,
             edited_settings: HashSet::new(),
             edited_scripts: HashSet::new(),
+            adding: None,
             state: MenuAppState::new(),
             tree_roots,
             textarea: None,
@@ -305,6 +322,225 @@ impl ConfigEditor {
         roots
     }
 
+    /// Apply edited settings and script commands into `self.config` (in memory,
+    /// without writing the file). Shared by `save` and by structural edits that
+    /// rebuild the tree, so pending value edits are not lost on rebuild.
+    fn apply_pending_edits(&mut self) -> Result<()> {
+        if !self.edited_settings.is_empty() {
+            let updates: Vec<(ConfigValueType, String, String)> = self
+                .tree_roots
+                .iter()
+                .flat_map(|r| r.flatten_all())
+                .filter_map(|node| {
+                    let (vt, key) = parse_setting_node_type(&node.node_type)?;
+                    if !self.edited_settings.contains(key) {
+                        return None;
+                    }
+                    Some((vt, key.to_string(), node.value.clone()?))
+                })
+                .collect();
+
+            for (vt, key, raw) in updates {
+                if raw.trim().is_empty() {
+                    continue;
+                }
+                let parsed = vt
+                    .parse(&raw)
+                    .map_err(|e| anyhow::anyhow!("{}: {}", key, e))?;
+                self.config = self.config.with_dotted_set(&key, parsed)?;
+            }
+            self.edited_settings.clear();
+        }
+
+        if !self.edited_scripts.is_empty() {
+            let updates: Vec<(ScriptRef, String)> = self
+                .tree_roots
+                .iter()
+                .flat_map(|r| r.flatten_all())
+                .filter_map(|node| {
+                    if !self.edited_scripts.contains(&node.node_type) {
+                        return None;
+                    }
+                    Some((
+                        parse_script_node_type(&node.node_type)?,
+                        node.value.clone()?,
+                    ))
+                })
+                .collect();
+
+            for (target, cmd) in updates {
+                self.set_script(&target, cmd);
+            }
+            self.edited_scripts.clear();
+        }
+
+        Ok(())
+    }
+
+    /// Insert or update a script command in the appropriate map.
+    fn set_script(&mut self, target: &ScriptRef, cmd: String) {
+        match target {
+            ScriptRef::Global(name) => {
+                self.config
+                    .scripts
+                    .get_or_insert_with(Default::default)
+                    .insert(name.clone(), cmd);
+            }
+            ScriptRef::Project { proj, name } => {
+                if let Some(metarepo_core::ProjectEntry::Metadata(meta)) =
+                    self.config.projects.get_mut(proj)
+                {
+                    meta.scripts.insert(name.clone(), cmd);
+                }
+            }
+        }
+    }
+
+    /// Rebuild the tree from the current config after a structural change,
+    /// keeping the selection in range.
+    fn rebuild_tree(&mut self) {
+        self.tree_roots = Self::build_tree(&self.config, &self.settings);
+        let visible = self.tree_roots.iter().flat_map(|r| r.flatten(true)).count();
+        if self.state.tree_state.selected >= visible && visible > 0 {
+            self.state.tree_state.selected = visible - 1;
+        }
+    }
+
+    /// Determine where an "add" started from the current selection would place a
+    /// new script. Defaults to a global script.
+    fn add_context_for_selected(&self) -> AddContext {
+        let node = self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .nth(self.state.tree_state.selected);
+        if let Some(node) = node {
+            if let Some(rest) = node.node_type.strip_prefix("script:project:") {
+                if let Some((proj, _)) = rest.rsplit_once(':') {
+                    return AddContext::ProjectScript(proj.to_string());
+                }
+            }
+            if node.node_type == "project" {
+                return AddContext::ProjectScript(node.label.clone());
+            }
+        }
+        AddContext::GlobalScript
+    }
+
+    /// Open the name-input prompt for adding a script.
+    fn start_add(&mut self) {
+        let ctx = self.add_context_for_selected();
+        let label = match &ctx {
+            AddContext::GlobalScript => "global script".to_string(),
+            AddContext::ProjectScript(p) => format!("script in {p}"),
+        };
+        let mut textarea = TextArea::default();
+        textarea.set_cursor_line_style(Style::default());
+        textarea.set_cursor_style(Style::default().bg(Color::Cyan));
+        self.textarea = Some(textarea);
+        self.adding = Some(ctx);
+        self.state.editing = true;
+        self.state
+            .set_status(format!("New {label} name — Enter to create, Esc to cancel"));
+    }
+
+    /// Create the script entry from the typed name and select it for editing.
+    fn confirm_add(&mut self) {
+        let name = self
+            .textarea
+            .as_ref()
+            .map(|t| t.lines().join("").trim().to_string())
+            .unwrap_or_default();
+        let ctx = self.adding.take();
+        self.textarea = None;
+        self.state.editing = false;
+
+        let (ctx, name) = match (ctx, name) {
+            (Some(c), n) if !n.is_empty() => (c, n),
+            _ => {
+                self.state.set_status("Add cancelled (empty name)");
+                return;
+            }
+        };
+
+        let target = match &ctx {
+            AddContext::GlobalScript => ScriptRef::Global(name.clone()),
+            AddContext::ProjectScript(proj) => ScriptRef::Project {
+                proj: proj.clone(),
+                name: name.clone(),
+            },
+        };
+
+        // Reject duplicates / projects that can't hold scripts.
+        let exists = match &target {
+            ScriptRef::Global(n) => self
+                .config
+                .scripts
+                .as_ref()
+                .map(|m| m.contains_key(n))
+                .unwrap_or(false),
+            ScriptRef::Project { proj, name } => match self.config.projects.get(proj) {
+                Some(metarepo_core::ProjectEntry::Metadata(m)) => m.scripts.contains_key(name),
+                Some(metarepo_core::ProjectEntry::Url(_)) => {
+                    self.state.set_status(format!(
+                        "Project {proj} has no metadata block; cannot add scripts yet"
+                    ));
+                    return;
+                }
+                None => false,
+            },
+        };
+        if exists {
+            self.state
+                .set_status(format!("Script {name} already exists"));
+            return;
+        }
+
+        self.set_script(&target, String::new());
+        self.state.modified = true;
+        self.rebuild_tree();
+        self.state
+            .set_status(format!("Added {name} — edit its command, then 's' to save"));
+    }
+
+    /// Delete the selected script entry (in memory; persisted on save).
+    fn delete_selected(&mut self) {
+        let node_type = self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .nth(self.state.tree_state.selected)
+            .map(|n| n.node_type.clone());
+
+        let Some(target) = node_type.as_deref().and_then(parse_script_node_type) else {
+            self.state
+                .set_status("Delete only supports script entries for now");
+            return;
+        };
+
+        let nt = node_type.unwrap();
+        match &target {
+            ScriptRef::Global(name) => {
+                if let Some(m) = self.config.scripts.as_mut() {
+                    m.remove(name);
+                }
+            }
+            ScriptRef::Project { proj, name } => {
+                if let Some(metarepo_core::ProjectEntry::Metadata(meta)) =
+                    self.config.projects.get_mut(proj)
+                {
+                    meta.scripts.remove(name);
+                }
+            }
+        }
+        // Drop any pending edit for the removed node.
+        self.edited_scripts.remove(&nt);
+        self.state.modified = true;
+        self.rebuild_tree();
+        self.state
+            .set_status("Deleted (unsaved — 's' to write, 'q' to discard)");
+    }
+
     /// Run the editor
     pub fn run(&mut self) -> Result<()> {
         let mut terminal = init_terminal()?;
@@ -413,76 +649,7 @@ impl MenuApp for ConfigEditor {
     }
 
     fn save(&mut self) -> Result<()> {
-        // Persist edited settings through the typed config API so blocks are
-        // created as needed and values land under their declared keys.
-        // (Project/script/alias node edits are not yet written back — tracked in
-        // the config-TUI follow-up phases.)
-        if !self.edited_settings.is_empty() {
-            let updates: Vec<(ConfigValueType, String, String)> = self
-                .tree_roots
-                .iter()
-                .flat_map(|r| r.flatten_all())
-                .filter_map(|node| {
-                    let (vt, key) = parse_setting_node_type(&node.node_type)?;
-                    if !self.edited_settings.contains(key) {
-                        return None;
-                    }
-                    let raw = node.value.clone()?;
-                    Some((vt, key.to_string(), raw))
-                })
-                .collect();
-
-            for (vt, key, raw) in updates {
-                // Skip blanks rather than error (clearing a value is a no-op for
-                // now; removal is a later phase).
-                if raw.trim().is_empty() {
-                    continue;
-                }
-                let parsed = vt
-                    .parse(&raw)
-                    .map_err(|e| anyhow::anyhow!("{}: {}", key, e))?;
-                self.config = self.config.with_dotted_set(&key, parsed)?;
-            }
-            self.edited_settings.clear();
-        }
-
-        // Persist edited script commands back into the global / per-project maps.
-        if !self.edited_scripts.is_empty() {
-            let updates: Vec<(ScriptRef, String)> = self
-                .tree_roots
-                .iter()
-                .flat_map(|r| r.flatten_all())
-                .filter_map(|node| {
-                    if !self.edited_scripts.contains(&node.node_type) {
-                        return None;
-                    }
-                    Some((
-                        parse_script_node_type(&node.node_type)?,
-                        node.value.clone()?,
-                    ))
-                })
-                .collect();
-
-            for (target, cmd) in updates {
-                match target {
-                    ScriptRef::Global(name) => {
-                        self.config
-                            .scripts
-                            .get_or_insert_with(Default::default)
-                            .insert(name, cmd);
-                    }
-                    ScriptRef::Project { proj, name } => {
-                        if let Some(metarepo_core::ProjectEntry::Metadata(meta)) =
-                            self.config.projects.get_mut(&proj)
-                        {
-                            meta.scripts.insert(name, cmd);
-                        }
-                    }
-                }
-            }
-            self.edited_scripts.clear();
-        }
-
+        self.apply_pending_edits()?;
         self.config.save_to_file(&self.meta_file)?;
         Ok(())
     }
@@ -492,13 +659,24 @@ impl MenuApp for ConfigEditor {
         // If textarea is active, handle keys directly
         if let Some(textarea) = &mut self.textarea {
             match (key.code, key.modifiers) {
-                // Enter saves and exits editing
+                // Enter confirms (add prompt or value edit)
                 (KeyCode::Enter, KeyModifiers::NONE) => {
-                    self.save_edit();
+                    if self.adding.is_some() {
+                        self.confirm_add();
+                    } else {
+                        self.save_edit();
+                    }
                 }
-                // Esc cancels editing
+                // Esc cancels
                 (KeyCode::Esc, _) => {
-                    self.cancel_edit();
+                    if self.adding.is_some() {
+                        self.adding = None;
+                        self.textarea = None;
+                        self.state.editing = false;
+                        self.state.set_status("Add cancelled");
+                    } else {
+                        self.cancel_edit();
+                    }
                 }
                 // Ctrl+C force quits
                 (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
@@ -512,6 +690,20 @@ impl MenuApp for ConfigEditor {
                 }
             }
             Ok(!self.state.should_quit)
+        } else if matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char('a'), KeyModifiers::NONE)
+        ) {
+            // Add a new script in the selected context.
+            self.start_add();
+            Ok(true)
+        } else if matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char('d'), KeyModifiers::NONE)
+        ) {
+            // Delete the selected script entry.
+            self.delete_selected();
+            Ok(true)
         } else {
             // Not editing - use simple key handling
             let action = metarepo_core::tui::handle_key(key, self.state.editing);
@@ -749,6 +941,34 @@ impl ConfigEditor {
         }
         panic!("no script node for {node_type}");
     }
+
+    /// Test hook: drive the add-script flow with a typed name.
+    fn add_script_for_test(&mut self, ctx: AddContext, name: &str) {
+        self.adding = Some(ctx);
+        self.textarea = Some(TextArea::new(vec![name.to_string()]));
+        self.state.editing = true;
+        self.confirm_add();
+    }
+
+    /// Test hook: expand the whole tree and select the node with `node_type`.
+    fn select_for_test(&mut self, node_type: &str) {
+        fn expand(node: &mut TreeNode) {
+            node.expanded = true;
+            for c in &mut node.children {
+                expand(c);
+            }
+        }
+        for r in &mut self.tree_roots {
+            expand(r);
+        }
+        let idx = self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .position(|n| n.node_type == node_type)
+            .unwrap_or_else(|| panic!("no node {node_type}"));
+        self.state.tree_state.selected = idx;
+    }
 }
 
 #[cfg(test)]
@@ -851,5 +1071,40 @@ mod tests {
             }
             _ => panic!("expected project metadata"),
         }
+    }
+
+    #[test]
+    fn add_then_edit_global_script_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), vec![]).unwrap();
+        editor.add_script_for_test(AddContext::GlobalScript, "deploy");
+        editor.edit_script_for_test(&global_script_node_type("deploy"), "echo deploying");
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        assert_eq!(
+            reloaded.scripts.as_ref().unwrap().get("deploy").unwrap(),
+            "echo deploying"
+        );
+    }
+
+    #[test]
+    fn delete_global_script_removes_it_on_save() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{},"scripts":{"a":"1","b":"2"}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), vec![]).unwrap();
+        editor.select_for_test(&global_script_node_type("a"));
+        editor.delete_selected();
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        let scripts = reloaded.scripts.unwrap();
+        assert!(!scripts.contains_key("a"));
+        assert!(scripts.contains_key("b"));
     }
 }
