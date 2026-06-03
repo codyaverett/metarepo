@@ -108,8 +108,9 @@ impl ConfigPlugin {
                 .ok_or_else(|| anyhow!("Could not find .meta file. Use --file to specify path."))?
         };
 
-        // Launch TUI editor
-        let mut editor = ConfigEditor::new(meta_file)?;
+        // Launch TUI editor with the declared settings catalog so every
+        // setting (core + plugins + modules) is editable, not just projects.
+        let mut editor = ConfigEditor::new(meta_file, config.settings_catalog.clone())?;
         editor.run()?;
 
         Ok(())

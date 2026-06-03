@@ -7,7 +7,7 @@ use metarepo_core::{
         init_terminal, restore_terminal, Action, Breadcrumb, ContextBar, MenuApp, MenuAppState,
         TreeNode, TreeWidget,
     },
-    MetaConfig,
+    ConfigSetting, ConfigValueType, MetaConfig,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -16,8 +16,24 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tui_textarea::{Input, TextArea};
+
+/// Encode a declared setting's dotted key and value type into a `TreeNode`
+/// `node_type` so `save` can route the edit back through the typed config API.
+/// Form: `setting:<type-label>:<dotted-key>`.
+fn setting_node_type(key: &str, vt: ConfigValueType) -> String {
+    format!("setting:{}:{}", vt.label(), key)
+}
+
+/// Decode `(value_type, dotted_key)` from a setting node's `node_type`, or
+/// `None` if the node is not a declared setting.
+fn parse_setting_node_type(node_type: &str) -> Option<(ConfigValueType, &str)> {
+    let rest = node_type.strip_prefix("setting:")?;
+    let (label, key) = rest.split_once(':')?;
+    Some((ConfigValueType::from_label(label)?, key))
+}
 
 /// Config editor using menuconfig-style TUI
 pub struct ConfigEditor {
@@ -25,6 +41,9 @@ pub struct ConfigEditor {
     meta_file: PathBuf,
     /// Loaded config
     config: MetaConfig,
+    /// Dotted keys whose setting value was edited this session (and so should be
+    /// written back on save).
+    edited_settings: HashSet<String>,
     /// App state
     state: MenuAppState,
     /// Tree representation of the config
@@ -34,14 +53,16 @@ pub struct ConfigEditor {
 }
 
 impl ConfigEditor {
-    /// Create a new config editor
-    pub fn new(meta_file: PathBuf) -> Result<Self> {
+    /// Create a new config editor. `settings` is the aggregated catalog from
+    /// [`metarepo_core::RuntimeConfig::settings_catalog`].
+    pub fn new(meta_file: PathBuf, settings: Vec<ConfigSetting>) -> Result<Self> {
         let config = MetaConfig::load_from_file(&meta_file)?;
-        let tree_roots = Self::build_tree(&config);
+        let tree_roots = Self::build_tree(&config, &settings);
 
         Ok(Self {
             meta_file,
             config,
+            edited_settings: HashSet::new(),
             state: MenuAppState::new(),
             tree_roots,
             textarea: None,
@@ -49,7 +70,7 @@ impl ConfigEditor {
     }
 
     /// Build tree representation from config
-    fn build_tree(config: &MetaConfig) -> Vec<TreeNode> {
+    fn build_tree(config: &MetaConfig, settings: &[ConfigSetting]) -> Vec<TreeNode> {
         let mut roots = Vec::new();
 
         // Projects section
@@ -161,27 +182,86 @@ impl ConfigEditor {
             roots.push(ignore_node);
         }
 
-        // Settings section
+        // Settings section — driven by the declared settings catalog so every
+        // setting from core, plugins, and dynamically loaded modules is
+        // editable. Grouped by namespace (the segment before the first dot).
         let mut settings_node = TreeNode::new("Settings", "section");
         settings_node.expandable = true;
+        settings_node.expanded = true;
         settings_node.depth = 0;
 
-        if let Some(default_bare) = config.default_bare {
-            let mut bare_node =
-                TreeNode::with_value("default_bare", default_bare.to_string(), "boolean");
-            bare_node.depth = 1;
-            settings_node.add_child(bare_node);
+        // Stable namespace order: first appearance in the (already sorted) catalog.
+        let mut namespaces: Vec<&str> = Vec::new();
+        for s in settings {
+            if !namespaces.contains(&s.namespace()) {
+                namespaces.push(s.namespace());
+            }
         }
 
-        if let Some(worktree_init) = &config.worktree_init {
-            let mut wt_node = TreeNode::with_value("worktree_init", worktree_init, "string");
-            wt_node.depth = 1;
-            settings_node.add_child(wt_node);
+        for ns in namespaces {
+            let mut ns_node = TreeNode::new(ns, "section");
+            ns_node.depth = 1;
+            ns_node.expandable = true;
+            ns_node.expanded = true;
+
+            for setting in settings.iter().filter(|s| s.namespace() == ns) {
+                // Effective value: current config value, else declared default,
+                // else empty. Display the short key (after the namespace).
+                let current = config.get_dotted(&setting.key).map(|v| match v {
+                    serde_json::Value::String(s) => s,
+                    other => other.to_string(),
+                });
+                let display = current
+                    .or_else(|| setting.default.clone())
+                    .unwrap_or_default();
+                let short = setting
+                    .key
+                    .strip_prefix(ns)
+                    .and_then(|s| s.strip_prefix('.'))
+                    .unwrap_or(&setting.key);
+
+                let mut node = TreeNode::with_value(
+                    short,
+                    display,
+                    setting_node_type(&setting.key, setting.value_type),
+                );
+                node.depth = 2;
+                ns_node.add_child(node);
+            }
+
+            settings_node.add_child(ns_node);
         }
 
-        if !settings_node.children.is_empty() {
-            roots.push(settings_node);
+        // Core fields not owned by any plugin remain editable under "core".
+        let mut core_node = TreeNode::new("core", "section");
+        core_node.depth = 1;
+        core_node.expandable = true;
+        core_node.expanded = true;
+        {
+            let bare = config
+                .default_bare
+                .map(|b| b.to_string())
+                .unwrap_or_default();
+            let mut bare_node = TreeNode::with_value(
+                "default_bare",
+                bare,
+                setting_node_type("default_bare", ConfigValueType::Bool),
+            );
+            bare_node.depth = 2;
+            core_node.add_child(bare_node);
+
+            let wt = config.worktree_init.clone().unwrap_or_default();
+            let mut wt_node = TreeNode::with_value(
+                "worktree_init",
+                wt,
+                setting_node_type("worktree_init", ConfigValueType::String),
+            );
+            wt_node.depth = 2;
+            core_node.add_child(wt_node);
         }
+        settings_node.add_child(core_node);
+
+        roots.push(settings_node);
 
         roots
     }
@@ -238,23 +318,47 @@ impl MenuApp for ConfigEditor {
     }
 
     fn save_edit(&mut self) {
-        if let Some(textarea) = &self.textarea {
-            let new_value = textarea.lines().join("\n");
+        let new_value = match &self.textarea {
+            Some(textarea) => textarea.lines().join("\n"),
+            None => return,
+        };
 
-            // Get the selected node and update its value
-            let visible_ptrs: Vec<_> = self
-                .tree_roots
-                .iter_mut()
-                .flat_map(|r| r.flatten_mut())
-                .collect();
-            if let Some(&node_ptr) = visible_ptrs.get(self.state.tree_state.selected) {
-                unsafe {
-                    (*node_ptr).value = Some(new_value);
+        // Inspect the selected node's type immutably first.
+        let node_type = self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .nth(self.state.tree_state.selected)
+            .map(|n| n.node_type.clone());
+
+        // For declared settings, validate against the declared type before
+        // committing; reject invalid input and keep the editor open.
+        if let Some(nt) = &node_type {
+            if let Some((vt, key)) = parse_setting_node_type(nt) {
+                if !new_value.trim().is_empty() {
+                    if let Err(e) = vt.parse(&new_value) {
+                        self.state
+                            .set_status(format!("Invalid {}: {}", vt.label(), e));
+                        return; // stay in edit mode
+                    }
                 }
-                self.state.modified = true;
-                self.state
-                    .set_status("Edit saved (press 's' to write to file)");
+                self.edited_settings.insert(key.to_string());
             }
+        }
+
+        // Commit the new value to the node.
+        let visible_ptrs: Vec<_> = self
+            .tree_roots
+            .iter_mut()
+            .flat_map(|r| r.flatten_mut())
+            .collect();
+        if let Some(&node_ptr) = visible_ptrs.get(self.state.tree_state.selected) {
+            unsafe {
+                (*node_ptr).value = Some(new_value);
+            }
+            self.state.modified = true;
+            self.state
+                .set_status("Edit saved (press 's' to write to file)");
         }
 
         self.textarea = None;
@@ -268,9 +372,39 @@ impl MenuApp for ConfigEditor {
     }
 
     fn save(&mut self) -> Result<()> {
-        // Rebuild config from tree
-        // TODO: Implement proper config rebuilding from tree
-        // For now, just save the existing config
+        // Persist edited settings through the typed config API so blocks are
+        // created as needed and values land under their declared keys.
+        // (Project/script/alias node edits are not yet written back — tracked in
+        // the config-TUI follow-up phases.)
+        if !self.edited_settings.is_empty() {
+            let updates: Vec<(ConfigValueType, String, String)> = self
+                .tree_roots
+                .iter()
+                .flat_map(|r| r.flatten(true))
+                .filter_map(|node| {
+                    let (vt, key) = parse_setting_node_type(&node.node_type)?;
+                    if !self.edited_settings.contains(key) {
+                        return None;
+                    }
+                    let raw = node.value.clone()?;
+                    Some((vt, key.to_string(), raw))
+                })
+                .collect();
+
+            for (vt, key, raw) in updates {
+                // Skip blanks rather than error (clearing a value is a no-op for
+                // now; removal is a later phase).
+                if raw.trim().is_empty() {
+                    continue;
+                }
+                let parsed = vt
+                    .parse(&raw)
+                    .map_err(|e| anyhow::anyhow!("{}: {}", key, e))?;
+                self.config = self.config.with_dotted_set(&key, parsed)?;
+            }
+            self.edited_settings.clear();
+        }
+
         self.config.save_to_file(&self.meta_file)?;
         Ok(())
     }
@@ -502,5 +636,97 @@ impl MenuApp for ConfigEditor {
         let context_bar = ContextBar::new(self.state.editing, self.state.modified)
             .status_message(&self.state.status_message);
         frame.render_widget(context_bar, area);
+    }
+}
+
+#[cfg(test)]
+impl ConfigEditor {
+    /// Test hook: set the value of the setting node with dotted `key` and mark
+    /// it edited, mirroring what an interactive edit does.
+    fn edit_setting_for_test(&mut self, key: &str, value: &str) {
+        for ptr in self.tree_roots.iter_mut().flat_map(|r| r.flatten_mut()) {
+            // SAFETY: pointers come from this tree and are not aliased here.
+            let node = unsafe { &mut *ptr };
+            if let Some((_, k)) = parse_setting_node_type(&node.node_type) {
+                if k == key {
+                    node.value = Some(value.to_string());
+                    self.edited_settings.insert(key.to_string());
+                    return;
+                }
+            }
+        }
+        panic!("no setting node for key {key}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn catalog() -> Vec<ConfigSetting> {
+        vec![
+            ConfigSetting::new("skill.dest", "d", ConfigValueType::String),
+            ConfigSetting::new("skill.search-limit", "l", ConfigValueType::Integer)
+                .with_default("25"),
+        ]
+    }
+
+    #[test]
+    fn node_type_roundtrips() {
+        let nt = setting_node_type("skill.search-limit", ConfigValueType::Integer);
+        let (vt, key) = parse_setting_node_type(&nt).unwrap();
+        assert_eq!(vt, ConfigValueType::Integer);
+        assert_eq!(key, "skill.search-limit");
+        assert!(parse_setting_node_type("project:foo").is_none());
+    }
+
+    #[test]
+    fn build_tree_renders_catalog_and_core() {
+        let cfg = MetaConfig::default();
+        let roots = ConfigEditor::build_tree(&cfg, &catalog());
+        let settings = roots
+            .iter()
+            .find(|n| n.label == "Settings")
+            .expect("Settings section");
+
+        // Namespace group "skill" plus the "core" group.
+        let groups: HashSet<&str> = settings.children.iter().map(|c| c.label.as_str()).collect();
+        assert!(groups.contains("skill"));
+        assert!(groups.contains("core"));
+
+        // The search-limit node shows its default and carries the typed key.
+        let skill = settings
+            .children
+            .iter()
+            .find(|c| c.label == "skill")
+            .unwrap();
+        let limit = skill
+            .children
+            .iter()
+            .find(|c| c.label == "search-limit")
+            .unwrap();
+        assert_eq!(limit.value.as_deref(), Some("25"));
+        assert_eq!(
+            parse_setting_node_type(&limit.node_type),
+            Some((ConfigValueType::Integer, "skill.search-limit"))
+        );
+    }
+
+    #[test]
+    fn save_persists_edited_setting_to_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), catalog()).unwrap();
+        editor.edit_setting_for_test("skill.search-limit", "50");
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        assert_eq!(
+            reloaded.get_dotted("skill.search-limit"),
+            Some(serde_json::json!(50))
+        );
     }
 }

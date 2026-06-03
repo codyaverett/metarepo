@@ -35,6 +35,17 @@ impl ConfigValueType {
         }
     }
 
+    /// Inverse of [`label`](Self::label): recover a type from its short label.
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "string" => Some(ConfigValueType::String),
+            "bool" => Some(ConfigValueType::Bool),
+            "int" => Some(ConfigValueType::Integer),
+            "list" => Some(ConfigValueType::StringList),
+            _ => None,
+        }
+    }
+
     /// Parse a raw CLI string into a JSON value of this type. Returns a
     /// human-readable error string on mismatch so `meta config set` can reject
     /// bad input before writing.
