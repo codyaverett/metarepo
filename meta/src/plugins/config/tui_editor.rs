@@ -77,6 +77,49 @@ fn parse_project_url_node_type(node_type: &str) -> Option<&str> {
     node_type.strip_prefix("url:project:")
 }
 
+/// Replace `old` with `new` in a string vec, or remove `old` when `new` is
+/// blank. No-op if `old` is absent.
+fn replace_in_vec(vec: &mut Vec<String>, old: &str, new: &str) {
+    if let Some(pos) = vec.iter().position(|x| x == old) {
+        if new.trim().is_empty() {
+            vec.remove(pos);
+        } else {
+            vec[pos] = new.to_string();
+        }
+    }
+}
+
+/// `node_type` for a global ignore pattern (value-keyed list item).
+fn ignore_item_node_type(val: &str) -> String {
+    format!("ignoreitem:{val}")
+}
+
+/// The pattern an ignore-item node carries, or `None`.
+fn parse_ignore_item(node_type: &str) -> Option<&str> {
+    node_type.strip_prefix("ignoreitem:")
+}
+
+/// `node_type` for a per-project alias (value-keyed list item).
+fn project_alias_item_node_type(proj: &str, val: &str) -> String {
+    format!("paliasitem:{proj}:{val}")
+}
+
+/// Decode a project alias-item node into `(proj, value)`, or `None`. Project
+/// keys never contain ':', so the first ':' splits project from value.
+fn parse_project_alias_item(node_type: &str) -> Option<(&str, &str)> {
+    node_type.strip_prefix("paliasitem:")?.split_once(':')
+}
+
+/// `node_type` for a global alias (alias name → project path).
+fn global_alias_node_type(name: &str) -> String {
+    format!("alias:global:{name}")
+}
+
+/// The alias name a global-alias node carries, or `None`.
+fn parse_global_alias_node_type(node_type: &str) -> Option<&str> {
+    node_type.strip_prefix("alias:global:")
+}
+
 /// `node_type` for a per-project environment variable.
 fn project_env_node_type(proj: &str, key: &str) -> String {
     format!("env:project:{proj}:{key}")
@@ -98,6 +141,12 @@ enum AddContext {
     ProjectScript(String),
     /// An environment variable under the named project.
     ProjectEnv(String),
+    /// A workspace-global alias (alias name → project path).
+    GlobalAlias,
+    /// A workspace ignore pattern (list item).
+    IgnorePattern,
+    /// An alias under the named project (list item).
+    ProjectAlias(String),
     /// A new project in the workspace.
     NewProject,
 }
@@ -109,6 +158,9 @@ impl AddContext {
             AddContext::GlobalScript => "Global script".to_string(),
             AddContext::ProjectScript(p) => format!("Script in {p}"),
             AddContext::ProjectEnv(p) => format!("Env var in {p}"),
+            AddContext::GlobalAlias => "Global alias".to_string(),
+            AddContext::IgnorePattern => "Ignore pattern".to_string(),
+            AddContext::ProjectAlias(p) => format!("Alias in {p}"),
             AddContext::NewProject => "New project".to_string(),
         }
     }
@@ -119,6 +171,9 @@ impl AddContext {
             AddContext::GlobalScript => "global script name".to_string(),
             AddContext::ProjectScript(p) => format!("script name in {p}"),
             AddContext::ProjectEnv(p) => format!("env var name in {p}"),
+            AddContext::GlobalAlias => "global alias name".to_string(),
+            AddContext::IgnorePattern => "ignore pattern".to_string(),
+            AddContext::ProjectAlias(p) => format!("alias in {p}"),
             AddContext::NewProject => "project name".to_string(),
         }
     }
@@ -142,9 +197,18 @@ pub struct ConfigEditor {
     edited_urls: HashSet<String>,
     /// `node_type`s of env var nodes whose value was edited this session.
     edited_env: HashSet<String>,
+    /// `node_type`s of global-alias nodes whose target was edited this session.
+    edited_aliases: HashSet<String>,
+    /// `node_type`s of value-keyed list items (ignore patterns, project
+    /// aliases) edited this session; the node_type encodes the *old* value.
+    edited_list: HashSet<String>,
     /// When `Some`, the add-type selector is open: the candidate contexts and
     /// the highlighted index.
     add_menu: Option<(Vec<AddContext>, usize)>,
+    /// True while a "discard unsaved changes?" quit confirmation is showing.
+    confirm_quit: bool,
+    /// True while the search prompt is open (the `textarea` holds the query).
+    searching: bool,
     /// When `Some`, a name-input prompt is open to add an entry in the given
     /// context; the `textarea` holds the name being typed.
     adding: Option<AddContext>,
@@ -171,7 +235,11 @@ impl ConfigEditor {
             edited_scripts: HashSet::new(),
             edited_urls: HashSet::new(),
             edited_env: HashSet::new(),
+            edited_aliases: HashSet::new(),
+            edited_list: HashSet::new(),
             add_menu: None,
+            confirm_quit: false,
+            searching: false,
             adding: None,
             state: MenuAppState::new(),
             tree_roots,
@@ -250,7 +318,11 @@ impl ConfigEditor {
                     aliases_node.expandable = true;
 
                     for alias in &meta.aliases {
-                        let mut alias_node = TreeNode::with_value("alias", alias, "alias");
+                        let mut alias_node = TreeNode::with_value(
+                            alias,
+                            alias,
+                            project_alias_item_node_type(name, alias),
+                        );
                         alias_node.depth = 3;
                         aliases_node.add_child(alias_node);
                     }
@@ -290,7 +362,8 @@ impl ConfigEditor {
                 aliases_node.expandable = true;
 
                 for (name, value) in aliases {
-                    let mut alias_node = TreeNode::with_value(name, value, "alias");
+                    let mut alias_node =
+                        TreeNode::with_value(name, value, global_alias_node_type(name));
                     alias_node.depth = 1;
                     aliases_node.add_child(alias_node);
                 }
@@ -305,7 +378,8 @@ impl ConfigEditor {
             ignore_node.expandable = true;
 
             for pattern in &config.ignore {
-                let mut pattern_node = TreeNode::with_value("pattern", pattern, "ignore");
+                let mut pattern_node =
+                    TreeNode::with_value(pattern, pattern, ignore_item_node_type(pattern));
                 pattern_node.depth = 1;
                 ignore_node.add_child(pattern_node);
             }
@@ -495,6 +569,57 @@ impl ConfigEditor {
             self.edited_env.clear();
         }
 
+        if !self.edited_aliases.is_empty() {
+            let updates: Vec<(String, String)> = self
+                .tree_roots
+                .iter()
+                .flat_map(|r| r.flatten_all())
+                .filter_map(|node| {
+                    let name = parse_global_alias_node_type(&node.node_type)?;
+                    if !self.edited_aliases.contains(&node.node_type) {
+                        return None;
+                    }
+                    Some((name.to_string(), node.value.clone()?))
+                })
+                .collect();
+
+            for (name, target) in updates {
+                self.config
+                    .aliases
+                    .get_or_insert_with(Default::default)
+                    .insert(name, target);
+            }
+            self.edited_aliases.clear();
+        }
+
+        if !self.edited_list.is_empty() {
+            // Each node_type encodes the OLD value; node.value holds the new one.
+            let updates: Vec<(String, String)> = self
+                .tree_roots
+                .iter()
+                .flat_map(|r| r.flatten_all())
+                .filter_map(|node| {
+                    if !self.edited_list.contains(&node.node_type) {
+                        return None;
+                    }
+                    Some((node.node_type.clone(), node.value.clone()?))
+                })
+                .collect();
+
+            for (nt, new) in updates {
+                if let Some(old) = parse_ignore_item(&nt) {
+                    replace_in_vec(&mut self.config.ignore, old, &new);
+                } else if let Some((proj, old)) = parse_project_alias_item(&nt) {
+                    if let Some(metarepo_core::ProjectEntry::Metadata(meta)) =
+                        self.config.projects.get_mut(proj)
+                    {
+                        replace_in_vec(&mut meta.aliases, old, &new);
+                    }
+                }
+            }
+            self.edited_list.clear();
+        }
+
         Ok(())
     }
 
@@ -529,6 +654,11 @@ impl ConfigEditor {
     /// Rebuild the tree from the current config after a structural change,
     /// preserving which sections are expanded and keeping the selection in range.
     fn rebuild_tree(&mut self) {
+        // Flush pending value edits into the in-memory config first; otherwise
+        // rebuilding from config would discard edits not yet applied (e.g. an
+        // edit followed by an add/delete elsewhere).
+        let _ = self.apply_pending_edits();
+
         // Capture expansion state by label-path so add/delete don't collapse the
         // section the user is working in.
         let mut expanded: HashSet<String> = HashSet::new();
@@ -593,6 +723,66 @@ impl ConfigEditor {
         }
     }
 
+    /// Open the search prompt.
+    fn start_search(&mut self) {
+        let mut textarea = TextArea::default();
+        textarea.set_cursor_line_style(Style::default());
+        textarea.set_cursor_style(Style::default().bg(Color::Cyan));
+        self.textarea = Some(textarea);
+        self.searching = true;
+        self.state.editing = true;
+        self.state
+            .set_status("Search: type, Enter to jump, Esc to cancel");
+    }
+
+    /// Expand to and select the first node whose label or value contains
+    /// `query` (case-insensitive). Returns false if nothing matched.
+    fn jump_to_match(&mut self, query: &str) -> bool {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return false;
+        }
+        fn matches(node: &TreeNode, q: &str) -> bool {
+            node.label.to_lowercase().contains(q)
+                || node
+                    .value
+                    .as_deref()
+                    .map(|v| v.to_lowercase().contains(q))
+                    .unwrap_or(false)
+        }
+        fn expand_to(node: &mut TreeNode, q: &str) -> bool {
+            if matches(node, q) {
+                return true;
+            }
+            for c in &mut node.children {
+                if expand_to(c, q) {
+                    node.expanded = true;
+                    return true;
+                }
+            }
+            false
+        }
+        let mut found = false;
+        for r in &mut self.tree_roots {
+            if expand_to(r, &q) {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return false;
+        }
+        if let Some(idx) = self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .position(|n| matches(n, &q))
+        {
+            self.state.tree_state.selected = idx;
+        }
+        true
+    }
+
     /// The project that owns the currently-selected node, if the selection is
     /// anywhere within a project's subtree.
     fn project_context(&self) -> Option<String> {
@@ -645,10 +835,16 @@ impl ConfigEditor {
         if let Some(proj) = self.project_context() {
             return vec![
                 AddContext::ProjectScript(proj.clone()),
-                AddContext::ProjectEnv(proj),
+                AddContext::ProjectEnv(proj.clone()),
+                AddContext::ProjectAlias(proj),
             ];
         }
-        vec![AddContext::GlobalScript, AddContext::NewProject]
+        vec![
+            AddContext::GlobalScript,
+            AddContext::GlobalAlias,
+            AddContext::IgnorePattern,
+            AddContext::NewProject,
+        ]
     }
 
     /// Handle 'a': open the add-type selector, or skip straight to the name
@@ -759,13 +955,87 @@ impl ConfigEditor {
             return;
         }
 
+        // Adding a global alias: name then target path.
+        if let AddContext::GlobalAlias = ctx {
+            let exists = self
+                .config
+                .aliases
+                .as_ref()
+                .map(|m| m.contains_key(&name))
+                .unwrap_or(false);
+            if exists {
+                self.state
+                    .set_status(format!("Alias {name} already exists"));
+                return;
+            }
+            self.config
+                .aliases
+                .get_or_insert_with(Default::default)
+                .insert(name.clone(), String::new());
+            self.state.modified = true;
+            self.rebuild_tree();
+            let nt = global_alias_node_type(&name);
+            self.expand_and_select(&nt);
+            self.start_editing();
+            self.state.set_status(format!(
+                "Enter target path for {name} — Enter to save, Esc to cancel"
+            ));
+            return;
+        }
+
+        // List items (ignore pattern, project alias): the typed name IS the
+        // value; append and finish (no value step).
+        if let AddContext::IgnorePattern = ctx {
+            if self.config.ignore.iter().any(|p| p == &name) {
+                self.state
+                    .set_status(format!("Ignore pattern {name} already exists"));
+                return;
+            }
+            self.config.ignore.push(name.clone());
+            self.state.modified = true;
+            self.rebuild_tree();
+            self.state
+                .set_status(format!("Added ignore pattern {name}"));
+            return;
+        }
+        if let AddContext::ProjectAlias(proj) = &ctx {
+            let proj = proj.clone();
+            match self.config.projects.get_mut(&proj) {
+                Some(metarepo_core::ProjectEntry::Metadata(meta)) => {
+                    if meta.aliases.contains(&name) {
+                        self.state
+                            .set_status(format!("Alias {name} already exists"));
+                        return;
+                    }
+                    meta.aliases.push(name.clone());
+                }
+                _ => {
+                    self.state.set_status(format!(
+                        "Project {proj} has no metadata block; cannot add aliases yet"
+                    ));
+                    return;
+                }
+            }
+            self.state.modified = true;
+            self.rebuild_tree();
+            self.state
+                .set_status(format!("Added alias {name} to {proj}"));
+            return;
+        }
+
         let target = match &ctx {
             AddContext::GlobalScript => ScriptRef::Global(name.clone()),
             AddContext::ProjectScript(proj) => ScriptRef::Project {
                 proj: proj.clone(),
                 name: name.clone(),
             },
-            AddContext::NewProject | AddContext::ProjectEnv(_) => unreachable!("handled above"),
+            AddContext::NewProject
+            | AddContext::ProjectEnv(_)
+            | AddContext::GlobalAlias
+            | AddContext::IgnorePattern
+            | AddContext::ProjectAlias(_) => {
+                unreachable!("handled above")
+            }
         };
 
         // Reject duplicates / projects that can't hold scripts.
@@ -844,6 +1114,46 @@ impl ConfigEditor {
                 meta.env.remove(&key);
             }
             self.edited_env.remove(&node_type);
+            self.state.modified = true;
+            self.rebuild_tree();
+            self.state
+                .set_status("Deleted (unsaved — 's' to write, 'q' to discard)");
+            return;
+        }
+
+        // A global alias.
+        if let Some(name) = parse_global_alias_node_type(&node_type) {
+            let name = name.to_string();
+            if let Some(m) = self.config.aliases.as_mut() {
+                m.remove(&name);
+            }
+            self.edited_aliases.remove(&node_type);
+            self.state.modified = true;
+            self.rebuild_tree();
+            self.state
+                .set_status("Deleted (unsaved — 's' to write, 'q' to discard)");
+            return;
+        }
+
+        // A value-keyed list item (ignore pattern / project alias).
+        if let Some(val) = parse_ignore_item(&node_type) {
+            let val = val.to_string();
+            self.config.ignore.retain(|p| p != &val);
+            self.edited_list.remove(&node_type);
+            self.state.modified = true;
+            self.rebuild_tree();
+            self.state
+                .set_status("Deleted (unsaved — 's' to write, 'q' to discard)");
+            return;
+        }
+        if let Some((proj, val)) = parse_project_alias_item(&node_type) {
+            let (proj, val) = (proj.to_string(), val.to_string());
+            if let Some(metarepo_core::ProjectEntry::Metadata(meta)) =
+                self.config.projects.get_mut(&proj)
+            {
+                meta.aliases.retain(|a| a != &val);
+            }
+            self.edited_list.remove(&node_type);
             self.state.modified = true;
             self.rebuild_tree();
             self.state
@@ -960,6 +1270,10 @@ impl MenuApp for ConfigEditor {
                 self.edited_scripts.insert(nt.clone());
             } else if parse_project_env_node_type(nt).is_some() {
                 self.edited_env.insert(nt.clone());
+            } else if parse_global_alias_node_type(nt).is_some() {
+                self.edited_aliases.insert(nt.clone());
+            } else if parse_ignore_item(nt).is_some() || parse_project_alias_item(nt).is_some() {
+                self.edited_list.insert(nt.clone());
             } else if let Some(proj) = parse_project_url_node_type(nt) {
                 self.edited_urls.insert(proj.to_string());
             }
@@ -998,6 +1312,29 @@ impl MenuApp for ConfigEditor {
 
     /// Override handle_key to intercept keys for textarea
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
+        // Quit confirmation is showing: resolve it first.
+        if self.confirm_quit {
+            match (key.code, key.modifiers) {
+                (KeyCode::Char('s'), KeyModifiers::NONE) => {
+                    self.save()?;
+                    self.state.modified = false;
+                    self.confirm_quit = false;
+                    self.state.should_quit = true;
+                }
+                (KeyCode::Char('q'), KeyModifiers::NONE)
+                | (KeyCode::Char('y'), KeyModifiers::NONE) => {
+                    self.confirm_quit = false;
+                    self.state.should_quit = true;
+                }
+                (KeyCode::Esc, _) | (KeyCode::Char('n'), KeyModifiers::NONE) => {
+                    self.confirm_quit = false;
+                    self.state.set_status("Continue editing");
+                }
+                _ => {}
+            }
+            return Ok(!self.state.should_quit);
+        }
+
         // Add-type selector is open: navigate and pick a type.
         if let Some((opts, idx)) = self.add_menu.as_mut() {
             match (key.code, key.modifiers) {
@@ -1028,9 +1365,25 @@ impl MenuApp for ConfigEditor {
         // If textarea is active, handle keys directly
         if let Some(textarea) = &mut self.textarea {
             match (key.code, key.modifiers) {
-                // Enter confirms (add prompt or value edit)
+                // Enter confirms (search jump, add prompt, or value edit)
                 (KeyCode::Enter, KeyModifiers::NONE) => {
-                    if self.adding.is_some() {
+                    if self.searching {
+                        let query = self
+                            .textarea
+                            .as_ref()
+                            .map(|t| t.lines().join(""))
+                            .unwrap_or_default();
+                        self.searching = false;
+                        self.textarea = None;
+                        self.state.editing = false;
+                        if self.jump_to_match(&query) {
+                            self.state
+                                .set_status(format!("Jumped to '{}'", query.trim()));
+                        } else {
+                            self.state
+                                .set_status(format!("No match for '{}'", query.trim()));
+                        }
+                    } else if self.adding.is_some() {
                         self.confirm_add();
                     } else {
                         self.save_edit();
@@ -1038,7 +1391,12 @@ impl MenuApp for ConfigEditor {
                 }
                 // Esc cancels
                 (KeyCode::Esc, _) => {
-                    if self.adding.is_some() {
+                    if self.searching {
+                        self.searching = false;
+                        self.textarea = None;
+                        self.state.editing = false;
+                        self.state.set_status("Search cancelled");
+                    } else if self.adding.is_some() {
                         self.adding = None;
                         self.textarea = None;
                         self.state.editing = false;
@@ -1175,14 +1533,19 @@ impl MenuApp for ConfigEditor {
                     self.state.set_status("Saved!");
                 }
                 Action::Quit => {
-                    // Always exit immediately - user can save with 's' before quitting
-                    // This matches menuconfig-style behavior where Escape means "exit now"
-                    self.state.should_quit = true;
+                    // Guard against losing unsaved edits: ask first.
+                    if self.state.modified {
+                        self.confirm_quit = true;
+                        self.state.set_status(
+                            "Unsaved changes — s: save & quit, q: discard & quit, Esc: cancel",
+                        );
+                    } else {
+                        self.state.should_quit = true;
+                    }
                 }
 
-                // Not yet implemented
                 Action::Search => {
-                    self.state.set_status("Search not yet implemented");
+                    self.start_search();
                 }
 
                 // These are handled by TextArea
@@ -1252,10 +1615,17 @@ impl MenuApp for ConfigEditor {
             );
             frame.render_widget(panel, chunks[1]);
         } else if let Some(textarea) = &mut self.textarea {
-            // Render text editor
+            // Render text editor (or search prompt)
+            let title = if self.searching {
+                " Search "
+            } else if self.adding.is_some() {
+                " New name "
+            } else {
+                " Edit Value "
+            };
             let block = Block::default()
                 .borders(Borders::ALL)
-                .title(" Edit Value ")
+                .title(title)
                 .border_style(Style::default().fg(Color::Green));
 
             textarea.set_block(block);
@@ -1366,6 +1736,12 @@ impl ConfigEditor {
                     self.edited_scripts.insert(node_type.to_string());
                 } else if parse_project_env_node_type(node_type).is_some() {
                     self.edited_env.insert(node_type.to_string());
+                } else if parse_global_alias_node_type(node_type).is_some() {
+                    self.edited_aliases.insert(node_type.to_string());
+                } else if parse_ignore_item(node_type).is_some()
+                    || parse_project_alias_item(node_type).is_some()
+                {
+                    self.edited_list.insert(node_type.to_string());
                 } else if let Some(p) = parse_project_url_node_type(node_type) {
                     self.edited_urls.insert(p.to_string());
                 }
@@ -1693,9 +2069,144 @@ mod tests {
         editor.start_add();
 
         let (opts, _) = editor.add_menu.as_ref().expect("selector open");
-        assert_eq!(opts.len(), 2);
+        assert_eq!(opts.len(), 3);
         assert!(opts.contains(&AddContext::ProjectScript("app".into())));
         assert!(opts.contains(&AddContext::ProjectEnv("app".into())));
+        assert!(opts.contains(&AddContext::ProjectAlias("app".into())));
+    }
+
+    #[test]
+    fn add_edit_delete_ignore_pattern_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{},"ignore":["target","keep"]}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), vec![]).unwrap();
+        // Add a pattern.
+        editor.add_script_for_test(AddContext::IgnorePattern, "node_modules");
+        // Edit an existing one by old value.
+        editor.edit_value_for_test(&ignore_item_node_type("target"), "dist");
+        // Delete one.
+        editor.select_by_test(|n| n.node_type == ignore_item_node_type("keep"));
+        editor.delete_selected();
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        assert!(reloaded.ignore.contains(&"node_modules".to_string()));
+        assert!(reloaded.ignore.contains(&"dist".to_string()));
+        assert!(!reloaded.ignore.contains(&"target".to_string()));
+        assert!(!reloaded.ignore.contains(&"keep".to_string()));
+    }
+
+    #[test]
+    fn add_and_delete_project_alias_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(
+            &path,
+            r#"{"projects":{"app":{"url":"x","aliases":["old"]}}}"#,
+        )
+        .unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), vec![]).unwrap();
+        editor.add_script_for_test(AddContext::ProjectAlias("app".into()), "a1");
+        editor.select_by_test(|n| n.node_type == project_alias_item_node_type("app", "old"));
+        editor.delete_selected();
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        match reloaded.projects.get("app").unwrap() {
+            metarepo_core::ProjectEntry::Metadata(m) => {
+                assert!(m.aliases.contains(&"a1".to_string()));
+                assert!(!m.aliases.contains(&"old".to_string()));
+            }
+            _ => panic!("expected metadata"),
+        }
+    }
+
+    #[test]
+    fn add_and_delete_global_alias_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{},"aliases":{"old":"x"}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), vec![]).unwrap();
+        // Add a new alias (chains to target-path edit).
+        editor.add_script_for_test(AddContext::GlobalAlias, "ci");
+        editor.edit_value_for_test(&global_alias_node_type("ci"), "tools/ci");
+        // Delete the pre-existing one.
+        editor.select_by_test(|n| n.node_type == global_alias_node_type("old"));
+        editor.delete_selected();
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        let aliases = reloaded.aliases.unwrap();
+        assert_eq!(aliases.get("ci").unwrap(), "tools/ci");
+        assert!(!aliases.contains_key("old"));
+    }
+
+    #[test]
+    fn quit_with_unsaved_prompts_then_discards() {
+        use crossterm::event::KeyEvent;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path, vec![]).unwrap();
+        editor.state.modified = true;
+
+        editor
+            .handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE))
+            .unwrap();
+        assert!(editor.confirm_quit);
+        assert!(!editor.state.should_quit);
+
+        editor
+            .handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE))
+            .unwrap();
+        assert!(editor.state.should_quit);
+    }
+
+    #[test]
+    fn search_jumps_to_and_expands_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(
+            &path,
+            r#"{"projects":{"app":{"url":"x","scripts":{"deploy-prod":"echo"}}}}"#,
+        )
+        .unwrap();
+
+        let mut editor = ConfigEditor::new(path, vec![]).unwrap();
+        assert!(editor.jump_to_match("deploy"));
+        // The selected node is the matching script, and its ancestors expanded.
+        let selected = editor
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .nth(editor.state.tree_state.selected)
+            .unwrap();
+        assert_eq!(
+            selected.node_type,
+            project_script_node_type("app", "deploy-prod")
+        );
+
+        assert!(!editor.jump_to_match("nonexistent-xyz"));
+    }
+
+    #[test]
+    fn quit_clean_exits_without_prompt() {
+        use crossterm::event::KeyEvent;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path, vec![]).unwrap();
+        editor
+            .handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE))
+            .unwrap();
+        assert!(!editor.confirm_quit);
+        assert!(editor.state.should_quit);
     }
 
     #[test]

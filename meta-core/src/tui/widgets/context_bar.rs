@@ -136,6 +136,14 @@ impl<'a> Widget for ContextBar<'a> {
             help_spans.push(Span::raw(":Del "));
 
             help_spans.push(Span::styled(
+                "/",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            help_spans.push(Span::raw(":Find "));
+
+            help_spans.push(Span::styled(
                 "S",
                 Style::default()
                     .fg(Color::Yellow)
