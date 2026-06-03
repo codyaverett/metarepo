@@ -35,6 +35,38 @@ fn parse_setting_node_type(node_type: &str) -> Option<(ConfigValueType, &str)> {
     Some((ConfigValueType::from_label(label)?, key))
 }
 
+/// Which script map a script node belongs to.
+enum ScriptRef {
+    /// A workspace-global script.
+    Global(String),
+    /// A script under project `proj`.
+    Project { proj: String, name: String },
+}
+
+/// `node_type` for a global script entry.
+fn global_script_node_type(name: &str) -> String {
+    format!("script:global:{name}")
+}
+
+/// `node_type` for a per-project script entry.
+fn project_script_node_type(proj: &str, name: &str) -> String {
+    format!("script:project:{proj}:{name}")
+}
+
+/// Decode a script node's `node_type` into a [`ScriptRef`], or `None`.
+fn parse_script_node_type(node_type: &str) -> Option<ScriptRef> {
+    if let Some(name) = node_type.strip_prefix("script:global:") {
+        return Some(ScriptRef::Global(name.to_string()));
+    }
+    let rest = node_type.strip_prefix("script:project:")?;
+    // Project keys may contain '/', not ':'; the script name is the last segment.
+    let (proj, name) = rest.rsplit_once(':')?;
+    Some(ScriptRef::Project {
+        proj: proj.to_string(),
+        name: name.to_string(),
+    })
+}
+
 /// Config editor using menuconfig-style TUI
 pub struct ConfigEditor {
     /// Path to the .meta file
@@ -44,6 +76,8 @@ pub struct ConfigEditor {
     /// Dotted keys whose setting value was edited this session (and so should be
     /// written back on save).
     edited_settings: HashSet<String>,
+    /// `node_type`s of script nodes whose command was edited this session.
+    edited_scripts: HashSet<String>,
     /// App state
     state: MenuAppState,
     /// Tree representation of the config
@@ -63,6 +97,7 @@ impl ConfigEditor {
             meta_file,
             config,
             edited_settings: HashSet::new(),
+            edited_scripts: HashSet::new(),
             state: MenuAppState::new(),
             tree_roots,
             textarea: None,
@@ -104,8 +139,11 @@ impl ConfigEditor {
                     scripts_node.expandable = true;
 
                     for (script_name, script_cmd) in &meta.scripts {
-                        let mut script_node =
-                            TreeNode::with_value(script_name, script_cmd, "script");
+                        let mut script_node = TreeNode::with_value(
+                            script_name,
+                            script_cmd,
+                            project_script_node_type(name, script_name),
+                        );
                         script_node.depth = 3;
                         scripts_node.add_child(script_node);
                     }
@@ -143,7 +181,8 @@ impl ConfigEditor {
                 scripts_node.expandable = true;
 
                 for (name, cmd) in scripts {
-                    let mut script_node = TreeNode::with_value(name, cmd, "script");
+                    let mut script_node =
+                        TreeNode::with_value(name, cmd, global_script_node_type(name));
                     script_node.depth = 1;
                     scripts_node.add_child(script_node);
                 }
@@ -343,6 +382,8 @@ impl MenuApp for ConfigEditor {
                     }
                 }
                 self.edited_settings.insert(key.to_string());
+            } else if parse_script_node_type(nt).is_some() {
+                self.edited_scripts.insert(nt.clone());
             }
         }
 
@@ -380,7 +421,7 @@ impl MenuApp for ConfigEditor {
             let updates: Vec<(ConfigValueType, String, String)> = self
                 .tree_roots
                 .iter()
-                .flat_map(|r| r.flatten(true))
+                .flat_map(|r| r.flatten_all())
                 .filter_map(|node| {
                     let (vt, key) = parse_setting_node_type(&node.node_type)?;
                     if !self.edited_settings.contains(key) {
@@ -403,6 +444,43 @@ impl MenuApp for ConfigEditor {
                 self.config = self.config.with_dotted_set(&key, parsed)?;
             }
             self.edited_settings.clear();
+        }
+
+        // Persist edited script commands back into the global / per-project maps.
+        if !self.edited_scripts.is_empty() {
+            let updates: Vec<(ScriptRef, String)> = self
+                .tree_roots
+                .iter()
+                .flat_map(|r| r.flatten_all())
+                .filter_map(|node| {
+                    if !self.edited_scripts.contains(&node.node_type) {
+                        return None;
+                    }
+                    Some((
+                        parse_script_node_type(&node.node_type)?,
+                        node.value.clone()?,
+                    ))
+                })
+                .collect();
+
+            for (target, cmd) in updates {
+                match target {
+                    ScriptRef::Global(name) => {
+                        self.config
+                            .scripts
+                            .get_or_insert_with(Default::default)
+                            .insert(name, cmd);
+                    }
+                    ScriptRef::Project { proj, name } => {
+                        if let Some(metarepo_core::ProjectEntry::Metadata(meta)) =
+                            self.config.projects.get_mut(&proj)
+                        {
+                            meta.scripts.insert(name, cmd);
+                        }
+                    }
+                }
+            }
+            self.edited_scripts.clear();
         }
 
         self.config.save_to_file(&self.meta_file)?;
@@ -644,7 +722,7 @@ impl ConfigEditor {
     /// Test hook: set the value of the setting node with dotted `key` and mark
     /// it edited, mirroring what an interactive edit does.
     fn edit_setting_for_test(&mut self, key: &str, value: &str) {
-        for ptr in self.tree_roots.iter_mut().flat_map(|r| r.flatten_mut()) {
+        for ptr in self.tree_roots.iter_mut().flat_map(|r| r.flatten_all_mut()) {
             // SAFETY: pointers come from this tree and are not aliased here.
             let node = unsafe { &mut *ptr };
             if let Some((_, k)) = parse_setting_node_type(&node.node_type) {
@@ -656,6 +734,20 @@ impl ConfigEditor {
             }
         }
         panic!("no setting node for key {key}");
+    }
+
+    /// Test hook: set a script node's command (by `node_type`) and mark edited.
+    fn edit_script_for_test(&mut self, node_type: &str, value: &str) {
+        for ptr in self.tree_roots.iter_mut().flat_map(|r| r.flatten_all_mut()) {
+            // SAFETY: pointers come from this tree and are not aliased here.
+            let node = unsafe { &mut *ptr };
+            if node.node_type == node_type {
+                node.value = Some(value.to_string());
+                self.edited_scripts.insert(node_type.to_string());
+                return;
+            }
+        }
+        panic!("no script node for {node_type}");
     }
 }
 
@@ -728,5 +820,36 @@ mod tests {
             reloaded.get_dotted("skill.search-limit"),
             Some(serde_json::json!(50))
         );
+    }
+
+    #[test]
+    fn save_persists_edited_scripts_global_and_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(
+            &path,
+            r#"{
+              "projects": { "app": { "url": "x", "scripts": { "build": "old" } } },
+              "scripts": { "test": "old-test" }
+            }"#,
+        )
+        .unwrap();
+
+        let mut editor = ConfigEditor::new(path.clone(), vec![]).unwrap();
+        editor.edit_script_for_test(&global_script_node_type("test"), "new-test");
+        editor.edit_script_for_test(&project_script_node_type("app", "build"), "new-build");
+        editor.save().unwrap();
+
+        let reloaded = MetaConfig::load_from_file(&path).unwrap();
+        assert_eq!(
+            reloaded.scripts.as_ref().unwrap().get("test").unwrap(),
+            "new-test"
+        );
+        match reloaded.projects.get("app").unwrap() {
+            metarepo_core::ProjectEntry::Metadata(m) => {
+                assert_eq!(m.scripts.get("build").unwrap(), "new-build");
+            }
+            _ => panic!("expected project metadata"),
+        }
     }
 }

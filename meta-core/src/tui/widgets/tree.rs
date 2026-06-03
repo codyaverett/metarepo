@@ -130,6 +130,26 @@ impl TreeNode {
         }
         result
     }
+
+    /// Every node in the subtree (self + all descendants) regardless of
+    /// expansion. Used when persisting edits, which must not depend on whether
+    /// a node's parent happens to be expanded in the view.
+    pub fn flatten_all(&self) -> Vec<&TreeNode> {
+        let mut result = vec![self];
+        for child in &self.children {
+            result.extend(child.flatten_all());
+        }
+        result
+    }
+
+    /// Mutable counterpart of [`flatten_all`](Self::flatten_all).
+    pub fn flatten_all_mut(&mut self) -> Vec<*mut TreeNode> {
+        let mut result = vec![self as *mut TreeNode];
+        for child in &mut self.children {
+            result.extend(child.flatten_all_mut());
+        }
+        result
+    }
 }
 
 /// State for tree widget navigation
