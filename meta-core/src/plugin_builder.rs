@@ -411,8 +411,14 @@ impl ArgBuilder {
 /// Options, then Commands (if any). Empty sections are omitted so leaf commands
 /// don't print a stray "Commands:" header.
 pub fn with_standard_help(cmd: Command) -> Command {
-    // Recurse into children first so the whole tree is consistent.
-    let cmd = cmd.mut_subcommands(with_standard_help);
+    // Recurse into children first so the whole tree is consistent, and order
+    // every Commands section shortest-name-first (ties alphabetical) by setting
+    // each subcommand's display order to its name length. clap sorts by display
+    // order ascending, breaking ties alphabetically.
+    let cmd = cmd.mut_subcommands(|sub| {
+        let order = sub.get_name().chars().count();
+        with_standard_help(sub).display_order(order)
+    });
 
     let mut template = String::from("{about-with-newline}\n{usage-heading} {usage}\n");
     if cmd.get_positionals().next().is_some() {
