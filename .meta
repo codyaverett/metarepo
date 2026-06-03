@@ -8,27 +8,27 @@
   ],
   "projects": {
     ".claude": "local",
-    ".github": "local",
-    "docs": "local",
-    "examples": "local",
-    "fuzz": "local",
-    "meta": "local",
     "meta-core": "local",
-    "metarepo-plugin-sdk": "local",
     "plugins": "local",
+    "fuzz": "local",
+    "examples": "local",
+    "meta": "local",
     "scripts": "local",
+    ".github": "local",
+    "metarepo-plugin-sdk": "local",
     "plugins/containers": {
       "url": "git@github.com:codyaverett/metarepo-container.git",
       "aliases": [],
       "scripts": {
         "build": "docker build -t container .",
-        "test": "echo 'Testing container plugin'",
-        "slow": "sleep 1"
+        "slow": "sleep 1",
+        "test": "echo 'Testing container plugin'"
       },
       "env": {},
       "worktree_init": null,
       "bare": null
-    }
+    },
+    "docs": "local"
   },
   "plugins": null,
   "nested": null,
@@ -39,5 +39,6 @@
     "test": "echo 'Global test script'"
   },
   "worktree_init": null,
-  "default_bare": true
+  "default_bare": true,
+  "plugins-integrity": null
 }
