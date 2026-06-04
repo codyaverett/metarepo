@@ -42,6 +42,13 @@ pub struct PluginInfo {
     pub experimental: bool,
     #[serde(default)]
     pub min_meta_version: Option<String>,
+    /// Optional long, man-page-style help body for the plugin's top-level command.
+    #[serde(
+        default,
+        alias = "helpDescription",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub help_description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +57,14 @@ pub struct ManifestCommand {
     pub description: String,
     #[serde(default)]
     pub long_description: Option<String>,
+    /// Optional long, man-page-style help body rendered as a `Description:`
+    /// section on `--help`.
+    #[serde(
+        default,
+        alias = "helpDescription",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub help_description: Option<String>,
     #[serde(default)]
     pub aliases: Vec<String>,
     #[serde(default)]
@@ -303,6 +318,12 @@ impl PluginManifest {
                 repository: "https://github.com/yourusername/example-plugin".to_string(),
                 experimental: false,
                 min_meta_version: Some("0.4.0".to_string()),
+                help_description: Some(
+                    "The example plugin demonstrates the manifest format.\n\n\
+                     This text renders as a man-page-style Description section on \
+                     `meta example --help`."
+                        .to_string(),
+                ),
             },
             commands: vec![ManifestCommand {
                 name: "example".to_string(),
@@ -310,6 +331,7 @@ impl PluginManifest {
                 long_description: Some(
                     "This is a longer description of the example command.".to_string(),
                 ),
+                help_description: None,
                 aliases: vec!["ex".to_string()],
                 args: vec![
                     ManifestArg {
@@ -339,6 +361,7 @@ impl PluginManifest {
                     name: "run".to_string(),
                     description: "Run the example".to_string(),
                     long_description: None,
+                    help_description: None,
                     aliases: vec![],
                     args: vec![],
                     subcommands: vec![],

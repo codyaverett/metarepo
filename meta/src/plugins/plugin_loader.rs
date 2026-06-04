@@ -219,6 +219,12 @@ impl ExternalPlugin {
         // requires any command carrying that action to declare a version.
         let mut cmd = ClapCommand::new(name).about(about).version(version);
 
+        if let Some(ref desc) = info.help_description {
+            let rendered: &'static str =
+                Box::leak(metarepo_core::format_help_description(desc).into_boxed_str());
+            cmd = cmd.after_long_help(rendered);
+        }
+
         // Add arguments
         for arg in &info.args {
             let arg_name: &'static str = Box::leak(arg.name.clone().into_boxed_str());

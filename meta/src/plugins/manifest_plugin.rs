@@ -40,6 +40,12 @@ fn build_command(cmd: &ManifestCommand, version: &'static str) -> ClapCommand {
     // `--version` (ArgAction::Version) that propagates into subcommands.
     let mut c = ClapCommand::new(name).about(about).version(version);
 
+    if let Some(ref desc) = cmd.help_description {
+        let rendered: &'static str =
+            Box::leak(metarepo_core::format_help_description(desc).into_boxed_str());
+        c = c.after_long_help(rendered);
+    }
+
     if !cmd.aliases.is_empty() {
         let aliases: Vec<&'static str> = cmd
             .aliases
@@ -82,6 +88,11 @@ fn build_top_command(manifest: &PluginManifest) -> ClapCommand {
     let about: &'static str = Box::leak(manifest.plugin.description.clone().into_boxed_str());
     let version: &'static str = Box::leak(manifest.plugin.version.clone().into_boxed_str());
     let mut top = ClapCommand::new(name).about(about).version(version);
+    if let Some(ref desc) = manifest.plugin.help_description {
+        let rendered: &'static str =
+            Box::leak(metarepo_core::format_help_description(desc).into_boxed_str());
+        top = top.after_long_help(rendered);
+    }
     for cmd in &manifest.commands {
         top = top.subcommand(build_command(cmd, version));
     }

@@ -20,7 +20,11 @@ use std::path::PathBuf;
 /// 1.1 added the optional `GetSettings`/`Settings` exchange; it is additive and
 /// backward compatible — a 1.0 plugin simply doesn't answer it and the host
 /// treats that as "no declared settings".
-pub const PLUGIN_PROTOCOL_VERSION: &str = "1.1";
+///
+/// 1.2 added the optional `help_description` field on [`CommandInfo`]; it is
+/// additive and backward compatible — older plugins omit it (deserializes to
+/// `None`) and the host renders no `Description:` section for that command.
+pub const PLUGIN_PROTOCOL_VERSION: &str = "1.2";
 
 /// A request sent from the host to a plugin subprocess.
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,6 +81,10 @@ pub enum PluginResponse {
 pub struct CommandInfo {
     pub name: String,
     pub about: String,
+    /// Optional long, man-page-style help body rendered as a `Description:`
+    /// section on `--help`. Added in protocol 1.2; older plugins omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help_description: Option<String>,
     pub subcommands: Vec<CommandInfo>,
     pub args: Vec<ArgInfo>,
 }
@@ -87,9 +95,16 @@ impl CommandInfo {
         CommandInfo {
             name: name.into(),
             about: about.into(),
+            help_description: None,
             subcommands: Vec::new(),
             args: Vec::new(),
         }
+    }
+
+    /// Set a long, man-page-style help description (rendered on `--help`).
+    pub fn help_description(mut self, text: impl Into<String>) -> Self {
+        self.help_description = Some(text.into());
+        self
     }
 
     /// Add a positional/required argument (builder style).

@@ -94,6 +94,7 @@ fn create_default_config() -> MetaConfig {
         default_bare: None,
         plugins_integrity: None,
         skill: None,
+        help_descriptions: None,
     }
 }
 

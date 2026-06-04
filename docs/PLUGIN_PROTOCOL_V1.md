@@ -72,10 +72,11 @@ treats compatibility by **major version**:
 - Different major → rejected with a clear error pointing the user at the
   appropriate SDK version.
 
-`protocol_version` is a JSON string. The current value is `"1.0"`. A future
-minor revision (e.g. `"1.1"`) might add optional fields; plugins built
-against `"1.0"` continue to load. A breaking change requires bumping the
-major version and is a deliberate event.
+`protocol_version` is a JSON string. The current value is `"1.2"` (1.1 added the
+`GetSettings`/`Settings` exchange; 1.2 added the optional `help_description` field
+on commands). Minor revisions add optional fields; plugins built against an older
+`1.x` continue to load. A breaking change requires bumping the major version and
+is a deliberate event.
 
 Plugins that omit `protocol_version` (legacy plugins built against
 pre-v0.19 metarepo) are rejected with a hint to rebuild.
@@ -191,6 +192,17 @@ All responses are JSON objects tagged by a top-level `"type"` field.
 The shape mirrors clap's command tree. `args` is positional + named
 parameters as a flat list (named with `--flag` are reported with their long
 name, no leading dashes). `subcommands` nests arbitrarily.
+
+Each command object may also carry an optional `help_description` (protocol
+1.2+): a long, man-page-style body the host renders as a `Description:` section
+on `meta <cmd> --help`. It is additive — older plugins omit it and the host shows
+no such section. See `docs/HELP_DESCRIPTIONS.md`.
+
+```json
+{ "name": "hello", "about": "Print a greeting",
+  "help_description": "Greets the named person.\n\nLong multi-paragraph help.",
+  "args": [], "subcommands": [] }
+```
 
 ### Settings
 

@@ -25,6 +25,23 @@ impl ProjectPlugin {
             .version(env!("CARGO_PKG_VERSION"))
             .description("Project management operations")
             .author("Metarepo Contributors")
+            .help_description(
+                "Manage the set of repositories tracked in a workspace's .meta file.\n\
+                 \n\
+                 A project is an entry under \"projects\" in .meta, mapping a local path\n\
+                 to a git URL (or the literal \"local\" for an in-tree directory). These\n\
+                 commands add, list, update, and remove those entries, keeping the .meta\n\
+                 file and the working tree in sync.\n\
+                 \n\
+                 Common workflows:\n\
+                 \n\
+                   meta project add web https://github.com/acme/web.git   clone and track\n\
+                   meta project list --flat                               show every project\n\
+                   meta project update --recursive                        sync nested repos\n\
+                 \n\
+                 Directories named in the .meta \"ignore\" list (.git, target,\n\
+                 node_modules, ...) are skipped during discovery.",
+            )
             .command(
                 command("add")
                     .about("Add a project to the workspace")

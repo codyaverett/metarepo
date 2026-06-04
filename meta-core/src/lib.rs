@@ -30,8 +30,8 @@ pub use plugin_base::{
     MarkdownHelpFormatter, PluginMetadata, TerminalHelpFormatter, YamlHelpFormatter,
 };
 pub use plugin_builder::{
-    arg, command, plugin, with_standard_help, ArgBuilder, BuiltPlugin, CommandBuilder,
-    PluginBuilder,
+    arg, command, format_help_description, plugin, with_standard_help, ArgBuilder, BuiltPlugin,
+    CommandBuilder, PluginBuilder,
 };
 pub use plugin_manifest::{
     ArgValueType, Dependency, Example, ExecutionConfig, ManifestArg, ManifestCommand, PluginConfig,
@@ -360,6 +360,11 @@ pub struct MetaConfig {
     pub plugins_integrity: Option<String>, // "off" (default) | "required"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<SkillSettings>, // `meta skill` configuration
+    /// Per-command `helpDescription` overrides keyed by dotted command path
+    /// (e.g. "project" or "project.add"). A user-set entry replaces whatever the
+    /// plugin/module declared for that command's man-page `Description:` section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help_descriptions: Option<HashMap<String, String>>,
 }
 
 /// Configuration for the `meta skill` commands (the `[skill]` block in `.meta`).
@@ -431,6 +436,7 @@ impl Default for MetaConfig {
             default_bare: None,
             plugins_integrity: None,
             skill: None,
+            help_descriptions: None,
         }
     }
 }

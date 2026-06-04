@@ -12,6 +12,7 @@ pub struct PluginBuilder {
     name: String,
     version: String,
     description: String,
+    help_description: Option<String>,
     author: String,
     experimental: bool,
     commands: Vec<CommandBuilder>,
@@ -25,11 +26,19 @@ impl PluginBuilder {
             name: name.into(),
             version: "0.1.0".to_string(),
             description: String::new(),
+            help_description: None,
             author: String::new(),
             experimental: false,
             commands: Vec::new(),
             handlers: HashMap::new(),
         }
+    }
+
+    /// Set a long, man-page-style help description for the plugin's top-level
+    /// command (`meta <plugin>`). Rendered as a `Description:` section on `--help`.
+    pub fn help_description(mut self, text: impl Into<String>) -> Self {
+        self.help_description = Some(text.into());
+        self
     }
 
     /// Set plugin version
@@ -77,6 +86,7 @@ impl PluginBuilder {
             name: self.name,
             version: self.version,
             description: self.description,
+            help_description: self.help_description,
             author: self.author,
             experimental: self.experimental,
             commands: self.commands,
@@ -90,10 +100,25 @@ pub struct BuiltPlugin {
     name: String,
     version: String,
     description: String,
+    help_description: Option<String>,
     author: String,
     experimental: bool,
     commands: Vec<CommandBuilder>,
     handlers: HashMap<String, CommandHandler>,
+}
+
+impl BuiltPlugin {
+    /// Apply the plugin-level `helpDescription` (if any) to its top command.
+    fn with_help_description(&self, cmd: Command) -> Command {
+        match &self.help_description {
+            Some(desc) => {
+                let rendered: &'static str =
+                    Box::leak(format_help_description(desc).into_boxed_str());
+                cmd.after_long_help(rendered)
+            }
+            None => cmd,
+        }
+    }
 }
 
 impl MetaPlugin for BuiltPlugin {
@@ -111,6 +136,7 @@ impl MetaPlugin for BuiltPlugin {
         let vers: &'static str = Box::leak(self.version.clone().into_boxed_str());
 
         let mut plugin_cmd = Command::new(name).about(desc).version(vers);
+        plugin_cmd = self.with_help_description(plugin_cmd);
 
         for cmd_builder in &self.commands {
             plugin_cmd = plugin_cmd.subcommand(cmd_builder.build());
@@ -149,6 +175,7 @@ impl BuiltPlugin {
         let vers: &'static str = Box::leak(self.version.clone().into_boxed_str());
 
         let mut plugin_cmd = Command::new(name).about(desc).version(vers);
+        plugin_cmd = self.with_help_description(plugin_cmd);
 
         for cmd_builder in &self.commands {
             plugin_cmd = plugin_cmd.subcommand(cmd_builder.build());
@@ -177,6 +204,7 @@ pub struct CommandBuilder {
     name: String,
     about: String,
     long_about: Option<String>,
+    help_description: Option<String>,
     aliases: Vec<String>,
     args: Vec<ArgBuilder>,
     subcommands: Vec<CommandBuilder>,
@@ -190,11 +218,19 @@ impl CommandBuilder {
             name: name.into(),
             about: String::new(),
             long_about: None,
+            help_description: None,
             aliases: Vec::new(),
             args: Vec::new(),
             subcommands: Vec::new(),
             allow_external_subcommands: false,
         }
+    }
+
+    /// Set a long, man-page-style help description for this command. Rendered as a
+    /// `Description:` section below Options/Commands on `--help` (not `-h`).
+    pub fn help_description(mut self, text: impl Into<String>) -> Self {
+        self.help_description = Some(text.into());
+        self
     }
 
     /// Set command description
@@ -259,6 +295,11 @@ impl CommandBuilder {
         if let Some(ref long_about) = self.long_about {
             let long_about_str: &'static str = Box::leak(long_about.clone().into_boxed_str());
             cmd = cmd.long_about(long_about_str);
+        }
+
+        if let Some(ref desc) = self.help_description {
+            let rendered: &'static str = Box::leak(format_help_description(desc).into_boxed_str());
+            cmd = cmd.after_long_help(rendered);
         }
 
         if !self.aliases.is_empty() {
@@ -436,6 +477,26 @@ pub fn with_standard_help(cmd: Command) -> Command {
     template.push_str("{after-help}");
 
     cmd.help_template(template)
+}
+
+/// Render a plugin/command `helpDescription` into the man-page-style section that
+/// clap drops at the `{after-help}` slot of [`with_standard_help`] on `--help`.
+///
+/// The header is styled to match the other section headers (bold bright cyan) and
+/// each body line is indented two spaces, so a multi-paragraph description reads
+/// like the DESCRIPTION block of a man page.
+pub fn format_help_description(body: &str) -> String {
+    let mut out = String::from("\n\x1b[1;96mDescription:\x1b[0m\n");
+    for line in body.lines() {
+        if line.is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str("  ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// Convenience function to create a new plugin builder

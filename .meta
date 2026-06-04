@@ -7,36 +7,37 @@
     ".DS_Store"
   ],
   "projects": {
-    ".claude": "local",
-    "meta-core": "local",
-    "plugins": "local",
-    "fuzz": "local",
-    "examples": "local",
     "meta": "local",
-    "scripts": "local",
-    ".github": "local",
-    "metarepo-plugin-sdk": "local",
+    "plugins": "local",
+    "examples": "local",
     "plugins/containers": {
       "url": "git@github.com:codyaverett/metarepo-container.git",
       "aliases": [],
       "scripts": {
+        "test": "echo 'Testing container plugin'",
         "build": "docker build -t container .",
-        "slow": "sleep 1",
-        "test": "echo 'Testing container plugin'"
+        "slow": "sleep 1"
       },
       "env": {},
       "worktree_init": null,
       "bare": null
     },
-    "docs": "local"
+    ".claude": "local",
+    "meta-core": "local",
+    "metarepo-plugin-sdk": "local",
+    "scripts": "local",
+    ".github": "local",
+    "docs": "local",
+    "fuzz": "local"
   },
-  "plugins": null,
+  "plugins": {},
+  "modules": {},
   "nested": null,
   "aliases": null,
   "scripts": {
     "build": "cargo build --release",
-    "slow": "sleep 3",
-    "test": "echo 'Global test script'"
+    "test": "echo 'Global test script'",
+    "slow": "sleep 3"
   },
   "worktree_init": null,
   "default_bare": true,

@@ -3,8 +3,56 @@ use anyhow::Result;
 use clap::{Arg, ColorChoice, Command};
 use metarepo_core::NonInteractiveMode;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
+
+/// Normalize the illogical `meta <cmd> help --help` (and `-h`) into
+/// `meta <cmd> --help` by dropping the `help` token that sits directly before the
+/// help flag. Commands that forward opaque external subcommands (`exec` and its
+/// aliases) are left untouched so `meta exec help --help` still runs across repos.
+fn strip_help_before_help_flag(args: Vec<String>) -> Vec<String> {
+    const EXTERNAL: [&str; 3] = ["exec", "e", "x"];
+    if let Some(first) = args.iter().skip(1).find(|a| !a.starts_with('-')) {
+        if EXTERNAL.contains(&first.as_str()) {
+            return args;
+        }
+    }
+    if let Some(i) = args.iter().position(|a| a == "help") {
+        if matches!(
+            args.get(i + 1).map(String::as_str),
+            Some("--help") | Some("-h")
+        ) {
+            let mut out = args;
+            out.remove(i);
+            return out;
+        }
+    }
+    args
+}
+
+/// Apply per-command `helpDescription` overrides from `.meta` onto the clap
+/// command tree. Each key is a dotted command path (e.g. "project.add"); a match
+/// replaces that command's man-page `Description:` section, winning over whatever
+/// the plugin/module declared.
+fn apply_help_overrides(cmd: Command, prefix: &str, map: &HashMap<String, String>) -> Command {
+    cmd.mut_subcommands(|sub| {
+        let path = if prefix.is_empty() {
+            sub.get_name().to_string()
+        } else {
+            format!("{}.{}", prefix, sub.get_name())
+        };
+        let sub = apply_help_overrides(sub, &path, map);
+        match map.get(&path) {
+            Some(body) => {
+                let rendered: &'static str =
+                    Box::leak(metarepo_core::format_help_description(body).into_boxed_str());
+                sub.after_long_help(rendered)
+            }
+            None => sub,
+        }
+    })
+}
 
 pub struct MetarepoCli {
     registry: RefCell<PluginRegistry>,
@@ -144,6 +192,9 @@ impl MetarepoCli {
         // Initialize tracing
         self.init_logging();
 
+        // `meta <cmd> help --help` is illogical but should just show <cmd>'s help.
+        let args = strip_help_before_help_flag(args);
+
         // Check if --experimental or -x is present in args
         let experimental = args
             .iter()
@@ -160,13 +211,20 @@ impl MetarepoCli {
         // Load external plugins (declared in .metarepo plus those discovered in
         // the plugins directory) before building the app so their commands show
         // up in --help and are recognized during argument parsing.
-        if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
-            self.registry
-                .borrow_mut()
-                .load_external_plugins(&meta_config);
+        let meta_config = metarepo_core::MetaConfig::load().ok();
+        if let Some(ref mc) = meta_config {
+            self.registry.borrow_mut().load_external_plugins(mc);
         }
 
-        let app = self.build_app();
+        let mut app = self.build_app();
+        if let Some(map) = meta_config
+            .as_ref()
+            .and_then(|mc| mc.help_descriptions.as_ref())
+        {
+            if !map.is_empty() {
+                app = apply_help_overrides(app, "", map);
+            }
+        }
         let matches = app.try_get_matches_from(args)?;
 
         // Parse non-interactive mode if provided
@@ -209,14 +267,21 @@ impl MetarepoCli {
     fn run_with_experimental(&self, args: Vec<String>) -> Result<()> {
         // Load external plugins before building the app so their commands show
         // up in --help and are recognized during argument parsing.
-        if let Ok(meta_config) = metarepo_core::MetaConfig::load() {
-            self.registry
-                .borrow_mut()
-                .load_external_plugins(&meta_config);
+        let meta_config = metarepo_core::MetaConfig::load().ok();
+        if let Some(ref mc) = meta_config {
+            self.registry.borrow_mut().load_external_plugins(mc);
         }
 
         // Parse with experimental plugins available
-        let app = self.build_app_with_flags(true);
+        let mut app = self.build_app_with_flags(true);
+        if let Some(map) = meta_config
+            .as_ref()
+            .and_then(|mc| mc.help_descriptions.as_ref())
+        {
+            if !map.is_empty() {
+                app = apply_help_overrides(app, "", map);
+            }
+        }
         let matches = app.try_get_matches_from(args)?;
 
         // Parse non-interactive mode if provided
@@ -298,6 +363,45 @@ mod tests {
         // Verify basic app structure
         assert_eq!(app.get_name(), "meta");
         assert!(app.get_version().is_some());
+    }
+
+    fn v(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn strip_help_before_help_flag_rewrites() {
+        assert_eq!(
+            strip_help_before_help_flag(v(&["meta", "project", "help", "--help"])),
+            v(&["meta", "project", "--help"])
+        );
+        assert_eq!(
+            strip_help_before_help_flag(v(&["meta", "help", "--help"])),
+            v(&["meta", "--help"])
+        );
+        assert_eq!(
+            strip_help_before_help_flag(v(&["meta", "project", "help", "-h"])),
+            v(&["meta", "project", "-h"])
+        );
+    }
+
+    #[test]
+    fn strip_help_before_help_flag_leaves_other_cases() {
+        // Plain `help` (no trailing help flag) is untouched.
+        assert_eq!(
+            strip_help_before_help_flag(v(&["meta", "project", "help"])),
+            v(&["meta", "project", "help"])
+        );
+        // `exec` forwards opaque args — never rewritten.
+        assert_eq!(
+            strip_help_before_help_flag(v(&["meta", "exec", "help", "--help"])),
+            v(&["meta", "exec", "help", "--help"])
+        );
+        // A non-adjacent help flag is not collapsed.
+        assert_eq!(
+            strip_help_before_help_flag(v(&["meta", "project", "help", "add", "--help"])),
+            v(&["meta", "project", "help", "add", "--help"])
+        );
     }
 
     #[test]
