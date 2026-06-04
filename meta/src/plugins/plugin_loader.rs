@@ -18,6 +18,7 @@ pub struct ExternalPlugin {
     version: String,
     experimental: bool,
     commands: Vec<CommandInfo>,
+    settings: Vec<metarepo_core::ConfigSetting>,
     process: Arc<Mutex<Option<Child>>>,
 }
 
@@ -157,6 +158,14 @@ impl ExternalPlugin {
             }
         };
 
+        // Ask for declared settings (protocol 1.1+). Older plugins reply with an
+        // error or an unexpected variant; treat any of that as "no settings" so
+        // they keep loading.
+        let settings = match Self::send_request(&mut child, PluginRequest::GetSettings) {
+            Ok(PluginResponse::Settings { settings }) => settings,
+            _ => Vec::new(),
+        };
+
         // Log plugin information only in verbose mode
         // eprintln!("Loaded plugin '{}' v{} from {:?}", name, version, path);
         tracing::debug!("Loaded plugin '{}' v{} from {:?}", name, version, path);
@@ -167,6 +176,7 @@ impl ExternalPlugin {
             version,
             experimental,
             commands,
+            settings,
             process: Arc::new(Mutex::new(Some(child))),
         }))
     }
@@ -235,6 +245,12 @@ impl ExternalPlugin {
 impl MetaPlugin for ExternalPlugin {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn settings(&self) -> Vec<metarepo_core::ConfigSetting> {
+        // Settings declared by the subprocess over the 1.1 protocol; empty for
+        // 1.0 plugins.
+        self.settings.clone()
     }
 
     fn register_commands(&self, app: ClapCommand) -> ClapCommand {

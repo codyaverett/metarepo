@@ -291,8 +291,14 @@ while IFS= read -r line; do
     *RegisterCommands*)
       printf '%s\n' '{{"type":"Commands","commands":[{{"name":"fake","about":"fake plugin","subcommands":[],"args":[]}}]}}'
       ;;
+    *GetSettings*)
+      printf '%s\n' '{{"type":"Settings","settings":[]}}'
+      ;;
     *HandleCommand*)
       printf '%s\n' '{{"type":"Success","message":"fake ran"}}'
+      ;;
+    *)
+      printf '%s\n' '{{"type":"Error","message":"unknown request"}}'
       ;;
   esac
 done

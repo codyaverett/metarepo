@@ -7,11 +7,12 @@
 //! block by heart. Values are stored under their dotted key in the workspace
 //! config (e.g. `skill.dest`).
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// The value type of a configurable setting. Drives CLI parsing, validation,
 /// and display.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigValueType {
     /// A single string.
     String,
@@ -97,7 +98,7 @@ impl ConfigValueType {
 }
 
 /// A single setting a plugin or module declares as configurable.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigSetting {
     /// Dotted key in the workspace config, e.g. `skill.dest`. The segment
     /// before the first `.` is the owning namespace (usually the plugin name).

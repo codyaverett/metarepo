@@ -9,14 +9,18 @@
 //!
 //! See `docs/PLUGIN_PROTOCOL_V1.md` for the full specification.
 
-use crate::{MetaConfig, RuntimeConfig};
+use crate::{ConfigSetting, MetaConfig, RuntimeConfig};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Wire-format protocol version this build speaks. Plugins must report a
 /// matching major version in their [`PluginResponse::Info`] or the host refuses
 /// to load them.
-pub const PLUGIN_PROTOCOL_VERSION: &str = "1.0";
+///
+/// 1.1 added the optional `GetSettings`/`Settings` exchange; it is additive and
+/// backward compatible — a 1.0 plugin simply doesn't answer it and the host
+/// treats that as "no declared settings".
+pub const PLUGIN_PROTOCOL_VERSION: &str = "1.1";
 
 /// A request sent from the host to a plugin subprocess.
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,6 +30,10 @@ pub enum PluginRequest {
     GetInfo,
     /// Ask the plugin for its command tree.
     RegisterCommands,
+    /// Ask the plugin to declare its configurable settings (protocol 1.1+).
+    /// Older plugins don't recognize this and reply with an error, which the
+    /// host treats as "no settings".
+    GetSettings,
     /// Ask the plugin to execute a command.
     HandleCommand {
         command: String,
@@ -50,6 +58,10 @@ pub enum PluginResponse {
     },
     Commands {
         commands: Vec<CommandInfo>,
+    },
+    /// The plugin's declared configuration settings (protocol 1.1+).
+    Settings {
+        settings: Vec<ConfigSetting>,
     },
     Success {
         message: Option<String>,

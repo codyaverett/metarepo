@@ -91,9 +91,14 @@ Example — the skill plugin's search limit is `--limit` flag, else
 ## External (subprocess) plugins
 
 External plugins receive the config snapshot over the wire and can call the same
-`plugin_config` accessor on the DTO's `meta_config`. Letting subprocess plugins
-*declare* their settings to the host catalog (so `meta config list` enumerates
-them) is tracked separately — see issue #79.
+`plugin_config` accessor on the DTO's `meta_config`.
+
+They also **declare** their settings to the host: implement `Plugin::settings()`
+in the SDK (returns `Vec<ConfigSetting>`). The host requests them over the
+protocol (`GetSettings`, protocol 1.1+) at load time and folds them into the
+`meta config` catalog, so `meta config list` / `get` / `set` cover external
+plugins exactly like built-in ones. A 1.0 plugin that predates this simply
+declares nothing.
 
 ## Reference
 

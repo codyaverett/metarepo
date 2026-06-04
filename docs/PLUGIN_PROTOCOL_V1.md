@@ -52,9 +52,12 @@ For each command invocation:
 3. The host validates the reported `protocol_version` (see Compatibility).
    On mismatch, the host kills the subprocess and prints an error.
 4. The host sends `RegisterCommands`. The plugin replies with `Commands`.
-5. The host sends one or more `HandleCommand` requests. The plugin replies
+5. The host sends `GetSettings` (protocol 1.1+). The plugin replies with
+   `Settings`. A 1.0 plugin doesn't recognize the request and replies with
+   `Error`; the host treats that as "no declared settings" and continues.
+6. The host sends one or more `HandleCommand` requests. The plugin replies
    with `Success` (optionally carrying a message) or `Error`.
-6. The host closes the plugin's stdin and reaps the subprocess.
+7. The host closes the plugin's stdin and reaps the subprocess.
 
 A plugin should exit cleanly when stdin is closed. Use process exit code 0
 on normal shutdown; non-zero only if the plugin itself crashes.
@@ -109,6 +112,17 @@ Sent immediately after spawn. Expect an `Info` response.
 ```
 
 Asks the plugin to describe its CLI surface. Expect a `Commands` response.
+
+### GetSettings
+
+```json
+{ "type": "GetSettings" }
+```
+
+(Protocol 1.1+) Asks the plugin to declare its configurable settings. Expect a
+`Settings` response. The host aggregates these into the `meta config` catalog so
+users can list, get, and set them. A 1.0 plugin replies with `Error`, which the
+host treats as "no settings".
 
 ### HandleCommand
 
@@ -177,6 +191,27 @@ All responses are JSON objects tagged by a top-level `"type"` field.
 The shape mirrors clap's command tree. `args` is positional + named
 parameters as a flat list (named with `--flag` are reported with their long
 name, no leading dashes). `subcommands` nests arbitrarily.
+
+### Settings
+
+```json
+{
+  "type": "Settings",
+  "settings": [
+    {
+      "key": "example.endpoint",
+      "description": "API endpoint",
+      "default": "https://example.com",
+      "value_type": "String"
+    }
+  ]
+}
+```
+
+(Protocol 1.1+) Each entry declares one setting: a dotted, plugin-namespaced
+`key`, a `description`, an optional `default` (display string), and a
+`value_type` of `String`, `Bool`, `Integer`, or `StringList`. The host surfaces
+these via `meta config list` / `get` / `set` with type validation.
 
 ### Success
 

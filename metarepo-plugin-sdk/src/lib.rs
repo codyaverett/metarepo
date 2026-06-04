@@ -40,6 +40,7 @@ use std::io::{BufRead, Write};
 pub use metarepo_core::protocol::{
     ArgInfo, CommandInfo, PluginRequest, PluginResponse, RuntimeConfigDto, PLUGIN_PROTOCOL_VERSION,
 };
+pub use metarepo_core::{ConfigSetting, ConfigValueType};
 
 /// A metarepo plugin. Implement this trait and pass an instance to [`serve`].
 ///
@@ -62,6 +63,14 @@ pub trait Plugin {
     /// The command tree this plugin exposes. The host rebuilds clap commands
     /// from this for `meta --help` and argument routing.
     fn commands(&self) -> Vec<CommandInfo>;
+
+    /// The configuration settings this plugin understands. The host aggregates
+    /// these into the `meta config` catalog so users can list, get, and set
+    /// them. Keys are dotted and namespaced by the plugin (e.g. `myplugin.url`).
+    /// Defaults to none.
+    fn settings(&self) -> Vec<ConfigSetting> {
+        Vec::new()
+    }
 
     /// Execute an invocation. `command` is the top-level command name and
     /// `args` are the positional arguments the host parsed. Return an optional
@@ -126,6 +135,9 @@ fn dispatch<P: Plugin>(plugin: &P, request: PluginRequest) -> PluginResponse {
         PluginRequest::RegisterCommands => PluginResponse::Commands {
             commands: plugin.commands(),
         },
+        PluginRequest::GetSettings => PluginResponse::Settings {
+            settings: plugin.settings(),
+        },
         PluginRequest::HandleCommand {
             command,
             args,
@@ -159,6 +171,12 @@ mod tests {
                 true,
             ))]
         }
+        fn settings(&self) -> Vec<ConfigSetting> {
+            vec![
+                ConfigSetting::new("test.endpoint", "API endpoint", ConfigValueType::String)
+                    .with_default("https://example.com"),
+            ]
+        }
         fn handle(
             &self,
             command: &str,
@@ -181,6 +199,22 @@ mod tests {
             .lines()
             .map(|s| s.to_string())
             .collect()
+    }
+
+    #[test]
+    fn get_settings_returns_declared_settings() {
+        let lines = run(r#"{"type":"GetSettings"}"#);
+        assert_eq!(lines.len(), 1);
+        let resp: PluginResponse = serde_json::from_str(&lines[0]).unwrap();
+        match resp {
+            PluginResponse::Settings { settings } => {
+                assert_eq!(settings.len(), 1);
+                assert_eq!(settings[0].key, "test.endpoint");
+                assert_eq!(settings[0].value_type, ConfigValueType::String);
+                assert_eq!(settings[0].default.as_deref(), Some("https://example.com"));
+            }
+            other => panic!("expected Settings, got {other:?}"),
+        }
     }
 
     #[test]
