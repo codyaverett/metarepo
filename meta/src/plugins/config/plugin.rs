@@ -146,28 +146,71 @@ impl ConfigPlugin {
         Ok(())
     }
 
+    /// Load the inherited config chain (outermost → nearest) for cascade-aware
+    /// reads. Falls back to the active runtime config when no files are found.
+    fn config_chain(config: &RuntimeConfig) -> Vec<(PathBuf, MetaConfig)> {
+        let mut chain = Vec::new();
+        if let Ok(found) = MetaConfig::discover_chain_from(&config.working_dir) {
+            for d in found {
+                if let Ok(c) = MetaConfig::load_from_file(&d.path) {
+                    chain.push((d.path, c));
+                }
+            }
+        }
+        if chain.is_empty() {
+            let path = config.meta_file_path.clone().unwrap_or_default();
+            chain.push((path, config.meta_config.clone()));
+        }
+        chain
+    }
+
+    /// Effective value for a dotted key: the nearest config in the chain that
+    /// sets it wins. Returns the value and the file it came from.
+    fn effective_dotted<'a>(
+        chain: &'a [(PathBuf, MetaConfig)],
+        key: &str,
+    ) -> Option<(serde_json::Value, &'a PathBuf)> {
+        for (path, cfg) in chain.iter().rev() {
+            if let Some(v) = cfg.get_dotted(key) {
+                return Some((v, path));
+            }
+        }
+        None
+    }
+
     /// List every configurable setting declared by registered plugins, with its
-    /// type, description, default, and current value.
+    /// type, description, effective value, and (when nested) its source file.
     fn handle_list(&self, config: &RuntimeConfig) -> Result<()> {
         if config.settings_catalog.is_empty() {
             println!("No configurable settings are declared by the active plugins.");
             return Ok(());
         }
 
+        let chain = Self::config_chain(config);
+        let nearest = chain.last().map(|(p, _)| p.clone());
+        let nested = chain.len() > 1;
+
         println!("{}", "Configurable settings:".bold());
         for setting in &config.settings_catalog {
-            let current = config
-                .meta_config
-                .get_dotted(&setting.key)
-                .map(|v| match v {
-                    serde_json::Value::String(s) => s,
+            let eff = Self::effective_dotted(&chain, &setting.key);
+            let value_display = match (&eff, &setting.default) {
+                (Some((v, _)), _) => match v {
+                    serde_json::Value::String(s) => s.clone(),
                     other => other.to_string(),
-                });
-
-            let value_display = match (&current, &setting.default) {
-                (Some(v), _) => v.clone(),
+                },
                 (None, Some(d)) => format!("{} (default)", d),
                 (None, None) => "(unset)".to_string(),
+            };
+
+            // In a nested workspace, annotate where an inherited value came from.
+            let source = match (&eff, nested) {
+                (Some((_, p)), true) if Some(*p) != nearest.as_ref() => {
+                    format!(
+                        "  {}",
+                        format!("(inherited from {})", p.display()).bright_black()
+                    )
+                }
+                _ => String::new(),
             };
 
             println!(
@@ -176,7 +219,7 @@ impl ConfigPlugin {
                 setting.value_type.label().bright_black()
             );
             println!("      {}", setting.description);
-            println!("      current: {}", value_display.green());
+            println!("      current: {}{}", value_display.green(), source);
         }
 
         Ok(())
@@ -184,9 +227,17 @@ impl ConfigPlugin {
 
     fn handle_get(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         let key = matches.get_one::<String>("key").unwrap();
+        let chain = Self::config_chain(config);
+        let nearest = chain.last().map(|(p, _)| p.clone());
 
-        if let Some(value) = config.meta_config.get_dotted(key) {
+        if let Some((value, source)) = Self::effective_dotted(&chain, key) {
             println!("{}", serde_json::to_string_pretty(&value)?);
+            if chain.len() > 1 && Some(source) != nearest.as_ref() {
+                println!(
+                    "{}",
+                    format!("(inherited from {})", source.display()).bright_black()
+                );
+            }
             return Ok(());
         }
 
@@ -412,5 +463,43 @@ impl BasePlugin for ConfigPlugin {
 
     fn description(&self) -> Option<&str> {
         Some("Manage .meta configuration files")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn cfg(json: &str) -> MetaConfig {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn effective_dotted_prefers_nearest() {
+        // Chain is outermost → nearest.
+        let chain = vec![
+            (
+                PathBuf::from("/ws/.meta"),
+                cfg(r#"{"projects":{},"skill":{"dest":"~/outer","search-limit":99}}"#),
+            ),
+            (
+                PathBuf::from("/ws/inner/.meta"),
+                cfg(r#"{"projects":{},"skill":{"dest":"~/inner"}}"#),
+            ),
+        ];
+
+        // dest is overridden by the inner (nearest) config.
+        let (v, src) = ConfigPlugin::effective_dotted(&chain, "skill.dest").unwrap();
+        assert_eq!(v, serde_json::json!("~/inner"));
+        assert_eq!(src, &PathBuf::from("/ws/inner/.meta"));
+
+        // search-limit is only set in the outer config → inherited.
+        let (v, src) = ConfigPlugin::effective_dotted(&chain, "skill.search-limit").unwrap();
+        assert_eq!(v, serde_json::json!(99));
+        assert_eq!(src, &PathBuf::from("/ws/.meta"));
+
+        // Unset everywhere.
+        assert!(ConfigPlugin::effective_dotted(&chain, "skill.api-key").is_none());
     }
 }

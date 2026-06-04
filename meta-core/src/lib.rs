@@ -664,6 +664,50 @@ impl MetaConfig {
         }
     }
 
+    /// Collect every metarepo config file from `start` up to the filesystem
+    /// root, ordered **outermost → nearest**. This is the chain a nested
+    /// metarepo inherits along: outer files provide defaults, inner files
+    /// override. An empty vec means no config anywhere above `start`.
+    ///
+    /// As with [`discover_from`](Self::discover_from), two recognized files in a
+    /// single directory is an error rather than a silent pick.
+    pub fn discover_chain_from(
+        start: &Path,
+    ) -> std::result::Result<Vec<DiscoveredConfig>, ConfigDiscoveryError> {
+        let mut current = start.to_path_buf();
+        let mut chain: Vec<DiscoveredConfig> = Vec::new();
+        loop {
+            let mut found: Vec<PathBuf> = Vec::new();
+            for name in KNOWN_FILENAMES {
+                let candidate = current.join(name);
+                if candidate.is_file() {
+                    found.push(candidate);
+                }
+            }
+            match found.len() {
+                0 => {}
+                1 => {
+                    let path = found.into_iter().next().unwrap();
+                    let format = ConfigFormat::from_path(&path).unwrap_or(ConfigFormat::Json);
+                    chain.push(DiscoveredConfig { path, format });
+                }
+                _ => {
+                    return Err(ConfigDiscoveryError::Multiple {
+                        dir: current,
+                        files: found,
+                    });
+                }
+            }
+            if !current.pop() {
+                break;
+            }
+        }
+        // Collected nearest → outermost while walking up; reverse so callers get
+        // outermost → nearest (defaults first, overrides last).
+        chain.reverse();
+        Ok(chain)
+    }
+
     /// Convenience wrapper around `discover_from` that starts at the current
     /// working directory. Returns just the path to keep older call sites that
     /// only need the location backwards-compatible.
@@ -1015,6 +1059,25 @@ mod tests {
 
         let topmost = MetaConfig::discover_topmost_from(&inner).unwrap().unwrap();
         assert_eq!(topmost.path, outer.join(".metarepo"));
+    }
+
+    #[test]
+    fn discover_chain_orders_outermost_to_nearest() {
+        let tmp = tempdir().unwrap();
+        let outer = tmp.path();
+        let mid = outer.join("mid");
+        let inner = mid.join("inner");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(outer.join(".metarepo"), "{}").unwrap();
+        // `mid` has no config — the chain skips it.
+        fs::write(inner.join(".metarepo"), "{}").unwrap();
+
+        let chain = MetaConfig::discover_chain_from(&inner).unwrap();
+        let paths: Vec<_> = chain.iter().map(|c| c.path.clone()).collect();
+        assert_eq!(
+            paths,
+            vec![outer.join(".metarepo"), inner.join(".metarepo")]
+        );
     }
 
     #[test]
