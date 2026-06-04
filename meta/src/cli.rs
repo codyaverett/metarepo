@@ -42,7 +42,12 @@ impl MetarepoCli {
                 clap::builder::styling::AnsiColor::BrightGreen.on_default()
                     | clap::builder::styling::Effects::BOLD,
             )
-            .literal(clap::builder::styling::AnsiColor::BrightWhite.on_default())
+            // `literal` styles command and option names — bold bright white so
+            // they stand out consistently in every help view (--help and help).
+            .literal(
+                clap::builder::styling::AnsiColor::BrightWhite.on_default()
+                    | clap::builder::styling::Effects::BOLD,
+            )
             .placeholder(clap::builder::styling::AnsiColor::BrightYellow.on_default())
             .error(
                 clap::builder::styling::AnsiColor::BrightRed.on_default()
@@ -57,7 +62,11 @@ impl MetarepoCli {
             .author("Metarepo Contributors")
             .styles(styles)
             .color(ColorChoice::Always)
-            .disable_help_subcommand(true)
+            // Keep clap's built-in `help` subcommand so `meta help`,
+            // `meta <group> help`, and `meta help <group>` all print help like
+            // `--help`. It is disabled per-command only where a command accepts
+            // external subcommands (e.g. `exec`), so `meta exec help` still runs
+            // a command named `help` across repos.
             .subcommand_precedence_over_arg(true)
             .disable_version_flag(true);
 

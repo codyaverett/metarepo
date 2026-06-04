@@ -254,6 +254,9 @@ impl MetaPlugin for ExecPlugin {
             .about("Execute commands across multiple repositories")
             .version(env!("CARGO_PKG_VERSION"))
             .allow_external_subcommands(true)
+            // Keep `meta exec help` meaning "run `help` across repos" rather than
+            // printing clap help.
+            .disable_help_subcommand(true)
             .arg(
                 clap::Arg::new("project")
                     .short('p')

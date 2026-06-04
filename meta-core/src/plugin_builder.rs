@@ -279,7 +279,12 @@ impl CommandBuilder {
         }
 
         if self.allow_external_subcommands {
-            cmd = cmd.allow_external_subcommands(true);
+            // A command that forwards arbitrary external subcommands (e.g. `exec`)
+            // must not let clap's built-in `help` subcommand swallow a real
+            // command named `help` — keep it disabled here.
+            cmd = cmd
+                .allow_external_subcommands(true)
+                .disable_help_subcommand(true);
         }
 
         cmd
