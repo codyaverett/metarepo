@@ -171,6 +171,40 @@ pub trait MenuApp {
                 }
             }
 
+            // Collapse the current node, or climb to and collapse its parent.
+            Action::CollapseParent => {
+                let selected_idx = self.state().tree_state.selected;
+                let rows: Vec<(usize, bool, bool)> = self
+                    .get_tree_roots()
+                    .iter()
+                    .flat_map(|r| r.flatten(true))
+                    .map(|n| (n.depth, n.expandable, n.expanded))
+                    .collect();
+                if let Some(&(depth, expandable, expanded)) = rows.get(selected_idx) {
+                    let target = if expandable && expanded {
+                        // Collapse the node we're sitting on.
+                        Some(selected_idx)
+                    } else if depth > 0 {
+                        // Climb to the nearest shallower row (the parent).
+                        (0..selected_idx).rev().find(|&i| rows[i].0 < depth)
+                    } else {
+                        None
+                    };
+                    if let Some(idx) = target {
+                        let roots = self.get_tree_roots_mut();
+                        let visible: Vec<_> =
+                            roots.iter_mut().flat_map(|r| r.flatten_mut()).collect();
+                        if let Some(&node_ptr) = visible.get(idx) {
+                            unsafe {
+                                (*node_ptr).collapse();
+                            }
+                        }
+                        self.state_mut().tree_state.selected = idx;
+                        self.update_breadcrumb_for_selected();
+                    }
+                }
+            }
+
             // Editing
             Action::StartEdit => {
                 if self.is_selected_editable() {

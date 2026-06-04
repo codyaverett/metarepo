@@ -146,6 +146,38 @@ new HIGH-severity pattern it is reported and the backup path is printed for manu
 rollback. This is opt-in and lets the agent modify files in the installed skill
 directory.
 
+**Multi-file skills (scripts + data).** A skill is rarely just `SKILL.md`. It can
+ship supporting scripts, extra markdown, templates, and data files, usually in
+subdirectories:
+
+```
+some-skill/
+  SKILL.md            # entry point — only this is auto-loaded into context
+  scripts/build.sh    # supporting executables
+  reference/api.md    # extra markdown the body links to
+  templates/...        # data files
+```
+
+`steal` copies the **entire skill directory recursively**, not just `SKILL.md`.
+The copy (`copy_tree`) walks the whole tree and preserves the relative layout, so
+`scripts/build.sh` lands at `<dest>/<name>/scripts/build.sh`. Three directories are
+skipped as noise: `.git`, `node_modules`, and `target`. Symlinks are not followed.
+
+Notes for multi-file skills:
+
+- **Audit covers every file**, not just `SKILL.md`. The risk scan walks the full
+  tree, so a dangerous pattern in `scripts/build.sh` still trips the HIGH gate and
+  gets a `.meta-review.md` entry and an inline marker (in comment-safe files).
+- **Executable bits are reported** — a shipped executable is itself a flagged
+  pattern. After copying, re-set exec bits if the skill needs them
+  (`chmod +x scripts/*.sh`); std `fs::copy` carries Unix permissions, but verify.
+- **Relative paths only.** The body references siblings by relative path; those
+  survive the copy. Any absolute path baked into `SKILL.md` or a script breaks at
+  the new location — grep for them after stealing.
+- Supporting files are **not auto-loaded** into context; only `SKILL.md`'s
+  frontmatter and body are. The agent reads or runs the rest on demand when the
+  body points at them, which keeps context small.
+
 ### Configuration — `[skill]` in `.meta`
 
 Both the default install location and the adapt command are configurable per

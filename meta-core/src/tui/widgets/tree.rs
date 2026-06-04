@@ -157,8 +157,11 @@ impl TreeNode {
 pub struct TreeState {
     /// Currently selected index in flattened view
     pub selected: usize,
-    /// Scroll offset
+    /// Scroll offset (index of the first row drawn at the top of the viewport)
     pub offset: usize,
+    /// Inner height of the tree viewport, cached from the last render so key
+    /// handlers can keep the selection on screen without re-deriving the layout.
+    pub viewport_height: usize,
 }
 
 impl TreeState {
@@ -191,13 +194,41 @@ impl TreeState {
         self.selected = max.saturating_sub(1);
     }
 
-    /// Update scroll offset based on selected and viewport height
+    /// Scroll the viewport the minimum amount needed to keep the selected row
+    /// visible. No-op when the row is already on screen.
     pub fn update_offset(&mut self, height: usize) {
+        if height == 0 {
+            return;
+        }
         if self.selected < self.offset {
             self.offset = self.selected;
         } else if self.selected >= self.offset + height {
-            self.offset = self.selected.saturating_sub(height - 1);
+            self.offset = self.selected + 1 - height;
         }
+    }
+
+    /// After expanding the selected node, scroll down so that as much of its
+    /// freshly revealed subtree as possible is visible.
+    ///
+    /// `subtree_last` is the flattened index of the deepest/last descendant now
+    /// visible under the selected node. The selected (parent) row is kept on
+    /// screen: if the whole subtree already fits, nothing moves; otherwise the
+    /// viewport scrolls down just far enough to show the most children without
+    /// pushing the parent off the top. Works at any tree depth.
+    pub fn reveal_subtree(&mut self, subtree_last: usize, height: usize) {
+        if height == 0 {
+            return;
+        }
+        // Make sure the parent row itself is on screen first.
+        self.update_offset(height);
+        // If the last descendant already fits in the viewport, leave it alone.
+        if subtree_last < self.offset + height {
+            return;
+        }
+        // Bring the last descendant to the bottom edge, but never scroll past
+        // the parent — keep it visible as the anchor for the expansion.
+        let bottom_anchored = subtree_last + 1 - height;
+        self.offset = bottom_anchored.min(self.selected);
     }
 }
 
@@ -336,11 +367,21 @@ impl<'a> Widget for TreeWidget<'a> {
         let block = self.block.take();
         let visible_nodes = self.get_visible_nodes();
 
-        let items: Vec<ListItem> = visible_nodes
+        // The List widget itself does not scroll, so apply the scroll offset by
+        // slicing the visible rows to the window starting at `offset`. Without
+        // this, rows past the bottom edge (e.g. children of a just-expanded node
+        // near the end of the list) are simply never drawn.
+        let inner = block.as_ref().map(|b| b.inner(area)).unwrap_or(area);
+        let height = inner.height as usize;
+        let offset = self.state.offset.min(visible_nodes.len().saturating_sub(1));
+        let end = visible_nodes.len().min(offset + height.max(1));
+
+        let items: Vec<ListItem> = visible_nodes[offset..end]
             .iter()
             .enumerate()
             .map(|(idx, node)| {
-                Self::render_node(node, idx == self.state.selected, self.highlight_style)
+                let abs = offset + idx;
+                Self::render_node(node, abs == self.state.selected, self.highlight_style)
             })
             .collect();
 
@@ -351,5 +392,88 @@ impl<'a> Widget for TreeWidget<'a> {
         }
 
         Widget::render(list, area, buf);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(selected: usize, offset: usize) -> TreeState {
+        TreeState {
+            selected,
+            offset,
+            viewport_height: 0,
+        }
+    }
+
+    #[test]
+    fn update_offset_scrolls_down_to_show_selected() {
+        // Viewport height 5, selection moved below the window.
+        let mut s = state(7, 0);
+        s.update_offset(5);
+        // Selected row must be the last visible: offset = 7 - 5 + 1 = 3.
+        assert_eq!(s.offset, 3);
+        assert!(s.selected >= s.offset && s.selected < s.offset + 5);
+    }
+
+    #[test]
+    fn update_offset_scrolls_up_to_show_selected() {
+        let mut s = state(2, 6);
+        s.update_offset(5);
+        assert_eq!(s.offset, 2);
+    }
+
+    #[test]
+    fn update_offset_noop_when_visible() {
+        let mut s = state(4, 2);
+        s.update_offset(5); // window covers rows 2..=6, selected 4 is inside
+        assert_eq!(s.offset, 2);
+    }
+
+    #[test]
+    fn update_offset_guards_zero_height() {
+        let mut s = state(9, 3);
+        s.update_offset(0);
+        assert_eq!(s.offset, 3); // unchanged, no panic
+    }
+
+    #[test]
+    fn reveal_subtree_noop_when_whole_subtree_fits() {
+        // Expanded parent at row 1, last child at row 4, height 10 — all visible.
+        let mut s = state(1, 0);
+        s.reveal_subtree(4, 10);
+        assert_eq!(s.offset, 0);
+    }
+
+    #[test]
+    fn reveal_subtree_scrolls_to_show_children_keeping_parent() {
+        // Parent at row 8 near the bottom, subtree ends at row 12, height 5.
+        // Children overflow, so scroll down — but not past the parent (row 8).
+        let mut s = state(8, 0);
+        s.reveal_subtree(12, 5);
+        // bottom-anchored would be 12 - 5 + 1 = 8; min(8, parent=8) = 8.
+        assert_eq!(s.offset, 8);
+        assert!(s.selected >= s.offset); // parent stays visible
+    }
+
+    #[test]
+    fn reveal_subtree_caps_offset_at_parent_for_huge_subtree() {
+        // Subtree far taller than the viewport: keep the parent pinned at the top
+        // so the maximum number of children show beneath it.
+        let mut s = state(3, 0);
+        s.reveal_subtree(40, 6);
+        assert_eq!(s.offset, 3); // parent at top edge
+    }
+
+    #[test]
+    fn reveal_subtree_scrolls_down_just_enough_for_small_subtree() {
+        // Parent at row 6, small subtree ending row 9, height 5, starting at top.
+        // Whole subtree (rows 6..=9) doesn't fit window 0..=4, so scroll down to
+        // bottom-anchor row 9: offset = 9 - 5 + 1 = 5 (parent row 6 still shown).
+        let mut s = state(6, 0);
+        s.reveal_subtree(9, 5);
+        assert_eq!(s.offset, 5);
+        assert!(s.selected >= s.offset && s.selected < s.offset + 5);
     }
 }

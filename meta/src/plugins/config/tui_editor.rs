@@ -221,6 +221,23 @@ pub struct ConfigEditor {
 }
 
 impl ConfigEditor {
+    /// Scroll the tree so the selected row stays on screen after navigation.
+    fn sync_tree_scroll(&mut self) {
+        let height = self.state.tree_state.viewport_height;
+        self.state.tree_state.update_offset(height);
+    }
+
+    /// Collapse the node at the given flattened index (no selection change).
+    fn collapse_at(&mut self, idx: usize) {
+        let roots = self.get_tree_roots_mut();
+        let visible: Vec<_> = roots.iter_mut().flat_map(|r| r.flatten_mut()).collect();
+        if let Some(&node_ptr) = visible.get(idx) {
+            unsafe {
+                (*node_ptr).collapse();
+            }
+        }
+    }
+
     /// Create a new config editor. `settings` is the aggregated catalog from
     /// [`metarepo_core::RuntimeConfig::settings_catalog`].
     pub fn new(meta_file: PathBuf, settings: Vec<ConfigSetting>) -> Result<Self> {
@@ -1442,6 +1459,7 @@ impl MenuApp for ConfigEditor {
                 Action::NavigateUp => {
                     self.state.tree_state.select_previous();
                     self.update_breadcrumb_for_selected();
+                    self.sync_tree_scroll();
                 }
                 Action::NavigateDown => {
                     let visible_count = self
@@ -1451,10 +1469,12 @@ impl MenuApp for ConfigEditor {
                         .count();
                     self.state.tree_state.select_next(visible_count);
                     self.update_breadcrumb_for_selected();
+                    self.sync_tree_scroll();
                 }
                 Action::NavigateTop => {
                     self.state.tree_state.select_first();
                     self.update_breadcrumb_for_selected();
+                    self.sync_tree_scroll();
                 }
                 Action::NavigateBottom => {
                     let visible_count = self
@@ -1464,12 +1484,14 @@ impl MenuApp for ConfigEditor {
                         .count();
                     self.state.tree_state.select_last(visible_count);
                     self.update_breadcrumb_for_selected();
+                    self.sync_tree_scroll();
                 }
                 Action::NavigatePageUp => {
                     for _ in 0..10 {
                         self.state.tree_state.select_previous();
                     }
                     self.update_breadcrumb_for_selected();
+                    self.sync_tree_scroll();
                 }
                 Action::NavigatePageDown => {
                     let visible_count = self
@@ -1481,21 +1503,25 @@ impl MenuApp for ConfigEditor {
                         self.state.tree_state.select_next(visible_count);
                     }
                     self.update_breadcrumb_for_selected();
+                    self.sync_tree_scroll();
                 }
 
                 // Tree operations
                 Action::ToggleExpand => {
                     let selected_idx = self.state.tree_state.selected;
-                    let visible: Vec<_> = self
+                    // Read state up front so the immutable borrow is released
+                    // before we take the mutable borrow to toggle.
+                    let (expandable, was_expanded) = self
                         .tree_roots
                         .iter()
                         .flat_map(|r| r.flatten(true))
-                        .collect();
+                        .nth(selected_idx)
+                        .map(|n| (n.expandable, n.expanded))
+                        .unwrap_or((false, false));
 
-                    // Check if node is expandable first (prioritize expanding over editing)
-                    if let Some(node) = visible.get(selected_idx) {
-                        if node.expandable {
-                            // Toggle expand/collapse for expandable nodes
+                    // Prioritize expand/collapse over editing.
+                    if expandable {
+                        {
                             let roots = self.get_tree_roots_mut();
                             let visible_mut: Vec<_> =
                                 roots.iter_mut().flat_map(|r| r.flatten_mut()).collect();
@@ -1504,9 +1530,56 @@ impl MenuApp for ConfigEditor {
                                     (*node_ptr).toggle();
                                 }
                             }
-                        } else if self.is_selected_editable() {
-                            // Only start editing if node is NOT expandable but IS editable
-                            self.start_editing();
+                        }
+
+                        let height = self.state.tree_state.viewport_height;
+                        if was_expanded {
+                            // Just collapsed — keep the selected row visible.
+                            self.state.tree_state.update_offset(height);
+                        } else {
+                            // Just expanded — scroll down to reveal as much of the
+                            // new subtree as possible. The subtree spans from the
+                            // selected row to selected + (visible descendants).
+                            let span = self
+                                .tree_roots
+                                .iter()
+                                .flat_map(|r| r.flatten(true))
+                                .nth(selected_idx)
+                                .map(|n| n.flatten(true).len())
+                                .unwrap_or(1);
+                            let subtree_last = selected_idx + span.saturating_sub(1);
+                            self.state.tree_state.reveal_subtree(subtree_last, height);
+                        }
+                    } else if self.is_selected_editable() {
+                        // Not expandable but editable — start editing.
+                        self.start_editing();
+                    }
+                }
+
+                // Collapse current node, or climb to and collapse its parent.
+                Action::CollapseParent => {
+                    let selected_idx = self.state.tree_state.selected;
+                    let rows: Vec<(usize, bool, bool)> = self
+                        .tree_roots
+                        .iter()
+                        .flat_map(|r| r.flatten(true))
+                        .map(|n| (n.depth, n.expandable, n.expanded))
+                        .collect();
+                    if let Some(&(depth, expandable, expanded)) = rows.get(selected_idx) {
+                        let target = if expandable && expanded {
+                            // Collapse the node we're sitting on.
+                            Some(selected_idx)
+                        } else if depth > 0 {
+                            // Climb to the nearest shallower row (the parent).
+                            (0..selected_idx).rev().find(|&i| rows[i].0 < depth)
+                        } else {
+                            None
+                        };
+                        if let Some(idx) = target {
+                            self.collapse_at(idx);
+                            self.state.tree_state.selected = idx;
+                            self.update_breadcrumb_for_selected();
+                            self.sync_tree_scroll();
                         }
                     }
                 }
@@ -1569,6 +1642,10 @@ impl MenuApp for ConfigEditor {
                 Constraint::Percentage(50), // Detail/Edit panel
             ])
             .split(area);
+
+        // Cache the tree viewport's inner height (area minus top/bottom border)
+        // so key handlers can scroll to keep the selection on screen.
+        self.state.tree_state.viewport_height = chunks[0].height.saturating_sub(2) as usize;
 
         // Render tree
         let tree = TreeWidget::new(&self.tree_roots, &self.state.tree_state).block(

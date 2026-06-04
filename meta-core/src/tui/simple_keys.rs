@@ -15,6 +15,8 @@ pub enum Action {
 
     // Tree operations
     ToggleExpand,
+    /// Collapse the current node if expanded, else jump to and collapse its parent.
+    CollapseParent,
 
     // Editing
     StartEdit,
@@ -71,13 +73,13 @@ fn handle_browsing_keys(key: KeyEvent) -> Action {
         // Navigation - arrow keys
         (KeyCode::Up, _) => Action::NavigateUp,
         (KeyCode::Down, _) => Action::NavigateDown,
-        (KeyCode::Left, _) => Action::ToggleExpand, // Collapse
-        (KeyCode::Right, _) => Action::ToggleExpand, // Expand
+        (KeyCode::Left, _) => Action::CollapseParent, // Collapse node / climb to parent
+        (KeyCode::Right, _) => Action::ToggleExpand,  // Expand
 
         // Navigation - vim keys (optional, for power users)
         (KeyCode::Char('k'), KeyModifiers::NONE) => Action::NavigateUp,
         (KeyCode::Char('j'), KeyModifiers::NONE) => Action::NavigateDown,
-        (KeyCode::Char('h'), KeyModifiers::NONE) => Action::ToggleExpand,
+        (KeyCode::Char('h'), KeyModifiers::NONE) => Action::CollapseParent,
         (KeyCode::Char('l'), KeyModifiers::NONE) => Action::ToggleExpand,
 
         // Navigation - page/home/end

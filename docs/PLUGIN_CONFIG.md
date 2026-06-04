@@ -58,6 +58,27 @@ $ meta config get skill.search-limit
 50
 ```
 
+### Interactive editor — `meta config edit`
+
+`meta config edit` opens a full-screen TUI with a **Config Tree** pane on the left
+and a detail/edit panel on the right. Keys:
+
+| Key | Action |
+| --- | --- |
+| `↑`/`k`, `↓`/`j` | Move selection up / down |
+| `→`/`l`, `Enter`, `Space` | Expand the node (or start editing a leaf value) |
+| `←`/`h` | Collapse the current node; if already collapsed (or a leaf), jump to and collapse its **parent**. Repeats up the tree at any depth. |
+| `PgUp`/`PgDn`, `Home`/`g`, `End`/`G` | Page / jump to top / bottom |
+| `e` | Edit the selected value · `a` add · `d` delete · `/` search |
+| `s` / `Ctrl-w` | Save · `q`/`Esc` quit (guards unsaved edits) |
+
+**Scrolling.** The tree viewport follows the selection: navigation keeps the
+selected row on screen, and **expanding a branch scrolls down to reveal as much of
+the newly shown children as possible** while keeping the parent row visible. If the
+expanded subtree already fits, nothing shifts; if it is taller than the pane, the
+parent is pinned to the top so the maximum number of children show beneath it. This
+holds at every tree depth.
+
 ## 3. Read settings at runtime
 
 Define a `Deserialize` struct mirroring your block and read it with
