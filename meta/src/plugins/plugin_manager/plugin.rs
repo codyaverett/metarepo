@@ -28,20 +28,48 @@ impl PluginManagerPlugin {
             .version(env!("CARGO_PKG_VERSION"))
             .description("Manage metarepo plugins")
             .author("Metarepo Contributors")
+            .help_description(
+                "Install, list, update, remove, and verify external metarepo plugins.\n\
+                 \n\
+                 External plugins extend the meta CLI with new top-level commands. Each\n\
+                 one is recorded under plugins.<name> in the active .metarepo so it loads\n\
+                 on the next run, and its checksum is tracked in .metarepo.lock so the\n\
+                 installed binary can be verified later. Plugins install from crates.io, a\n\
+                 local file, or a git repository, and may be either protocol binaries or\n\
+                 manifest-based plugins.\n\
+                 \n\
+                 Examples:\n\
+                 \n\
+                   meta plugin install hello   add an external plugin\n\
+                   meta plugin list            show registered plugins and status\n\
+                   meta plugin verify          check binaries against the lockfile",
+            )
             .command(
                 command("install")
-                    .about("Install a plugin and register it in .metarepo")
-                    .long_about(
+                    .about("Install an external plugin and register it in .metarepo")
+                    .help_description(
                         "Install an external plugin and record it under plugins.<name> in the\n\
-                         active .metarepo so it loads on the next run.\n\n\
-                         Sources (via --from):\n  \
-                           crates:<crate>    install from crates.io (default: metarepo-plugin-<name>)\n  \
-                           file:<path>       copy a local executable\n  \
-                           git+<url>         clone and cargo build --release\n\n\
-                         Examples:\n  \
-                           meta plugin install hello\n  \
-                           meta plugin install hello --version 0.2.0\n  \
-                           meta plugin install hello --from file:./target/release/metarepo-plugin-hello\n  \
+                         active .metarepo so it loads on the next run.\n\
+                         \n\
+                         The plugin name becomes a top-level command (install hello makes\n\
+                         meta hello available). After fetching the binary, the plugin is\n\
+                         registered in the workspace config and its SHA-256 checksum is\n\
+                         recorded in .metarepo.lock so its integrity can be verified later.\n\
+                         \n\
+                         Source (--from):\n\
+                         \n\
+                           crates:<crate>   install from crates.io (default: metarepo-plugin-<name>)\n\
+                           file:<path>      copy a local executable\n\
+                           git+<url>        clone the repo and cargo build --release\n\
+                         \n\
+                         --version pins a crates.io version (a bare X.Y.Z is treated as the\n\
+                         caret requirement ^X.Y.Z, matching Cargo).\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta plugin install hello\n\
+                           meta plugin install hello --version 0.2.0\n\
+                           meta plugin install hello --from file:./target/release/metarepo-plugin-hello\n\
                            meta plugin install hello --from git+https://github.com/me/metarepo-plugin-hello.git",
                     )
                     .arg(
@@ -66,11 +94,38 @@ impl PluginManagerPlugin {
             .command(
                 command("list")
                     .about("List registered plugins and their install status")
+                    .help_description(
+                        "List the plugins registered in the active .metarepo and their status.\n\
+                         \n\
+                         For each plugin it shows the source label and whether the binary is\n\
+                         installed, missing, or reports a version that does not satisfy the\n\
+                         declared pin. Manifest plugins show the version from their manifest.\n\
+                         A checksum that does not match .metarepo.lock is always flagged; the\n\
+                         other integrity states are only shown when the workspace requires\n\
+                         integrity.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta plugin list\n\
+                           meta plugin ls",
+                    )
                     .alias("ls"),
             )
             .command(
                 command("remove")
                     .about("Remove a plugin from .metarepo (and optionally its binary)")
+                    .help_description(
+                        "Unregister a plugin from the active .metarepo so it no longer loads.\n\
+                         \n\
+                         Removes the plugins.<name> entry and its .metarepo.lock checksum. The\n\
+                         installed binary is left in place by default; pass --purge to also\n\
+                         delete it (for manifest plugins this removes their install directory).\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta plugin remove hello\n\
+                           meta plugin rm hello --purge",
+                    )
                     .alias("rm")
                     .arg(
                         arg("name")
@@ -87,6 +142,24 @@ impl PluginManagerPlugin {
             .command(
                 command("update")
                     .about("Reinstall a plugin (or all) from its recorded spec")
+                    .help_description(
+                        "Reinstall plugins from their recorded source to pick up new builds.\n\
+                         \n\
+                         Re-runs the install for each plugin's stored spec, refreshes its\n\
+                         .metarepo.lock checksum, and reports any version change. Pass a name\n\
+                         to update one plugin; omit it to update every registered plugin.\n\
+                         file: plugins have no upstream to pull from and are skipped (reinstall\n\
+                         from the original source instead).\n\
+                         \n\
+                         --version re-pins a single crates.io plugin to a new version and\n\
+                         persists the new spec to .metarepo before reinstalling.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta plugin update\n\
+                           meta plugin update hello\n\
+                           meta plugin update hello --version 0.3.0",
+                    )
                     .arg(
                         arg("name")
                             .help("Plugin to update; omit to update all")
@@ -103,11 +176,21 @@ impl PluginManagerPlugin {
             .command(
                 command("verify")
                     .about("Verify installed plugin binaries against .metarepo.lock checksums")
-                    .long_about(
-                        "Recompute the SHA-256 of each installed plugin binary and compare it to\n\
-                         the digest recorded in .metarepo.lock. Exits non-zero if any plugin's\n\
-                         checksum does not match, so it is suitable for CI.\n\n\
-                         Pass a name to verify a single plugin; omit it to verify all.",
+                    .help_description(
+                        "Check that installed plugin binaries match their recorded checksums.\n\
+                         \n\
+                         Recomputes the SHA-256 of each installed plugin binary and compares it\n\
+                         to the digest recorded in .metarepo.lock. Exits non-zero if any\n\
+                         plugin's checksum does not match, so it is suitable for CI. Plugins\n\
+                         without a recorded checksum are reported as unverified (reinstall to\n\
+                         record one) and do not fail the run.\n\
+                         \n\
+                         Pass a name to verify a single plugin; omit it to verify all.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta plugin verify\n\
+                           meta plugin verify hello",
                     )
                     .arg(
                         arg("name")

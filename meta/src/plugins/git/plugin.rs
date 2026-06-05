@@ -22,9 +22,38 @@ impl GitPlugin {
             .version(env!("CARGO_PKG_VERSION"))
             .description("Git operations across multiple repositories")
             .author("Metarepo Contributors")
+            .help_description(
+                "Run git operations across every repository in the workspace.\n\
+                 \n\
+                 Metarepo treats the main repo and each project listed in .meta as a\n\
+                 single fleet. These subcommands fan the same git action out across all\n\
+                 of them at once, so you can clone, status, update, and pull the whole\n\
+                 workspace with one command. Operations are scoped to your current\n\
+                 directory: run them from a project subdirectory to act on just that\n\
+                 project, or from the workspace root to act on everything.\n\
+                 \n\
+                 Examples:\n\
+                 \n\
+                   meta git status                    status for every repo\n\
+                   meta git pull --skip-main          pull child repos only\n\
+                   meta git clone git@host:org/x.git  clone a workspace and its children",
+            )
             .command(
                 command("clone")
-                    .about("Clone meta repository and all child repositories")
+                    .about("Clone a meta repository and all of its child repositories")
+                    .help_description(
+                        "Clone a meta repository and then clone every project it tracks.\n\
+                         \n\
+                         The URL is cloned into a directory named after the repository in\n\
+                         the current working directory. If the clone contains a workspace\n\
+                         config (.meta), metarepo switches into it and clones each missing\n\
+                         child project so the whole workspace is checked out in one step.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta git clone git@github.com:org/workspace.git\n\
+                           meta git c https://github.com/org/workspace.git",
+                    )
                     .aliases(vec!["c".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -37,18 +66,67 @@ impl GitPlugin {
             .command(
                 command("status")
                     .about("Show git status across all repositories")
+                    .help_description(
+                        "Show the working-tree status of every repository in scope.\n\
+                         \n\
+                         Prints a per-repository status (modified, added, deleted, and\n\
+                         untracked files, or a clean marker) for the main repo and each\n\
+                         tracked project. The main repository is only included in the\n\
+                         full-workspace view; when you run this from inside a project or\n\
+                         subdirectory, only the in-scope projects are reported. Projects\n\
+                         listed in .meta that are not yet cloned are flagged as not cloned.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta git status   status for the whole workspace\n\
+                           meta git st       same, using an alias",
+                    )
                     .aliases(vec!["st".to_string(), "s".to_string()])
                     .with_help_formatting(),
             )
             .command(
                 command("update")
-                    .about("Clone missing repositories")
+                    .about("Clone any repositories that are missing from the workspace")
+                    .help_description(
+                        "Clone every tracked project that is not yet checked out locally.\n\
+                         \n\
+                         Reads the workspace's .meta file, finds each project whose\n\
+                         directory does not exist, and clones it from its configured URL\n\
+                         (cloning bare repositories with a default worktree where the\n\
+                         project is marked bare). Existing repositories are left untouched,\n\
+                         so this is the command to run after pulling new entries into .meta.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta git update   clone all missing projects\n\
+                           meta git u        same, using an alias",
+                    )
                     .aliases(vec!["up".to_string(), "u".to_string()])
                     .with_help_formatting(),
             )
             .command(
                 command("pull")
                     .about("Pull latest changes for all repositories")
+                    .help_description(
+                        "Pull the latest changes into every repository in scope.\n\
+                         \n\
+                         Pulls run concurrently by default since they are network-bound;\n\
+                         use --sequential to pull one repo at a time. Each repo is\n\
+                         preflighted first: repositories with uncommitted changes or no\n\
+                         upstream tracking branch are skipped with a note instead of\n\
+                         failing the run. Bare repositories are expanded so each managed\n\
+                         worktree is pulled in place. The main repo is pulled in the\n\
+                         full-workspace view unless --skip-main is given.\n\
+                         \n\
+                         Use --include-only and --exclude with comma-separated patterns to\n\
+                         narrow which projects are pulled.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta git pull                       pull everything\n\
+                           meta git pull --skip-main           pull child repos only\n\
+                           meta git pull --exclude vendor,docs  pull all but matches",
+                    )
                     .aliases(vec!["p".to_string()])
                     .with_help_formatting()
                     .arg(

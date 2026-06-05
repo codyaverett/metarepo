@@ -22,9 +22,48 @@ impl RulesPlugin {
             .version(env!("CARGO_PKG_VERSION"))
             .description("Enforce project file structure rules")
             .author("Metarepo Contributors")
+            .help_description(
+                "Validate and enforce project structure conventions across the workspace.\n\
+                 \n\
+                 The rules system checks each project against a .rules.yaml configuration\n\
+                 covering directory layout, component folders, required companion files,\n\
+                 naming conventions, documentation, size limits, and security patterns.\n\
+                 Rules resolve per project: a project's own .rules.yaml takes priority,\n\
+                 otherwise the workspace-root .rules.yaml applies, falling back to a\n\
+                 built-in minimal rule set when neither exists.\n\
+                 \n\
+                 Use check to validate (optionally auto-fixing), init to scaffold a config,\n\
+                 create to add rules, and list/docs/status/copy to inspect and manage them.\n\
+                 \n\
+                 Examples:\n\
+                 \n\
+                   meta rules init                       scaffold a workspace .rules.yaml\n\
+                   meta rules check --fix                validate everything and fix what it can\n\
+                   meta rules check --project frontend   validate a single project",
+            )
             .command(
                 command("check")
                     .about("Check project structure against configured rules")
+                    .help_description(
+                        "Validate one or all projects against their resolved rules.\n\
+                         \n\
+                         For each project the engine loads the applicable .rules.yaml\n\
+                         (project-specific, then workspace, then built-in minimal), prints\n\
+                         the rule source and counts, then reports every violation as an\n\
+                         error, warning, or info with its path. Without --project, all\n\
+                         projects listed in .meta are checked; missing project directories\n\
+                         are skipped with a notice.\n\
+                         \n\
+                         Pass --fix to auto-create missing directories and other fixable\n\
+                         items; violations marked fixable are flagged with a hint. A summary\n\
+                         of total violations is printed at the end.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta rules check\n\
+                           meta rules check --project meta-core\n\
+                           meta rules check --fix",
+                    )
                     .aliases(vec!["c".to_string(), "chk".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -43,6 +82,22 @@ impl RulesPlugin {
             .command(
                 command("init")
                     .about("Initialize rules configuration file")
+                    .help_description(
+                        "Scaffold a starter .rules.yaml so you can begin enforcing structure.\n\
+                         \n\
+                         Writes a sample configuration (directory, component, file, naming,\n\
+                         size, and security rules) to the workspace root by default, or to a\n\
+                         project directory when --project is given. The target path comes\n\
+                         from --output (default .rules.yaml). If a file already exists at the\n\
+                         target it is left untouched and a warning is printed; the generated\n\
+                         YAML is echoed to stdout so you can review and edit it.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta rules init\n\
+                           meta rules init --project frontend\n\
+                           meta rules init --output custom-rules.yaml",
+                    )
                     .aliases(vec!["i".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -64,6 +119,21 @@ impl RulesPlugin {
             .command(
                 command("list")
                     .about("List all configured rules")
+                    .help_description(
+                        "Print the directory, component, and file rules currently in effect.\n\
+                         \n\
+                         Loads the resolved configuration and lists directory rules (with\n\
+                         required/optional status), component rules (pattern plus expected\n\
+                         structure), and file rules (pattern plus required companions), each\n\
+                         with its description. With --project it lists that project's resolved\n\
+                         rules; otherwise it lists the workspace rules (or the built-in\n\
+                         minimal set when no .rules.yaml exists).\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta rules list\n\
+                           meta rules list --project frontend",
+                    )
                     .aliases(vec!["ls".to_string(), "l".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -77,6 +147,22 @@ impl RulesPlugin {
             .command(
                 command("docs")
                     .about("Show documentation for creating and using rules")
+                    .help_description(
+                        "Print built-in reference documentation for the rule types.\n\
+                         \n\
+                         With no argument it prints the full documentation covering every\n\
+                         rule type. Pass a type to show just that section; accepted values\n\
+                         (with aliases) are directory (dir), component (comp), file (files),\n\
+                         naming (name), dependency (dep, deps), import (imports),\n\
+                         documentation (doc, docs), size, and security (sec). An unknown\n\
+                         type prints the list of valid types.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta rules docs\n\
+                           meta rules docs component\n\
+                           meta rules docs security",
+                    )
                     .aliases(vec!["d".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -88,11 +174,41 @@ impl RulesPlugin {
             .command(
                 command("create")
                     .about("Create a new rule")
+                    .help_description(
+                        "Add a new rule to a .rules.yaml configuration.\n\
+                         \n\
+                         Choose a subcommand for the rule type you want to add: directory,\n\
+                         component, or file. Each writes into the workspace .rules.yaml by\n\
+                         default, or a project's .rules.yaml when --project is supplied,\n\
+                         creating the file if needed and skipping rules that already exist.\n\
+                         Running create with no subcommand prints help for the available\n\
+                         rule types.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta rules create directory src --required\n\
+                           meta rules create component \"src/components/*/\"\n\
+                           meta rules create file \"**/*.rs\" --requires test:#[test]",
+                    )
                     .aliases(vec!["new".to_string()])
                     .with_help_formatting()
                     .subcommand(
                         command("directory")
                             .about("Create a directory rule")
+                            .help_description(
+                                "Add a rule that requires (or suggests) a directory to exist.\n\
+                                 \n\
+                                 Records a directory rule for the given path. Pass --required\n\
+                                 to make a missing directory an error (otherwise it is reported\n\
+                                 as info), and --description to document its purpose. Targets\n\
+                                 the workspace .rules.yaml unless --project is given. A rule for\n\
+                                 a path that already exists is left unchanged.\n\
+                                 \n\
+                                 Examples:\n\
+                                 \n\
+                                   meta rules create directory src --required\n\
+                                   meta rules create dir docs -d \"Project documentation\"",
+                            )
                             .aliases(vec!["dir".to_string()])
                             .arg(
                                 arg("path")
@@ -123,6 +239,23 @@ impl RulesPlugin {
                     .subcommand(
                         command("component")
                             .about("Create a component rule")
+                            .help_description(
+                                "Add a rule that validates the internal layout of component folders.\n\
+                                 \n\
+                                 Records a component rule whose pattern matches component\n\
+                                 directories and whose structure lists the files each must\n\
+                                 contain; use [ComponentName] in structure items as a\n\
+                                 placeholder for the folder name. Provide the structure with\n\
+                                 --structure as a comma-separated list, or omit it to enter\n\
+                                 items interactively (one per line, blank to finish). Use\n\
+                                 --description to document it and --project to target a\n\
+                                 project's .rules.yaml.\n\
+                                 \n\
+                                 Examples:\n\
+                                 \n\
+                                   meta rules create component \"src/components/*/\" -s \"[ComponentName].vue,index.ts\"\n\
+                                   meta rules create comp \"src/plugins/*/\"",
+                            )
                             .aliases(vec!["comp".to_string()])
                             .arg(
                                 arg("pattern")
@@ -155,6 +288,20 @@ impl RulesPlugin {
                     .subcommand(
                         command("file")
                             .about("Create a file rule")
+                            .help_description(
+                                "Add a rule that requires matching files to have companions or content.\n\
+                                 \n\
+                                 Records a file rule for the given glob pattern. Use --requires\n\
+                                 to list requirements as comma-separated type:pattern pairs;\n\
+                                 each pair checks for a companion file or, for content checks\n\
+                                 such as #[test], a pattern inside the file. Add --description\n\
+                                 to document it and --project to target a project's .rules.yaml.\n\
+                                 \n\
+                                 Examples:\n\
+                                 \n\
+                                   meta rules create file \"**/*.rs\" --requires test:#[test]\n\
+                                   meta rules create f \"src/**/*.tsx\" -r test:.test.tsx,types:interface",
+                            )
                             .aliases(vec!["f".to_string()])
                             .arg(
                                 arg("pattern")
@@ -188,10 +335,34 @@ impl RulesPlugin {
             .command(
                 command("status")
                     .about("Show rules status for all projects")
+                    .help_description(
+                        "Show which projects have their own rules versus inheriting the workspace.\n\
+                         \n\
+                         Lists every project in .meta and marks those with a project-specific\n\
+                         .rules.yaml; the rest are noted as using the workspace rules. Use it\n\
+                         to see at a glance where structure enforcement is customized before\n\
+                         running check or copy.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta rules status",
+                    )
             )
             .command(
                 command("copy")
                     .about("Copy workspace rules to a specific project")
+                    .help_description(
+                        "Seed a project's .rules.yaml from the current workspace rules.\n\
+                         \n\
+                         Loads the workspace rules (or the built-in minimal set when none\n\
+                         exist) and writes them to the target project's .rules.yaml so you\n\
+                         can customize them per project. If the project already has its own\n\
+                         .rules.yaml it is left untouched and a warning is printed.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta rules copy frontend",
+                    )
                     .arg(
                         arg("project")
                             .help("Target project")

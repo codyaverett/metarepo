@@ -35,7 +35,26 @@ impl MetaPlugin for InitPlugin {
     fn register_commands(&self, app: clap::Command) -> clap::Command {
         app.subcommand(
             clap::Command::new("init")
-                .about("Initialize a new meta repository")
+                .about("Create or repair a .meta workspace")
+                .after_long_help(metarepo_core::format_help_description(
+                    "Turn the current directory into a meta workspace.\n\
+                     \n\
+                     Writes a config file (.metarepo by default) with sensible ignore defaults and\n\
+                     adds the matching .gitignore patterns. Init is idempotent: if a config already\n\
+                     exists it is left untouched and only missing artifacts are restored, so it is\n\
+                     safe to re-run.\n\
+                     \n\
+                     Use --force to overwrite an existing config with fresh defaults, or --repair to\n\
+                     restore missing artifacts without rewriting the config. --format chooses the\n\
+                     config file format on a fresh init (json|yaml|toml). Optional extras: --with-skill\n\
+                     installs the bundled Claude Code skill, --with-completions installs shell\n\
+                     completions for $SHELL, and --all installs every optional component.\n\
+                     \n\
+                     Examples:\n  \
+                       meta init\n  \
+                       meta init --all\n  \
+                       meta init --repair",
+                ))
                 .long_about(
                     "Initialize the current directory as a meta repository.\n\n\
                      Idempotent by default: if .meta already exists it is left untouched and only\n\

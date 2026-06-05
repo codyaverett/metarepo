@@ -24,9 +24,44 @@ impl McpPlugin {
             .description("Manage MCP (Model Context Protocol) servers")
             .author("Metarepo Contributors")
             .experimental(true)
+            .help_description(
+                "Run Metarepo as an MCP server and manage connections to other MCP servers.\n\
+                 \n\
+                 This plugin has two sides. The 'serve' command turns Metarepo itself into\n\
+                 a stdio MCP server, exposing its git, project, exec, and mcp commands as\n\
+                 tools that Claude Desktop, VS Code, or any MCP client can call. The other\n\
+                 commands act as an MCP client: they save server definitions, connect to\n\
+                 them, and list or invoke their resources and tools.\n\
+                 \n\
+                 Saved servers are stored in ~/.config/meta/mcp/servers.json. Commands that\n\
+                 take a NAME accept either a saved server name or a raw command to launch\n\
+                 directly. Use 'config' to print ready-to-paste client configuration.\n\
+                 \n\
+                 Examples:\n\
+                 \n\
+                   meta mcp serve                                          expose Metarepo as an MCP server\n\
+                   meta mcp add playwright npx '@playwright/mcp@latest'    save a server definition\n\
+                   meta mcp list-tools playwright                          inspect a server's tools",
+            )
             .command(
                 command("add")
                     .about("Add a saved MCP server configuration")
+                    .help_description(
+                        "Save an MCP server definition to ~/.config/meta/mcp/servers.json.\n\
+                         \n\
+                         Records the launch command, arguments, optional working directory,\n\
+                         and environment variables under a name you can reuse with connect,\n\
+                         list-tools, list-resources, and call-tool. Fails if a server with the\n\
+                         same name already exists; remove it first to redefine it.\n\
+                         \n\
+                         Pass extra arguments as a single quoted string with --workdir to set\n\
+                         the working directory and --env KEY=VALUE,KEY2=VALUE2 for environment.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta mcp add playwright npx '@playwright/mcp@latest'\n\
+                           meta mcp add local ./server --env DEBUG=1,PORT=8080",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("name")
@@ -64,11 +99,34 @@ impl McpPlugin {
             .command(
                 command("list")
                     .about("List saved MCP server configurations")
+                    .help_description(
+                        "Show every MCP server saved in ~/.config/meta/mcp/servers.json.\n\
+                         \n\
+                         Prints a table of each server's name, launch command, and arguments,\n\
+                         plus any working directory and environment variables. When no servers\n\
+                         are configured, prints hints for adding one. This reads only saved\n\
+                         definitions; it does not connect to the servers.\n\
+                         \n\
+                         Example:\n\
+                         \n\
+                           meta mcp list",
+                    )
                     .with_help_formatting(),
             )
             .command(
                 command("remove")
                     .about("Remove a saved MCP server configuration")
+                    .help_description(
+                        "Delete a saved MCP server definition by name.\n\
+                         \n\
+                         Removes the named entry from ~/.config/meta/mcp/servers.json. Fails if\n\
+                         no server with that name exists. This only forgets the saved\n\
+                         definition; it does not stop any running server process.\n\
+                         \n\
+                         Example:\n\
+                         \n\
+                           meta mcp remove playwright",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("name")
@@ -80,6 +138,22 @@ impl McpPlugin {
             .command(
                 command("connect")
                     .about("Connect to an MCP server and show its info")
+                    .help_description(
+                        "Connect to an MCP server and print its handshake details.\n\
+                         \n\
+                         Launches the server, performs the MCP initialize handshake, and\n\
+                         reports its name, version, protocol version, and which capabilities\n\
+                         (resources, tools, prompts) it advertises, then disconnects. Use it\n\
+                         as a quick health check that a server starts and speaks MCP.\n\
+                         \n\
+                         NAME is either a saved server or a raw command; when passing a command\n\
+                         directly, supply its arguments as a single quoted ARGS string.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta mcp connect playwright\n\
+                           meta mcp connect npx '@playwright/mcp@latest'",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("name")
@@ -95,6 +169,21 @@ impl McpPlugin {
             .command(
                 command("list-resources")
                     .about("List resources from an MCP server")
+                    .help_description(
+                        "Connect to an MCP server and list the resources it exposes.\n\
+                         \n\
+                         Performs the handshake, queries resources/list, and prints each\n\
+                         resource's URI, name, and (when provided) description and MIME type,\n\
+                         then disconnects. Reports when the server exposes no resources.\n\
+                         \n\
+                         NAME is either a saved server or a raw command; when passing a command\n\
+                         directly, supply its arguments as a single quoted ARGS string.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta mcp list-resources filesystem\n\
+                           meta mcp list-resources npx '@modelcontextprotocol/server-filesystem'",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("name")
@@ -110,6 +199,21 @@ impl McpPlugin {
             .command(
                 command("list-tools")
                     .about("List tools from an MCP server")
+                    .help_description(
+                        "Connect to an MCP server and list the tools it offers.\n\
+                         \n\
+                         Performs the handshake, queries tools/list, and prints each tool's\n\
+                         name, description, and full JSON input schema, then disconnects. Use\n\
+                         this to discover tool names and argument shapes before call-tool.\n\
+                         \n\
+                         NAME is either a saved server or a raw command; when passing a command\n\
+                         directly, supply its arguments as a single quoted ARGS string.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta mcp list-tools playwright\n\
+                           meta mcp list-tools npx '@playwright/mcp@latest'",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("name")
@@ -125,6 +229,23 @@ impl McpPlugin {
             .command(
                 command("call-tool")
                     .about("Call a tool on an MCP server")
+                    .help_description(
+                        "Invoke a single tool on an MCP server and print the result.\n\
+                         \n\
+                         Connects, calls the named tool with the supplied JSON arguments, prints\n\
+                         the pretty-printed result, then disconnects. Arguments default to an\n\
+                         empty object when --args is omitted. Run list-tools first to find the\n\
+                         tool name and its expected input schema.\n\
+                         \n\
+                         NAME is either a saved server or a raw command. When launching a\n\
+                         command directly, pass its launch arguments as SERVER-ARGS before the\n\
+                         TOOL name; tool arguments always go in the --args JSON string.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta mcp call-tool playwright browser_navigate --args '{\"url\":\"https://example.com\"}'\n\
+                           meta mcp call-tool filesystem read_file --args '{\"path\":\"README.md\"}'",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("name")
@@ -152,12 +273,43 @@ impl McpPlugin {
             )
             .command(
                 command("serve")
-                    .about("Run Metarepo as an MCP server exposing CLI tools")
+                    .about("Run Metarepo as an MCP server over stdio")
+                    .help_description(
+                        "Run Metarepo itself as an MCP server, speaking JSON-RPC over stdio.\n\
+                         \n\
+                         Reads MCP requests from stdin and writes responses to stdout, exposing\n\
+                         Metarepo's own commands as tools: help, git_status, git_diff,\n\
+                         git_commit, git_pull, git_push, project_list, project_add,\n\
+                         project_remove, exec, and mcp_add_server / mcp_list_servers /\n\
+                         mcp_remove_server. Each tool shells out to this same binary.\n\
+                         \n\
+                         You normally do not run this by hand; an MCP client (Claude Desktop,\n\
+                         VS Code) launches it. Run 'meta mcp config' to print the client\n\
+                         configuration that points at this command. The server runs until\n\
+                         stdin closes.\n\
+                         \n\
+                         Example:\n\
+                         \n\
+                           meta mcp serve",
+                    )
                     .with_help_formatting(),
             )
             .command(
                 command("config")
-                    .about("Print MCP configuration for VS Code or Claude Desktop")
+                    .about("Print Claude Desktop MCP configuration for Metarepo")
+                    .help_description(
+                        "Print ready-to-paste client configuration for the Metarepo MCP server.\n\
+                         \n\
+                         Emits a Claude Desktop mcpServers JSON block wired to run 'meta mcp\n\
+                         serve' with the absolute path of this binary, along with the config\n\
+                         file locations for macOS and Windows, a summary of the exposed tools,\n\
+                         and testing instructions. Copy the JSON into your client config to\n\
+                         register Metarepo as an MCP server.\n\
+                         \n\
+                         Example:\n\
+                         \n\
+                           meta mcp config",
+                    )
                     .with_help_formatting(),
             )
             .handler("add", handle_add)

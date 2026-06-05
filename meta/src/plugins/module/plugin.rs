@@ -125,11 +125,47 @@ fn module_command() -> Command {
                meta module disable <name>        Reverse an enable\n  \
                meta module scan <dir>            List module manifests under a path",
         )
+        .after_long_help(metarepo_core::format_help_description(
+            "Enable, disable, and inspect meta modules in this workspace.\n\
+             \n\
+             A module is a repo carrying a meta.module.* manifest that bundles the\n\
+             plugin it provides and the Claude Code skills that drive it. Enabling a\n\
+             module stages each plugin under .meta-modules/ and records a file: spec\n\
+             in the config's plugins, installs each skill through the audit-gated\n\
+             steal path, and records the module so it can be listed and disabled.\n\
+             \n\
+             Run with no subcommand to print this help. meta project add discovers a\n\
+             module manifest in a newly added repo and offers to enable it.\n\
+             \n\
+             Examples:\n  \
+               meta module status ./tool        Preview what a module would wire up\n  \
+               meta module enable ./tool        Stage the plugin and install the skills\n  \
+               meta module list                 List enabled modules\n",
+        ))
         .subcommand_required(false)
         .subcommand(
             Command::new("enable")
                 .about("Stage a module's plugin and install its skills")
                 .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Enable the module at the given path: stage its plugins and install its skills.\n\
+                     \n\
+                     Reads the meta.module.* manifest in the target repo and enforces its\n\
+                     min_meta_version. Each plugin is copied into .meta-modules/<module>/ and\n\
+                     registered in the config as a file: spec (its checksum is locked when\n\
+                     plugins-integrity is required); each skill is installed through the\n\
+                     audit-gated steal path. The module is then recorded for list and disable,\n\
+                     and its commands become available on the next run.\n\
+                     \n\
+                     Skill installs are refused when the audit reports HIGH-severity findings;\n\
+                     pass --force to install anyway. Use --overwrite to replace plugins or\n\
+                     skills of the same name that are already registered.\n\
+                     \n\
+                     Examples:\n  \
+                       meta module enable ./my-tool\n  \
+                       meta module enable ./my-tool --force\n  \
+                       meta module enable ./my-tool --overwrite\n",
+                ))
                 .arg(
                     Arg::new("path")
                         .help("Path to the module repo (containing meta.module.*)")
@@ -153,6 +189,21 @@ fn module_command() -> Command {
             Command::new("disable")
                 .about("Remove an enabled module's plugin, skills, and config entry")
                 .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Reverse an enable: remove the module's plugins, skills, and config entry.\n\
+                     \n\
+                     Looks the module up by name in the config's modules and re-derives the\n\
+                     plugin keys and skill names it contributed from the manifest at its\n\
+                     recorded repo path. It unregisters those plugins, deletes the staged\n\
+                     plugin tree under .meta-modules/<name>/, drops their lock entries, removes\n\
+                     the installed skills, and deletes the module entry. If the source repo is\n\
+                     gone, the staged copy and config entry are removed regardless.\n\
+                     \n\
+                     The name is the one shown by meta module list.\n\
+                     \n\
+                     Examples:\n  \
+                       meta module disable my-tool\n",
+                ))
                 .arg(
                     Arg::new("name")
                         .help("Module name (as shown by 'meta module list')")
@@ -162,12 +213,34 @@ fn module_command() -> Command {
         .subcommand(
             Command::new("list")
                 .about("List enabled modules")
-                .version(env!("CARGO_PKG_VERSION")),
+                .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "List the modules currently enabled in this workspace.\n\
+                     \n\
+                     Reads the modules recorded in the active config and prints each module\n\
+                     name alongside the repo path it was enabled from. Prints a notice when no\n\
+                     modules are enabled. These are the names accepted by meta module disable.\n\
+                     \n\
+                     Examples:\n  \
+                       meta module list\n",
+                )),
         )
         .subcommand(
             Command::new("status")
                 .about("Preview what enabling a module would wire up")
                 .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Preview what enabling the module at the given path would wire up.\n\
+                     \n\
+                     Reads the repo's meta.module.* manifest and prints the module name,\n\
+                     version, description, and min_meta_version check, then lists the plugin\n\
+                     keys it would register and the skills it would install. Each skill is run\n\
+                     through the audit so HIGH-severity findings are surfaced up front. This is\n\
+                     read-only and changes nothing.\n\
+                     \n\
+                     Examples:\n  \
+                       meta module status ./my-tool\n",
+                ))
                 .arg(
                     Arg::new("path")
                         .help("Path to the module repo")
@@ -178,6 +251,19 @@ fn module_command() -> Command {
             Command::new("scan")
                 .about("Walk a directory and list the module manifests found")
                 .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Walk a directory tree and list every meta module manifest it contains.\n\
+                     \n\
+                     Recursively searches the given path (the current directory by default) for\n\
+                     meta.module.* manifests, skipping .git, node_modules, and target. For each\n\
+                     one found it prints the module name, version, plugin and skill counts, and\n\
+                     the manifest path. Use it to discover enable-able modules before wiring\n\
+                     any of them up.\n\
+                     \n\
+                     Examples:\n  \
+                       meta module scan\n  \
+                       meta module scan ./packages\n",
+                ))
                 .arg(
                     Arg::new("path")
                         .help("Directory to scan (defaults to current dir)")

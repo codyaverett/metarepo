@@ -57,6 +57,31 @@ impl ProjectPlugin {
                                    meta project add myproject ../external-repo                   # Symlink\n\
                                    meta project add myproject                                    # Use existing")
                     .aliases(vec!["import".to_string(), "i".to_string(), "a".to_string()])
+                    .help_description(
+                        "Track a repository under a workspace path in .meta.\n\
+                         \n\
+                         Adds an entry to the \"projects\" map in .meta and reconciles the\n\
+                         working tree with it. The source argument decides the mode: a git\n\
+                         URL is cloned into <path>; an external local path that is a git repo\n\
+                         is symlinked in and its remote recorded as external:<url>; an\n\
+                         existing in-tree directory is adopted as-is (recording its remote, or\n\
+                         local: when it has none). With no source you are prompted in a TTY.\n\
+                         \n\
+                         By default clones use the bare-with-worktrees layout (disable per\n\
+                         workspace via default_bare); pass --bare to force it. Use --init-git\n\
+                         to git init a plain directory before tracking it. Use --recursive\n\
+                         (with --max-depth, --flatten) to import nested meta repositories, or\n\
+                         --no-recursive to override a workspace that enables it by default. If\n\
+                         the added repo declares itself a meta module, you are shown it and,\n\
+                         in a TTY, offered to enable it.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta project add web https://github.com/acme/web.git   clone and track\n\
+                           meta project add libs ../shared-libs                   symlink an external repo\n\
+                           meta project add docs                                  adopt an existing directory\n\
+                           meta project add mono URL --recursive --flatten        import nested repos flat",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("path")
@@ -106,6 +131,22 @@ impl ProjectPlugin {
             .command(
                 command("list")
                     .about("List all projects in the workspace (tree view by default)")
+                    .help_description(
+                        "List the projects tracked in the current workspace.\n\
+                         \n\
+                         Reads the \"projects\" map from .meta and prints the entries that\n\
+                         fall within the directory-aware scope (running inside a subtree\n\
+                         narrows the listing). The default is a tree view; --flat prints a\n\
+                         detailed list with each project's URL and on-disk status (present,\n\
+                         missing, or symlink), and --minimal prints just the names, one per\n\
+                         line, for scripting.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta project list             tree view of the workspace\n\
+                           meta project list --flat       names with URLs and status\n\
+                           meta project list --minimal    bare names for scripts",
+                    )
                     .with_help_formatting()
                     .aliases(vec!["ls".to_string(), "l".to_string()])
                     .arg(
@@ -123,7 +164,20 @@ impl ProjectPlugin {
             )
             .command(
                 command("tree")
-                    .about("Display project hierarchy as a tree")
+                    .about("Display the project hierarchy as a tree")
+                    .help_description(
+                        "Show the workspace projects as an indented hierarchy.\n\
+                         \n\
+                         Equivalent to \"meta project list\" in its default mode, rendering the\n\
+                         scoped \"projects\" entries as a tree that reflects nested paths. The\n\
+                         same overrides apply: --flat switches to a detailed list with URLs\n\
+                         and on-disk status, and --minimal prints only project names.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta project tree            hierarchy of tracked projects\n\
+                           meta project tree --flat      flat list with details",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("flat")
@@ -140,7 +194,25 @@ impl ProjectPlugin {
             )
             .command(
                 command("update")
-                    .about("Update all projects (pull latest changes)")
+                    .about("Update all projects by pulling the latest changes")
+                    .help_description(
+                        "Pull the latest changes for every tracked project.\n\
+                         \n\
+                         Walks the \"projects\" map and runs a fetch-and-pull on each repo that\n\
+                         exists on disk. Projects whose directory is missing or that are not\n\
+                         git repositories are skipped with a note, and per-repo failures are\n\
+                         reported without aborting the rest. A summary of updated and failed\n\
+                         counts is printed at the end.\n\
+                         \n\
+                         With --recursive, any updated project that is itself a meta workspace\n\
+                         has its nested projects updated too, down to --depth levels (default\n\
+                         3). Aliased as \"pull\".\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta project update                 pull every project\n\
+                           meta project update --recursive      also update nested workspaces",
+                    )
                     .aliases(vec!["pull".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -159,6 +231,21 @@ impl ProjectPlugin {
             .command(
                 command("remove")
                     .about("Remove a project from the workspace")
+                    .help_description(
+                        "Stop tracking a project and remove its .meta entry.\n\
+                         \n\
+                         Deletes the named project from the \"projects\" map in .meta. With no\n\
+                         name you are prompted to pick one in a TTY. Before removing, the\n\
+                         working tree is checked for uncommitted changes (across all worktrees\n\
+                         for bare repos); if any are found the command refuses unless --force\n\
+                         is given. Plain --remove only edits .meta and leaves files in place;\n\
+                         --force additionally deletes the project directory from disk.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta project remove web              untrack web (keep files)\n\
+                           meta project remove web --force       untrack and delete the directory",
+                    )
                     .aliases(vec!["rm".to_string(), "r".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -176,7 +263,25 @@ impl ProjectPlugin {
             )
             .command(
                 command("update-gitignore")
-                    .about("Update .gitignore for a project that now has a remote")
+                    .about("Promote a local project to its detected remote and ignore it")
+                    .help_description(
+                        "Record a newly added remote for a project and ignore its directory.\n\
+                         \n\
+                         Use this after a project that was tracked as local: (no remote) has\n\
+                         had a git remote added to it. The command reads the repo's origin\n\
+                         URL, rewrites the project's .meta entry from local: to that URL, and\n\
+                         adds the project directory to the workspace .gitignore so the now\n\
+                         independently cloneable repo is no longer committed to the meta repo.\n\
+                         \n\
+                         If the project already has a remote URL it reports that and does\n\
+                         nothing; if no remote is configured yet it tells you to add one\n\
+                         first.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           git -C web remote add origin URL\n\
+                           meta project update-gitignore web    record remote and ignore web",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("name")
@@ -187,7 +292,21 @@ impl ProjectPlugin {
             )
             .command(
                 command("rename")
-                    .about("Rename a project in the workspace")
+                    .about("Rename a project and move its directory")
+                    .help_description(
+                        "Rename a tracked project and move its on-disk directory.\n\
+                         \n\
+                         Re-keys the project's entry in the \"projects\" map from <old_name> to\n\
+                         <new_name> and renames its directory to match. Fails if the new name\n\
+                         is already tracked or the target directory already exists. For real\n\
+                         git repositories (not symlinks) the working tree is checked first and\n\
+                         the rename is refused when there are uncommitted changes; commit or\n\
+                         stash them before retrying. Aliased as \"mv\" and \"move\".\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta project rename web frontend     rename web to frontend",
+                    )
                     .aliases(vec!["mv".to_string(), "move".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -205,7 +324,23 @@ impl ProjectPlugin {
             )
             .command(
                 command("convert-to-bare")
-                    .about("Convert a normal repository to bare repository with worktrees")
+                    .about("Convert a normal repository to a bare repo with worktrees")
+                    .help_description(
+                        "Convert a tracked repository to the bare-with-worktrees layout.\n\
+                         \n\
+                         Rewrites a normal project clone into a bare repository whose checked\n\
+                         out branches live as worktrees, the same layout meta uses for new\n\
+                         clones by default. The project must exist on disk, be a git\n\
+                         repository, and not already be bare. If it is already configured as\n\
+                         bare the command reports that and exits without changes.\n\
+                         \n\
+                         Use this to migrate older flat clones so they work with meta's\n\
+                         worktree commands.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta project convert-to-bare web     migrate web to bare layout",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("project")

@@ -24,6 +24,31 @@ impl WorktreePlugin {
             .version(env!("CARGO_PKG_VERSION"))
             .description("Git worktree management across workspace projects")
             .author("Metarepo Contributors")
+            .help_description(
+                "Create and manage git worktrees across the projects in a workspace.\n\
+                 \n\
+                 A worktree is an extra working tree attached to a repository, letting\n\
+                 you check out several branches at once without stashing or switching.\n\
+                 These commands add, list, remove, and tidy worktrees for one project,\n\
+                 a chosen set, or every project in the workspace at the same time.\n\
+                 \n\
+                 For bare-cloned projects worktrees live at <project>/<branch>/; for\n\
+                 ordinary clones they live at <project>/.worktrees/<branch>/. After a\n\
+                 worktree is created the project's configured worktree_init hook runs\n\
+                 unless it is skipped.\n\
+                 \n\
+                 Most subcommands (list, prune, repair, remove, clean) follow your\n\
+                 current directory to decide which projects to act on: inside a project\n\
+                 just that project, inside a subdirectory the projects beneath it, and\n\
+                 at the workspace root every project. Pass --workspace/-w (alias\n\
+                 --global) to force all projects from anywhere.\n\
+                 \n\
+                 Examples:\n\
+                 \n\
+                   meta worktree add feature-123        create a worktree for the branch\n\
+                   meta worktree list                   show worktrees in the current scope\n\
+                   meta worktree clean --dry-run        preview merged worktrees to remove",
+            )
             .command(
                 command("add")
                     .about("Create worktrees for selected projects")
@@ -40,6 +65,26 @@ impl WorktreePlugin {
                                    meta worktree add feature-123 --project containers      # Single project\n\
                                    meta worktree add feature-123 --all                     # All projects\n\
                                    meta worktree add -b feature-123                        # Force create new branch")
+                    .help_description(
+                        "Create a git worktree for the given branch in the selected projects.\n\
+                         \n\
+                         Branch handling is automatic: an existing local branch is checked\n\
+                         out, a remote-only branch becomes a local tracking branch, and an\n\
+                         unknown branch is created from --from/-f (or a positional starting\n\
+                         point, or HEAD). Pass --create-branch/-b to force a brand-new branch.\n\
+                         \n\
+                         Without --project/-p, --projects, or --all/-a it targets the current\n\
+                         project, or prompts you to choose when run outside one. The worktree\n\
+                         directory is named after the branch unless --path overrides it. Each\n\
+                         project's worktree_init hook runs afterward; skip it with --no-hooks,\n\
+                         or run it without the confirmation prompt with --allow-hooks.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta worktree add feature-123                     smart branch detection\n\
+                           meta worktree add feature-123 --from origin/main  branch from a ref\n\
+                           meta worktree add -b feature-123 --all            new branch, all projects",
+                    )
                     .aliases(vec!["create".to_string(), "new".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -106,6 +151,23 @@ impl WorktreePlugin {
             .command(
                 command("remove")
                     .about("Remove worktrees from selected projects")
+                    .help_description(
+                        "Remove a named worktree from the selected projects.\n\
+                         \n\
+                         The argument is the branch name or the worktree directory name.\n\
+                         Without --project/-p, --projects, or --all/-a the projects are\n\
+                         taken from your current directory scope; when several in-scope\n\
+                         projects have that worktree you are asked which to remove from.\n\
+                         \n\
+                         Git refuses to remove a worktree with uncommitted changes; pass\n\
+                         --force/-f to remove it anyway.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta worktree remove feature-123              remove from current scope\n\
+                           meta worktree remove feature-123 --all        remove everywhere it exists\n\
+                           meta worktree remove feature-123 --force      discard uncommitted changes",
+                    )
                     .aliases(vec!["rm".to_string(), "delete".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -142,7 +204,23 @@ impl WorktreePlugin {
             )
             .command(
                 command("list")
-                    .about("List all worktrees across the workspace")
+                    .about("List worktrees for the projects in scope")
+                    .help_description(
+                        "List the git worktrees of every project in the current scope.\n\
+                         \n\
+                         The set of projects follows your directory: inside a project just\n\
+                         that project, inside a subdirectory the projects beneath it, and at\n\
+                         the workspace root every project. Use --workspace/-w to list all\n\
+                         projects from anywhere.\n\
+                         \n\
+                         Pass --verbose for extra detail about each worktree.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta worktree list             worktrees in the current scope\n\
+                           meta worktree list --verbose   include extra per-worktree detail\n\
+                           meta worktree list --workspace every project in the workspace",
+                    )
                     .aliases(vec!["ls".to_string(), "l".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -153,7 +231,25 @@ impl WorktreePlugin {
             )
             .command(
                 command("prune")
-                    .about("Remove stale worktrees that no longer exist")
+                    .about("Prune administrative references to deleted worktrees")
+                    .help_description(
+                        "Run git worktree prune for the projects in scope.\n\
+                         \n\
+                         This removes git's internal references to worktrees whose\n\
+                         directories no longer exist on disk. It is non-destructive: a\n\
+                         worktree that still has files is never touched, so no uncommitted\n\
+                         work can be lost. To remove worktrees for merged branches instead,\n\
+                         use 'meta worktree clean'.\n\
+                         \n\
+                         Projects follow your directory scope; use --workspace/-w to prune\n\
+                         every project. Pass --dry-run/-n to report what would be removed.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta worktree prune             prune stale references in scope\n\
+                           meta worktree prune --dry-run   show what would be pruned\n\
+                           meta worktree prune --workspace prune across every project",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("dry-run")
@@ -174,6 +270,24 @@ impl WorktreePlugin {
                                    meta worktree repair --global        # Repair every project in the workspace\n\
                                    meta worktree repair --project foo   # Repair a specific project\n\
                                    meta worktree repair --dry-run       # Show what would be repaired")
+                    .help_description(
+                        "Run git worktree repair for the projects in scope.\n\
+                         \n\
+                         This fixes the administrative links between a repository and its\n\
+                         worktrees after the worktree directories have been moved on disk\n\
+                         and git has lost track of their new locations.\n\
+                         \n\
+                         By default it acts on the projects in your current directory scope;\n\
+                         pass --project/-p for a single project or --workspace/-w to repair\n\
+                         every project. Use --dry-run/-n to list the projects that would be\n\
+                         repaired without invoking git.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta worktree repair               repair the projects in scope\n\
+                           meta worktree repair --project foo repair one project\n\
+                           meta worktree repair --dry-run     show what would be repaired",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("project")
@@ -210,6 +324,27 @@ impl WorktreePlugin {
                                    meta worktree clean --yes            # Skip the confirmation prompt\n\
                                    meta worktree clean --keep-branches  # Remove worktrees, keep branches\n\
                                    meta worktree clean --global         # Across every project")
+                    .help_description(
+                        "Remove worktrees whose branches have already landed on the base branch.\n\
+                         \n\
+                         A worktree is a candidate when its branch is fully merged into the\n\
+                         project's base branch, or has no diff against it (catching squash-\n\
+                         and rebase-merged branches). The base branch is detected per project\n\
+                         from origin/HEAD, falling back to main/master/develop.\n\
+                         \n\
+                         It is safe by design: worktrees with uncommitted or untracked\n\
+                         changes, locked worktrees, detached HEADs, and each project's primary\n\
+                         worktree are always skipped, and you confirm the full candidate list\n\
+                         before anything is removed. Each removed worktree's local branch is\n\
+                         deleted with 'git branch -d' unless --keep-branches. Projects follow\n\
+                         your directory scope; --workspace/-w forces all.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta worktree clean                preview, then confirm\n\
+                           meta worktree clean --dry-run      show candidates only\n\
+                           meta worktree clean --keep-branches remove worktrees, keep branches",
+                    )
                     .with_help_formatting()
                     .arg(
                         arg("dry-run")

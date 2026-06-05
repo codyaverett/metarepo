@@ -24,6 +24,24 @@ impl RunPlugin {
             .command(
                 command("script")
                     .about("Run a named script")
+                    .help_description(
+                        "Run a named script defined in the workspace config (.meta).\n\
+                         \n\
+                         Scripts can be defined globally or per-project; a project script overrides a\n\
+                         global script of the same name. With no project selection, the script runs in\n\
+                         the in-scope projects that define it (based on your current directory). Run\n\
+                         without a script name in a terminal to pick one interactively.\n\
+                         \n\
+                         Use -p/--project or --projects to target specific projects, -a/--all to run\n\
+                         across the whole workspace, and --parallel to run concurrently. --git-only and\n\
+                         --existing-only restrict the project set, and -e/--env KEY=VALUE injects\n\
+                         environment variables into each run.\n\
+                         \n\
+                         Examples:\n  \
+                           meta run test\n  \
+                           meta run build --all --parallel\n  \
+                           meta run deploy -p api -e ENV=staging",
+                    )
                     .long_about("Run a script defined in the .meta file.\n\n\
                                  Scripts can be defined globally or per-project.\n\
                                  Project scripts override global scripts with the same name.\n\n\
@@ -94,6 +112,17 @@ impl RunPlugin {
             .command(
                 command("list")
                     .about("List available scripts")
+                    .help_description(
+                        "List the scripts available in the workspace.\n\
+                         \n\
+                         Shows the scripts defined in the config (.meta), both global and\n\
+                         per-project. By default it lists the scripts in scope for the current\n\
+                         directory; pass -p/--project to list the scripts for a specific project.\n\
+                         \n\
+                         Examples:\n  \
+                           meta run list\n  \
+                           meta run list -p api",
+                    )
                     .aliases(vec!["ls".to_string(), "l".to_string()])
                     .with_help_formatting()
                     .arg(
@@ -225,7 +254,25 @@ impl MetaPlugin for RunPlugin {
     fn register_commands(&self, app: clap::Command) -> clap::Command {
         // Register the main 'run' command with optional script argument
         let run_cmd = clap::Command::new("run")
-            .about("Run project-specific scripts defined in .meta")
+            .about("Run a named script from .meta")
+            .after_long_help(metarepo_core::format_help_description(
+                "Run a named script defined in the workspace config (.meta).\n\
+                 \n\
+                 Scripts can be defined globally or per-project; a project script overrides a\n\
+                 global script of the same name. With no project selection, run uses the\n\
+                 directory-aware scope and runs the script in the in-scope projects that define\n\
+                 it. Run with no script name (or -l/--list) lists the available scripts instead.\n\
+                 \n\
+                 Use -p/--project or --projects to target specific projects, -a/--all to run\n\
+                 across the whole workspace, and --parallel to run concurrently. --git-only and\n\
+                 --existing-only restrict the project set, and -e/--env KEY=VALUE injects\n\
+                 environment variables into each run.\n\
+                 \n\
+                 Examples:\n  \
+                   meta run test\n  \
+                   meta run build --all --parallel\n  \
+                   meta run deploy -p api -e ENV=staging",
+            ))
             .version(env!("CARGO_PKG_VERSION"))
             .arg(
                 clap::Arg::new("script")

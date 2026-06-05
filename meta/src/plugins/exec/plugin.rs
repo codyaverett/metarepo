@@ -19,7 +19,26 @@ impl ExecPlugin {
             .author("Metarepo Contributors")
             .command(
                 command("exec")
-                    .about("Execute commands across multiple repositories")
+                    .about("Run a shell command in each project")
+                    .help_description(
+                        "Run an arbitrary shell command once in each selected project.\n\
+                         \n\
+                         Everything after the exec flags is treated as the command to run, so it can\n\
+                         be any program plus its arguments (e.g. git, npm, cargo). With no project\n\
+                         selection, exec uses the directory-aware scope: inside a project it runs\n\
+                         there, inside a subdirectory it runs in the projects beneath it, and at the\n\
+                         workspace root it runs everywhere.\n\
+                         \n\
+                         Use -p/--project or --projects to target specific projects, -a/--all to run\n\
+                         across the whole workspace, and --include-only/--exclude to filter by name.\n\
+                         --git-only and --existing-only restrict the set further. --parallel runs the\n\
+                         command concurrently and --include-main also runs it in the meta repo itself.\n\
+                         \n\
+                         Examples:\n  \
+                           meta exec --all git status\n  \
+                           meta exec -p doop npm install\n  \
+                           meta exec --git-only --parallel git pull",
+                    )
                     .aliases(vec!["e".to_string(), "x".to_string()])
                     .allow_external_subcommands(true)
                     .with_help_formatting()
@@ -251,7 +270,26 @@ impl MetaPlugin for ExecPlugin {
     fn register_commands(&self, app: clap::Command) -> clap::Command {
         // Register exec as a direct command with allow_external_subcommands
         let exec_cmd = clap::Command::new("exec")
-            .about("Execute commands across multiple repositories")
+            .about("Run a shell command in each project")
+            .after_long_help(metarepo_core::format_help_description(
+                "Run an arbitrary shell command once in each selected project.\n\
+                 \n\
+                 Everything after the exec flags is treated as the command to run, so it can\n\
+                 be any program plus its arguments (e.g. git, npm, cargo). With no project\n\
+                 selection, exec uses the directory-aware scope: inside a project it runs\n\
+                 there, inside a subdirectory it runs in the projects beneath it, and at the\n\
+                 workspace root it runs everywhere.\n\
+                 \n\
+                 Use -p/--project or --projects to target specific projects, -a/--all to run\n\
+                 across the whole workspace, and --include-only/--exclude to filter by name.\n\
+                 --git-only and --existing-only restrict the set further. --parallel runs the\n\
+                 command concurrently and --include-main also runs it in the meta repo itself.\n\
+                 \n\
+                 Examples:\n  \
+                   meta exec --all git status\n  \
+                   meta exec -p doop npm install\n  \
+                   meta exec --git-only --parallel git pull",
+            ))
             .version(env!("CARGO_PKG_VERSION"))
             .allow_external_subcommands(true)
             // Keep `meta exec help` meaning "run `help` across repos" rather than

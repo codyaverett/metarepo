@@ -318,14 +318,48 @@ impl MetaPlugin for ConfigPlugin {
 
     fn register_commands(&self, app: Command) -> Command {
         let config_cmd = Command::new("config")
-                .about("Manage .meta configuration files")
+                .about("Manage the workspace configuration file")
                 .version(env!("CARGO_PKG_VERSION"))
                 .visible_alias("c")
+                .after_long_help(metarepo_core::format_help_description(
+                    "Inspect and edit the workspace configuration file (.meta / .metarepo).\n\
+                     \n\
+                     The config holds your registered projects and the typed settings declared\n\
+                     by core, plugins, and modules. Subcommands let you open an interactive tree\n\
+                     editor, dump the file in json/yaml/toml, read or write individual keys, list\n\
+                     declared settings, validate the file, and migrate between formats.\n\
+                     \n\
+                     Reads are cascade-aware: in a nested workspace, get and list resolve each\n\
+                     key to the nearest config that sets it and note where an inherited value\n\
+                     came from. Running config with no subcommand opens the editor.\n\
+                     \n\
+                     Examples:\n  \
+                       meta config                       Open the interactive editor\n  \
+                       meta config list                  List declared settings and values\n  \
+                       meta config get skill.dest        Read one effective value\n",
+                ))
                 .subcommand_required(false)
                 .subcommand(
                     Command::new("edit")
-                        .about("Edit config with interactive TUI")
+                        .about("Edit the configuration in an interactive TUI")
                         .visible_alias("e")
+                        .after_long_help(metarepo_core::format_help_description(
+                            "Edit the configuration in a full-screen interactive tree editor.\n\
+                             \n\
+                             Opens the active config (or the file given with --file) in a TUI with\n\
+                             a Config Tree pane and a detail panel. Navigate with the arrow keys or\n\
+                             h/j/k/l, expand and collapse nodes, then edit a leaf value with 'e',\n\
+                             add with 'a', delete with 'd', and search with '/'. Save with 's' or\n\
+                             Ctrl-w; 'q'/Esc quits and guards unsaved edits.\n\
+                             \n\
+                             The tree covers every declared setting (core, plugins, and modules)\n\
+                             alongside your projects, so nothing has to be hand-edited in the file.\n\
+                             This is the default action when config is run without a subcommand.\n\
+                             \n\
+                             Examples:\n  \
+                               meta config edit\n  \
+                               meta config edit --file ./.meta\n",
+                        ))
                         .arg(
                             Arg::new("file")
                                 .short('f')
@@ -336,7 +370,19 @@ impl MetaPlugin for ConfigPlugin {
                 )
                 .subcommand(
                     Command::new("show")
-                        .about("Display current configuration")
+                        .about("Print the current configuration")
+                        .after_long_help(metarepo_core::format_help_description(
+                            "Print the active configuration serialized to a chosen format.\n\
+                             \n\
+                             Dumps the whole loaded config (projects and all settings) to stdout.\n\
+                             Use --format to pick json (default), yaml, or toml. This shows the\n\
+                             active config as parsed; it does not resolve inherited values across\n\
+                             a nested chain (use get/list for cascade-aware reads).\n\
+                             \n\
+                             Examples:\n  \
+                               meta config show\n  \
+                               meta config show --format yaml\n",
+                        ))
                         .arg(
                             Arg::new("format")
                                 .short('f')
@@ -349,14 +395,43 @@ impl MetaPlugin for ConfigPlugin {
                 )
                 .subcommand(
                     Command::new("get")
-                        .about("Get a specific config value")
+                        .about("Read the effective value of a config key")
+                        .after_long_help(metarepo_core::format_help_description(
+                            "Read the effective value of a single configuration key.\n\
+                             \n\
+                             Takes a dotted key path and prints its value as JSON. Reads are\n\
+                             cascade-aware: in a nested workspace the nearest config that sets the\n\
+                             key wins, and an inherited value notes the file it came from. When the\n\
+                             key is an unset but declared setting, its default is shown instead.\n\
+                             \n\
+                             Examples:\n  \
+                               meta config get default_bare\n  \
+                               meta config get projects.myproject.url\n  \
+                               meta config get skill.search-limit\n",
+                        ))
                         .arg(Arg::new("key").required(true).value_name("KEY").help(
                             "Config key path (e.g., 'default_bare' or 'projects.myproject.url')",
                         )),
                 )
                 .subcommand(
                     Command::new("set")
-                        .about("Set a specific config value")
+                        .about("Write a value to a config key")
+                        .after_long_help(metarepo_core::format_help_description(
+                            "Write a value to a configuration key and save the file.\n\
+                             \n\
+                             Takes a dotted key path and a value, then persists it to the active\n\
+                             config. When the key is a declared setting, the value is validated\n\
+                             against its type (string, bool, integer, or comma/JSON list) and\n\
+                             rejected on mismatch. Otherwise the value is parsed as JSON, falling\n\
+                             back to a plain string. Missing intermediate blocks are created, so\n\
+                             setting a nested key works even when its parent does not exist yet.\n\
+                             Values may begin with a hyphen.\n\
+                             \n\
+                             Examples:\n  \
+                               meta config set skill.search-limit 50\n  \
+                               meta config set skill.dest ~/.config/skills\n  \
+                               meta config set default_bare true\n",
+                        ))
                         .arg(
                             Arg::new("key")
                                 .required(true)
@@ -373,12 +448,37 @@ impl MetaPlugin for ConfigPlugin {
                 )
                 .subcommand(
                     Command::new("list")
-                        .about("List configurable settings declared by plugins (key, type, default, current)")
-                        .visible_alias("ls"),
+                        .about("List declared settings with type, default, and current value")
+                        .visible_alias("ls")
+                        .after_long_help(metarepo_core::format_help_description(
+                            "List every configurable setting declared by the active plugins.\n\
+                             \n\
+                             For each declared setting it prints the dotted key, its value type,\n\
+                             the description, and the effective current value (or the default when\n\
+                             unset). Reads are cascade-aware: in a nested workspace an inherited\n\
+                             value is annotated with the file it came from. Use this to discover\n\
+                             what can be set before reaching for get or set.\n\
+                             \n\
+                             Examples:\n  \
+                               meta config list\n  \
+                               meta config ls\n",
+                        )),
                 )
                 .subcommand(
                     Command::new("validate")
-                        .about("Validate .meta file structure")
+                        .about("Check that the config file parses correctly")
+                        .after_long_help(metarepo_core::format_help_description(
+                            "Check that the configuration file parses into a valid structure.\n\
+                             \n\
+                             Loads the active config (or the file given with --file) and reports\n\
+                             whether it parses. On success it prints the validated path; on failure\n\
+                             it prints the parse error and exits non-zero. Useful in CI or after a\n\
+                             hand edit to confirm the file is well-formed.\n\
+                             \n\
+                             Examples:\n  \
+                               meta config validate\n  \
+                               meta config validate --file ./.meta\n",
+                        ))
                         .arg(
                             Arg::new("file")
                                 .short('f')
@@ -389,19 +489,24 @@ impl MetaPlugin for ConfigPlugin {
                 )
                 .subcommand(
                     Command::new("migrate")
-                        .about("Convert the workspace config between supported formats (json|yaml|toml)")
-                        .long_about(
-                            "Convert the workspace config to a different format.\n\n\
+                        .about("Convert the workspace config between supported formats")
+                        .after_long_help(metarepo_core::format_help_description(
+                            "Convert the workspace config to a different format (json, yaml, toml).\n\
+                             \n\
                              Reads the active config (auto-discovered or supplied via --config /\n\
-                             METAREPO_CONFIG) and writes it back in the chosen format.\n\n\
+                             METAREPO_CONFIG) and writes it back in the chosen format. The\n\
+                             destination defaults to the canonical filename for the target format\n\
+                             alongside the source, or an explicit path via --to.\n\
+                             \n\
                              By default the original file is kept; pass --replace to delete it\n\
                              after the new file is written. Refuses to overwrite an existing\n\
-                             destination unless --force is given.\n\n\
+                             destination unless --force is given.\n\
+                             \n\
                              Examples:\n  \
                                meta config migrate yaml                  Write .metarepo.yaml next to current\n  \
                                meta config migrate toml --replace        Migrate and remove the old file\n  \
-                               meta config migrate json --to .metarepo   Migrate to an explicit path",
-                        )
+                               meta config migrate json --to .metarepo   Migrate to an explicit path\n",
+                        ))
                         .arg(
                             Arg::new("format")
                                 .required(true)

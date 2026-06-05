@@ -104,7 +104,9 @@ fn print_skill_config(config: &RuntimeConfig) {
     );
 }
 
-/// Manages the bundled meta-tool Claude Code skill (install/update/status/remove).
+/// Manages Claude Code skills: the bundled meta-tool skill
+/// (install/update/status/remove) plus discovering, auditing, and importing
+/// other skills (scan/audit/locations/search/steal/add).
 pub struct SkillPlugin;
 
 impl SkillPlugin {
@@ -334,7 +336,7 @@ impl MetaPlugin for SkillPlugin {
 /// no-argument help path so both stay in sync.
 fn skill_command() -> Command {
     Command::new("skill")
-        .about("Manage the bundled Claude Code meta-tool skill")
+        .about("Manage Claude Code skills: the bundled meta-tool skill plus discovering, auditing, and importing others")
         .version(env!("CARGO_PKG_VERSION"))
         .long_about(
             "Install and maintain the bundled meta-tool Claude Code skill under\n\
@@ -353,11 +355,50 @@ fn skill_command() -> Command {
                        meta skill search react     Search skills.sh for skills\n  \
                        meta skill add <id>         Install a skill from skills.sh (audit-gated)",
         )
+        .after_long_help(metarepo_core::format_help_description(
+            "Manage the full lifecycle of Claude Code skills from one command.\n\
+             \n\
+             Skills are directories holding a SKILL.md (YAML frontmatter plus a\n\
+             markdown body) and optional supporting files. They are resolved from, in\n\
+             order: $CLAUDE_SKILLS_HOME, the workspace ./.claude/skills, then\n\
+             ~/.claude/skills. With no subcommand this shows the bundled meta-tool\n\
+             skill's installed-vs-bundled status.\n\
+             \n\
+             Bundled meta-tool skill: install, update, status, remove. Finding skills:\n\
+             scan a directory tree, search the skills.sh registry, list candidate\n\
+             destination dirs with locations. Vetting: audit grades risky patterns\n\
+             HIGH/MED/LOW. Importing: steal copies skills from a local path or git URL,\n\
+             add installs from skills.sh by id; both pass an audit gate that refuses\n\
+             HIGH findings unless forced.\n\
+             \n\
+             Defaults come from the [skill] block in .meta (dest, adapt command,\n\
+             search/detail URLs, search limit, api-key); meta skill locations prints\n\
+             the resolved values.\n\
+             \n\
+             Examples:\n  \
+               meta skill                Show installed vs bundled meta-tool version\n  \
+               meta skill search react   Find skills on skills.sh\n  \
+               meta skill add owner/repo/skill   Install one (audit-gated)\n  \
+               meta skill steal ./skills Pick and copy skills from a local tree",
+        ))
         .subcommand_required(false)
         .subcommand(
             Command::new("install")
                 .about("Install the skill into .claude/skills/meta-tool/")
                 .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Install the bundled meta-tool Claude Code skill into the workspace.\n\
+                     \n\
+                     Writes the skill to .claude/skills/meta-tool/ in the current\n\
+                     working directory. This is a no-op when the skill is already\n\
+                     present; pass --force / -f to overwrite the existing copy (for\n\
+                     example to restore a locally modified skill to the bundled\n\
+                     version).\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill install      Install if not already present\n  \
+                       meta skill install -f   Reinstall, overwriting the current copy",
+                ))
                 .arg(
                     Arg::new("force")
                         .long("force")
@@ -369,22 +410,69 @@ fn skill_command() -> Command {
         .subcommand(
             Command::new("update")
                 .about("Refresh the skill if the bundled version is newer")
-                .version(env!("CARGO_PKG_VERSION")),
+                .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Refresh the installed meta-tool skill to the bundled version.\n\
+                     \n\
+                     Compares the version installed under .claude/skills/meta-tool/\n\
+                     against the version shipped with this binary and rewrites the\n\
+                     skill when the bundled one is newer. When the installed copy is\n\
+                     already current this reports that and makes no changes.\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill update   Update when a newer version is bundled",
+                )),
         )
         .subcommand(
             Command::new("status")
                 .about("Show installed vs bundled skill version")
-                .version(env!("CARGO_PKG_VERSION")),
+                .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Report the meta-tool skill's installed version against the bundled one.\n\
+                     \n\
+                     Prints whether the skill is installed under\n\
+                     .claude/skills/meta-tool/ and, if so, whether it is up to date or\n\
+                     an update is available (with the from/to versions). When the skill\n\
+                     is absent it points you at meta skill install. This is the default\n\
+                     action when meta skill is run with no subcommand.\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill status   Show installed vs bundled version\n  \
+                       meta skill          Same, the no-argument default",
+                )),
         )
         .subcommand(
             Command::new("remove")
                 .about("Delete the installed skill")
-                .version(env!("CARGO_PKG_VERSION")),
+                .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Delete the bundled meta-tool skill from the workspace.\n\
+                     \n\
+                     Removes the .claude/skills/meta-tool/ directory if it exists.\n\
+                     Reports when there was nothing installed to remove. Reinstall\n\
+                     later with meta skill install.\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill remove   Delete the installed meta-tool skill",
+                )),
         )
         .subcommand(
             Command::new("scan")
                 .about("Walk a directory and list the skills found")
                 .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Discover Claude Code skills anywhere under a directory tree.\n\
+                     \n\
+                     Walks the given path recursively (skipping .git, node_modules,\n\
+                     and target) and lists every skill found, showing each skill's\n\
+                     name, description, and the path to its SKILL.md. The path defaults\n\
+                     to the current directory. Use this to find skills worth auditing\n\
+                     or stealing.\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill scan ~/Projects   List skills under a path\n  \
+                       meta skill scan              Scan the current directory",
+                ))
                 .arg(
                     Arg::new("path")
                         .help("Directory to scan (defaults to current dir)")
@@ -395,6 +483,24 @@ fn skill_command() -> Command {
             Command::new("audit")
                 .about("Inspect a skill and flag risky patterns")
                 .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Inspect a single skill and flag risky patterns before you trust it.\n\
+                     \n\
+                     Scans every file in the skill (not just SKILL.md) and grades\n\
+                     findings HIGH / MED / LOW, each reported as file:line. HIGH covers\n\
+                     remote-exec patterns (curl/wget, piping into a shell, eval),\n\
+                     rm -rf, sudo, and wildcard allowed-tools; MED covers shipped\n\
+                     executables, chmod +x, git push, --no-verify, ssh, and possible\n\
+                     credential references; LOW covers missing frontmatter name or\n\
+                     description. The auditor is heuristic and substring-based, so it\n\
+                     can false-positive (a skill that merely documents curl | sh is\n\
+                     flagged) — treat findings as a prompt to read the file. This is the\n\
+                     same gate steal and add apply before importing.\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill audit ~/Downloads/some-skill   Audit a skill dir\n  \
+                       meta skill audit ./skills/foo/SKILL.md    A SKILL.md path works",
+                ))
                 .arg(
                     Arg::new("path")
                         .help("Path to a skill directory or SKILL.md")
@@ -404,12 +510,39 @@ fn skill_command() -> Command {
         .subcommand(
             Command::new("locations")
                 .about("Print candidate skill destination directories")
-                .version(env!("CARGO_PKG_VERSION")),
+                .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Show where skills resolve from and the configured [skill] defaults.\n\
+                     \n\
+                     Prints the candidate skill destination directories in resolution\n\
+                     order ($CLAUDE_SKILLS_HOME, ./.claude/skills, ~/.claude/skills),\n\
+                     marking which already exist, followed by the resolved [skill]\n\
+                     configuration from .meta (default dest and the adapt command). Run\n\
+                     this to see where steal and add will write, and what --adapt will\n\
+                     invoke.\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill locations   List destinations and [skill] config",
+                )),
         )
         .subcommand(
             Command::new("search")
                 .about("Search the skills.sh registry for skills")
                 .version(env!("CARGO_PKG_VERSION"))
+                .after_long_help(metarepo_core::format_help_description(
+                    "Search the skills.sh registry for Claude Code skills to install.\n\
+                     \n\
+                     Queries the public, unauthenticated skills.sh search endpoint for\n\
+                     the given terms (at least 2 characters) and prints matches with\n\
+                     their install count and canonical owner/repo/skill id. Install a\n\
+                     result with meta skill add <id>. Use --limit to change how many\n\
+                     hits are shown (default 25, or the [skill] search-limit setting);\n\
+                     the endpoint is overridable via [skill] search-url.\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill search react              Top matches for react\n  \
+                       meta skill search next js --limit 50 Show up to 50 hits",
+                ))
                 .arg(
                     Arg::new("query")
                         .help("Search terms (at least 2 characters)")
@@ -430,6 +563,28 @@ fn skill_command() -> Command {
                      when SKILLS_SH_API_KEY is set, otherwise by cloning the source GitHub repo,\n\
                      then audits the skill and copies it into a skills directory.",
                 )
+                .after_long_help(metarepo_core::format_help_description(
+                    "Install a skill from the skills.sh registry by id, audit-gated.\n\
+                     \n\
+                     Takes an owner/repo/skill id (find one with meta skill search) and\n\
+                     resolves its files one of two ways, chosen automatically: keyed\n\
+                     fetch from the authenticated skills.sh API when SKILLS_SH_API_KEY\n\
+                     (an sk_live_... key) is set, or keyless by shallow-cloning the\n\
+                     source GitHub repo and fuzzy-matching the registry slug to a skill\n\
+                     directory. Keyless install needs git; both paths need curl. The\n\
+                     resolved skill runs through the same audit gate as steal before\n\
+                     anything is written.\n\
+                     \n\
+                     Key flags mirror steal: --dest sets the destination skills root\n\
+                     (else the [skill] dest / candidate chain), --overwrite replaces an\n\
+                     existing skill of the same name, and --force / -f installs even when\n\
+                     the audit reports HIGH-severity findings.\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill add owner/repo/skill            Install (audit-gated)\n  \
+                       meta skill add owner/repo/skill --overwrite  Replace an existing copy\n  \
+                       meta skill add owner/repo/skill --force    Install despite HIGH findings",
+                ))
                 .version(env!("CARGO_PKG_VERSION"))
                 .arg(
                     Arg::new("id")
@@ -474,6 +629,32 @@ fn skill_command() -> Command {
                        meta skill steal <git-url> --name foo --name bar  Copy by name\n  \
                        meta skill steal <git-url> --adapt \"fit this repo\"  Adapt via headless claude",
                 )
+                .after_long_help(metarepo_core::format_help_description(
+                    "Copy one or more external skills into a local skills directory, audit-gated.\n\
+                     \n\
+                     The source can be a single skill (a directory with a SKILL.md, or a\n\
+                     SKILL.md path), a directory tree of many skills, or a git URL\n\
+                     (shallow-cloned, then treated as a tree). The whole skill directory\n\
+                     is copied recursively (scripts and data included; .git,\n\
+                     node_modules, and target are skipped), and every copy passes the\n\
+                     audit gate independently. When the source holds more than one skill\n\
+                     you choose which to take: an interactive full-screen picker in a\n\
+                     terminal, or --all / --name when scripted (required without a TTY).\n\
+                     \n\
+                     Key flags: --dest sets the destination skills root (else [skill]\n\
+                     dest / candidate chain); --all takes every skill; --name <n>\n\
+                     (repeatable) takes named skills; --preview shows findings and a body\n\
+                     excerpt and copies nothing; --adapt [purpose] runs a headless AI\n\
+                     command to tailor each copy to this repo; --overwrite replaces an\n\
+                     existing copy; --force / -f proceeds despite HIGH findings. Skills\n\
+                     with findings get a .meta-review.md trail and inline markers; git\n\
+                     sources also get a .meta-source.toml provenance file.\n\
+                     \n\
+                     Examples:\n  \
+                       meta skill steal ./path/to/skill                    Copy one local skill\n  \
+                       meta skill steal https://github.com/owner/repo.git  Clone and pick\n  \
+                       meta skill steal <git-url> --all --dest ~/.claude/skills  Copy all to a dest",
+                ))
                 .version(env!("CARGO_PKG_VERSION"))
                 .arg(
                     Arg::new("path")
@@ -535,7 +716,7 @@ impl BasePlugin for SkillPlugin {
     }
 
     fn description(&self) -> Option<&str> {
-        Some("Manage the bundled Claude Code meta-tool skill")
+        Some("Manage Claude Code skills: the bundled meta-tool skill plus discovering, auditing, and importing others")
     }
 
     fn author(&self) -> Option<&str> {
