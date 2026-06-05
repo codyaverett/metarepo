@@ -17,12 +17,14 @@ const GATEWAY_TIMEOUT: Duration = Duration::from_secs(30);
 /// Gateway meta-tools fronting the saved downstream MCP servers. They keep the
 /// top-level tool surface small (progressive disclosure): browse the catalog,
 /// open one server's tools on demand, search across all, then proxy a call.
-const GATEWAY_TOOLS: [&str; 5] = [
+const GATEWAY_TOOLS: [&str; 7] = [
     "mcp_catalog",
     "mcp_list_tools",
     "mcp_search_tools",
     "mcp_call",
     "mcp_workspaces",
+    "mcp_enable",
+    "mcp_disable",
 ];
 
 /// Write capability a tool needs, used to gate it against the serve policy.
@@ -252,6 +254,23 @@ pub struct MetarepoMcpServer {
     /// Cache of downstream `(tool name, description)` lists keyed by server name,
     /// so repeated list/search calls don't respawn a server. Single-threaded.
     tool_cache: RefCell<HashMap<String, Vec<(String, String)>>>,
+    /// Downstream tools promoted (via `mcp_enable`) into the top-level tools/list.
+    promoted: RefCell<Vec<PromotedTool>>,
+    /// Server-initiated JSON-RPC notification lines queued during request
+    /// handling, flushed by the run loop (e.g. `tools/list_changed`).
+    pending_notifications: RefCell<Vec<String>>,
+}
+
+/// A downstream tool surfaced at the gateway's top level under a namespaced name
+/// (`server__tool`), so a client that honors `tools/list_changed` can call it
+/// directly after `mcp_enable`.
+#[derive(Debug, Clone)]
+struct PromotedTool {
+    qualified_name: String,
+    server: String,
+    tool: String,
+    description: String,
+    input_schema: Value,
 }
 
 impl Default for MetarepoMcpServer {
@@ -304,7 +323,16 @@ impl MetarepoMcpServer {
             multi,
             gateway_policy,
             tool_cache: RefCell::new(HashMap::new()),
+            promoted: RefCell::new(Vec::new()),
+            pending_notifications: RefCell::new(Vec::new()),
         }
+    }
+
+    /// Queue a `tools/list_changed` notification for the run loop to flush.
+    fn notify_tools_changed(&self) {
+        self.pending_notifications.borrow_mut().push(
+            json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }).to_string(),
+        );
     }
 
     /// Resolve which workspace a tool call targets. In pinned mode the single
@@ -576,6 +604,32 @@ impl MetarepoMcpServer {
                 input_schema: json!({ "type": "object", "properties": {} }),
             },
             Tool {
+                name: "mcp_enable".to_string(),
+                description: "Promote a downstream server's tools to this server's top-level \
+                              tool list (callable directly as server__tool)"
+                    .to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "required": ["server"],
+                    "properties": {
+                        "server": { "type": "string", "description": "Saved server name" },
+                        "tool": { "type": "string", "description": "One tool to enable (default: all)" }
+                    }
+                }),
+            },
+            Tool {
+                name: "mcp_disable".to_string(),
+                description: "Remove previously promoted downstream tools from the top-level list"
+                    .to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "server": { "type": "string", "description": "Server to disable (default: all)" },
+                        "tool": { "type": "string", "description": "One tool to disable (default: all for the server)" }
+                    }
+                }),
+            },
+            Tool {
                 name: "mcp_call".to_string(),
                 description: "Call a tool on a saved downstream MCP server and return its result"
                     .to_string(),
@@ -618,6 +672,13 @@ impl MetarepoMcpServer {
             } else {
                 // It's a notification, just handle it without responding
                 self.handle_request(request);
+            }
+
+            // Flush any server-initiated notifications queued while handling the
+            // request (e.g. tools/list_changed after mcp_enable/mcp_disable).
+            for note in self.pending_notifications.borrow_mut().drain(..) {
+                writeln!(stdout, "{}", note)?;
+                stdout.flush()?;
             }
         }
 
@@ -688,7 +749,9 @@ impl MetarepoMcpServer {
             version: env!("CARGO_PKG_VERSION").to_string(),
             protocol_version: "2025-06-18".to_string(),
             capabilities: ServerCapabilities {
-                tools: Some(json!({})),
+                // Advertise that the tool list can change so clients re-fetch
+                // after mcp_enable/mcp_disable.
+                tools: Some(json!({ "listChanged": true })),
                 resources: None,
                 prompts: None,
             },
@@ -704,7 +767,7 @@ impl MetarepoMcpServer {
     }
 
     fn handle_tools_list(&self, id: Value) -> JsonRpcResponse {
-        let tools: Vec<Value> = if self.multi {
+        let mut tools: Vec<Value> = if self.multi {
             // Allowlist mode: which workspace tools are permitted varies per call,
             // so advertise them all and add a `workspace` selector to each
             // workspace tool's schema. Gateway tools stay workspace-independent.
@@ -747,6 +810,19 @@ impl MetarepoMcpServer {
                 .map(|t| serde_json::to_value(t).unwrap_or(json!({})))
                 .collect()
         };
+
+        // Append promoted downstream tools. They proxy a downstream call, so they
+        // are only advertised when the gateway policy permits proxying.
+        if self.gateway_policy.allows("mcp_call") {
+            for p in self.promoted.borrow().iter() {
+                tools.push(json!({
+                    "name": p.qualified_name,
+                    "description": format!("[{}] {}", p.server, p.description),
+                    "inputSchema": p.input_schema,
+                }));
+            }
+        }
+
         JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id,
@@ -835,6 +911,32 @@ impl MetarepoMcpServer {
                 ));
             }
             return self.execute_gateway_tool(name, &arguments);
+        }
+
+        // A promoted downstream tool (server__tool): proxy it like mcp_call.
+        let promoted = self
+            .promoted
+            .borrow()
+            .iter()
+            .find(|p| p.qualified_name == name)
+            .cloned();
+        if let Some(p) = promoted {
+            if !self.gateway_policy.allows("mcp_call") {
+                return Err(anyhow::anyhow!(
+                    "Proxying downstream tools is not permitted by this server's policy ({})",
+                    self.gateway_policy.summary()
+                ));
+            }
+            let config = McpConfig::load().context("Failed to load saved MCP servers")?;
+            let cfg = resolve_server(&config, &p.server)?;
+            let tool = p.tool.clone();
+            let result = run_async(async move {
+                let mut client = connect_downstream(&cfg).await?;
+                let r = client.call_tool(&tool, arguments).await;
+                client.close().await.ok();
+                r
+            })?;
+            return Ok(serde_json::to_string_pretty(&result)?);
         }
 
         // Workspace tools: resolve which workspace this call targets, then gate
@@ -1086,8 +1188,88 @@ impl MetarepoMcpServer {
                 })?;
                 Ok(serde_json::to_string_pretty(&result)?)
             }
+            "mcp_enable" => {
+                let server = arguments
+                    .get("server")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("mcp_enable requires a 'server' argument"))?;
+                let only = arguments.get("tool").and_then(|v| v.as_str());
+                let full = self.downstream_full_tools(&config, server)?;
+                let mut enabled = Vec::new();
+                for (tname, desc, schema) in full {
+                    if let Some(want) = only {
+                        if tname != want {
+                            continue;
+                        }
+                    }
+                    let qualified = format!("{server}__{tname}");
+                    let mut promoted = self.promoted.borrow_mut();
+                    if !promoted.iter().any(|p| p.qualified_name == qualified) {
+                        promoted.push(PromotedTool {
+                            qualified_name: qualified.clone(),
+                            server: server.to_string(),
+                            tool: tname.clone(),
+                            description: desc,
+                            input_schema: schema,
+                        });
+                    }
+                    enabled.push(qualified);
+                }
+                if let Some(want) = only {
+                    if enabled.is_empty() {
+                        return Err(anyhow::anyhow!(
+                            "Server '{}' has no tool named '{}'",
+                            server,
+                            want
+                        ));
+                    }
+                }
+                self.notify_tools_changed();
+                Ok(serde_json::to_string_pretty(&json!({
+                    "enabled": enabled,
+                    "note": "Promoted tools are callable as server__tool; clients honoring \
+                             tools/list_changed will see them after refreshing.",
+                }))?)
+            }
+            "mcp_disable" => {
+                let server = arguments.get("server").and_then(|v| v.as_str());
+                let tool = arguments.get("tool").and_then(|v| v.as_str());
+                let before = self.promoted.borrow().len();
+                self.promoted.borrow_mut().retain(|p| match (server, tool) {
+                    (Some(s), Some(t)) => !(p.server == s && p.tool == t),
+                    (Some(s), None) => p.server != s,
+                    _ => false, // neither given: disable all
+                });
+                let removed = before - self.promoted.borrow().len();
+                if removed > 0 {
+                    self.notify_tools_changed();
+                }
+                Ok(serde_json::to_string_pretty(
+                    &json!({ "disabled": removed }),
+                )?)
+            }
             _ => Err(anyhow::anyhow!("Unknown gateway tool: {}", name)),
         }
+    }
+
+    /// Full tool descriptors (name, description, input schema) for one downstream
+    /// server, fetched by connecting on demand.
+    fn downstream_full_tools(
+        &self,
+        config: &McpConfig,
+        server: &str,
+    ) -> Result<Vec<(String, String, Value)>> {
+        let cfg = resolve_server(config, server)?;
+        let tools = run_async(async move {
+            let mut client = connect_downstream(&cfg).await?;
+            let t = client.list_tools().await;
+            client.close().await.ok();
+            t
+        })?;
+        Ok(tools
+            .into_iter()
+            .map(|t| (t.name, t.description.unwrap_or_default(), t.input_schema))
+            .collect())
     }
 
     /// List the saved downstream servers without connecting to any of them.
@@ -1228,6 +1410,7 @@ pub fn print_vscode_config(workspaces: &[String], allowlist: bool) {
     println!("  • exec - Execute commands across projects");
     println!("  • mcp_add_server, mcp_list_servers, mcp_remove_server");
     println!("  • mcp_catalog, mcp_list_tools, mcp_search_tools, mcp_call (gateway)");
+    println!("  • mcp_workspaces, mcp_enable, mcp_disable (gateway)");
     println!();
     println!("=== Testing ===");
     println!();
@@ -1345,6 +1528,21 @@ mod tests {
             root: None,
             policy: policy(mode, true, None),
         }
+    }
+
+    #[test]
+    fn notify_tools_changed_queues_a_list_changed_notification() {
+        let s = MetarepoMcpServer::new();
+        assert!(s.promoted.borrow().is_empty());
+        assert!(s.pending_notifications.borrow().is_empty());
+        s.notify_tools_changed();
+        let queued = s.pending_notifications.borrow();
+        assert_eq!(queued.len(), 1);
+        assert!(queued[0].contains("notifications/tools/list_changed"));
+        // enable/disable are gateway tools classified as writes.
+        assert!(GATEWAY_TOOLS.contains(&"mcp_enable"));
+        assert!(GATEWAY_TOOLS.contains(&"mcp_disable"));
+        assert_eq!(tool_kind("mcp_enable"), ToolKind::Write);
     }
 
     #[test]

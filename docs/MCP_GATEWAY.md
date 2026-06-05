@@ -1,9 +1,8 @@
 # MCP gateway & workspace scoping — design
 
-Status: **phases 1, 2, and 4 implemented** (#86, #87, #89); phase 3 is still a
-proposal. Tracks how the experimental `meta mcp` plugin grows into (a) a
-progressive-disclosure gateway in front of other MCP servers, and (b) a
-workspace-scoped, permission-aware server.
+Status: **all phases implemented** (#86, #87, #88, #89). Tracks how the
+experimental `meta mcp` plugin grew into (a) a progressive-disclosure gateway in
+front of other MCP servers, and (b) a workspace-scoped, permission-aware server.
 
 ### Phase 1 — shipped
 
@@ -57,8 +56,20 @@ a write (blocked under `read-only`). Not yet applied: the saved `working_dir`/
   entry per workspace (`metarepo-<name>`); add `--allow-workspaces` to emit a
   single allowlist entry instead.
 
-Phase 3 (Tier B dynamic promotion via `tools/list_changed`) remains the only
-unshipped phase; the design for it is below.
+### Phase 3 — shipped (Tier B)
+
+- `mcp_enable(server[, tool])` promotes a downstream server's tools (or one
+  named tool) into the gateway's top-level `tools/list` under namespaced names
+  (`server__tool`); `mcp_disable([server[, tool]])` removes them.
+- After enable/disable the server emits `notifications/tools/list_changed`, and
+  it advertises `capabilities.tools.listChanged: true` at `initialize`, so a
+  client that honors the notification re-fetches and can call the promoted tools
+  directly. Promoted tools proxy to the downstream server (gated like `mcp_call`,
+  so blocked under `read-only`). Clients that don't refresh can still reach the
+  same tools via `mcp_call`.
+
+All four phases are now implemented. The remaining sections are the original
+design notes.
 
 ## 1. Where we are today
 
