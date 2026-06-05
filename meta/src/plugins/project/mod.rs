@@ -496,6 +496,7 @@ pub fn import_project_with_options(
                 env: std::collections::HashMap::new(),
                 worktree_init: None,
                 bare: Some(true),
+                enabled: None,
             }),
         );
     } else {

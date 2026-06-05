@@ -927,6 +927,7 @@ impl ConfigEditor {
                     env: std::collections::HashMap::new(),
                     worktree_init: None,
                     bare: None,
+                    enabled: None,
                 }),
             );
             self.state.modified = true;

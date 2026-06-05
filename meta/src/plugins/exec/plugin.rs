@@ -31,8 +31,10 @@ impl ExecPlugin {
                          \n\
                          Use -p/--project or --projects to target specific projects, -a/--all to run\n\
                          across the whole workspace, and --include-only/--exclude to filter by name.\n\
-                         --git-only and --existing-only restrict the set further. --parallel runs the\n\
-                         command concurrently and --include-main also runs it in the meta repo itself.\n\
+                         --git-only and --existing-only restrict the set further. Projects disabled\n\
+                         in the .meta config are skipped unless --include-disabled is passed.\n\
+                         --parallel runs the command concurrently and --include-main also runs it in\n\
+                         the meta repo itself.\n\
                          \n\
                          Examples:\n  \
                            meta exec --all git status\n  \
@@ -92,6 +94,11 @@ impl ExecPlugin {
                         arg("include-main")
                             .long("include-main")
                             .help("Include the main meta repository"),
+                    )
+                    .arg(
+                        arg("include-disabled")
+                            .long("include-disabled")
+                            .help("Also run in projects disabled in the .meta config"),
                     ),
             )
             .handler("exec", handle_exec)
@@ -119,10 +126,13 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
             // Collect selected projects
             let mut selected_projects = Vec::new();
 
+            let include_disabled = matches.get_flag("include-disabled");
+
             // Check for --all flag
             if matches.get_flag("all") {
                 // Run in all projects
-                let mut iterator = ProjectIterator::new(&config, base_path);
+                let mut iterator =
+                    ProjectIterator::new(&config, base_path).include_disabled(include_disabled);
 
                 // Apply additional filters if provided
                 if let Some(patterns_str) = matches.get_one::<String>("include-only") {
@@ -185,6 +195,26 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                 }
             }
 
+            // Drop explicitly-selected projects that are disabled, unless the
+            // user opted in with --include-disabled. Resolution already happened
+            // above, so an alias of a disabled project is caught here too.
+            if !selected_projects.is_empty() && !include_disabled {
+                let disabled = config.disabled_project_keys();
+                selected_projects.retain(|key| {
+                    if disabled.contains(key) {
+                        eprintln!(
+                            "Skipping disabled project '{key}' (use --include-disabled to run it)"
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                });
+                if selected_projects.is_empty() {
+                    return Ok(());
+                }
+            }
+
             // If no projects specified, fall back to the directory-aware scope:
             // inside a project -> that project; inside a subdirectory -> the
             // projects beneath it; at the workspace root (or with --workspace)
@@ -206,7 +236,8 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
             }
 
             // Build iterator with filters (for backward compatibility)
-            let mut iterator = ProjectIterator::new(&config, base_path);
+            let mut iterator =
+                ProjectIterator::new(&config, base_path).include_disabled(include_disabled);
 
             // Apply include patterns
             if let Some(patterns_str) = matches.get_one::<String>("include-only") {
@@ -349,6 +380,12 @@ impl MetaPlugin for ExecPlugin {
                 clap::Arg::new("include-main")
                     .long("include-main")
                     .help("Include the main meta repository")
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                clap::Arg::new("include-disabled")
+                    .long("include-disabled")
+                    .help("Also run in projects disabled in the .meta config")
                     .action(clap::ArgAction::SetTrue),
             )
             .arg(

@@ -67,6 +67,7 @@ fn save_then_load_works_for_each_extension() {
                 env: HashMap::new(),
                 worktree_init: None,
                 bare: None,
+                enabled: None,
             }),
         );
 

@@ -131,37 +131,7 @@ impl RuntimeConfig {
 
     /// Resolve a project identifier (could be full name, basename, or alias)
     pub fn resolve_project(&self, identifier: &str) -> Option<String> {
-        // First, check if it's a full project name
-        if self.meta_config.projects.contains_key(identifier) {
-            return Some(identifier.to_string());
-        }
-
-        // Check global aliases
-        if let Some(aliases) = &self.meta_config.aliases {
-            if let Some(project_path) = aliases.get(identifier) {
-                return Some(project_path.clone());
-            }
-        }
-
-        // Check project-specific aliases
-        for (project_name, entry) in &self.meta_config.projects {
-            if let ProjectEntry::Metadata(metadata) = entry {
-                if metadata.aliases.contains(&identifier.to_string()) {
-                    return Some(project_name.clone());
-                }
-            }
-        }
-
-        // Check if it's a basename match
-        for project_name in self.meta_config.projects.keys() {
-            if let Some(basename) = std::path::Path::new(project_name).file_name() {
-                if basename.to_string_lossy() == identifier {
-                    return Some(project_name.clone());
-                }
-            }
-        }
-
-        None
+        self.meta_config.resolve_identifier(identifier)
     }
 
     /// Get all valid identifiers for a project (full name, basename, aliases)
@@ -255,15 +225,59 @@ pub fn scoped_keys(
 ) -> Vec<String> {
     let mut keys: Vec<String> = meta_config.projects.keys().cloned().collect();
     keys.sort();
-    if scope_workspace {
-        return keys;
-    }
-    let Some(meta_root) = meta_root_of(meta_file_path) else {
+    let in_scope = if scope_workspace {
+        keys
+    } else if let Some(meta_root) = meta_root_of(meta_file_path) {
+        let current = current_project_of(meta_config, &meta_root, working_dir);
+        projects_in_scope(&meta_root, working_dir, &keys, current)
+    } else {
         // No workspace root known — fall back to all projects.
-        return keys;
+        keys
     };
-    let current = current_project_of(meta_config, &meta_root, working_dir);
-    projects_in_scope(&meta_root, working_dir, &keys, current)
+    // Disabled projects are never part of the directory-aware default scope,
+    // not even with --workspace. They are reachable only via --include-disabled.
+    let disabled = meta_config.disabled_project_keys();
+    in_scope
+        .into_iter()
+        .filter(|key| !disabled.contains(key))
+        .collect()
+}
+
+/// Match `text` against a simple pattern: `*` is a wildcard, otherwise the match
+/// is exact-or-substring. Shared by the `disabled` list and the exec iterator so
+/// both honor the same semantics.
+pub fn pattern_matches(text: &str, pattern: &str) -> bool {
+    if !pattern.contains('*') {
+        return text == pattern || text.contains(pattern);
+    }
+
+    let parts: Vec<&str> = pattern.split('*').collect();
+    if parts.is_empty() {
+        return true;
+    }
+
+    let mut current_pos = 0;
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        if i == 0 && !pattern.starts_with('*') {
+            if !text.starts_with(part) {
+                return false;
+            }
+            current_pos = part.len();
+        } else if i == parts.len() - 1 && !pattern.ends_with('*') {
+            if !text.ends_with(part) {
+                return false;
+            }
+        } else if let Some(pos) = text[current_pos..].find(part) {
+            current_pos += pos + part.len();
+        } else {
+            return false;
+        }
+    }
+
+    true
 }
 
 /// Configuration for nested repository handling
@@ -333,6 +347,12 @@ pub struct ProjectMetadata {
     pub worktree_init: Option<String>,
     #[serde(default)]
     pub bare: Option<bool>,
+    /// When `Some(false)`, this project is excluded from default and bulk
+    /// operations (directory scope, `--all`, `--workspace`). It remains in the
+    /// config and can be targeted explicitly with `--include-disabled`.
+    /// `None` or `Some(true)` means the project is managed normally.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }
 
 /// The .meta file configuration format
@@ -342,6 +362,11 @@ pub struct MetaConfig {
     pub ignore: Vec<String>,
     #[serde(default)]
     pub projects: HashMap<String, ProjectEntry>, // Now supports both String and ProjectMetadata
+    /// Project identifiers excluded from default and bulk operations. Each entry
+    /// may be a project key, path, basename, alias, or a `*` wildcard pattern;
+    /// all are normalized to canonical project keys so an alias cannot bypass it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disabled: Vec<String>,
     #[serde(default)]
     pub plugins: Option<HashMap<String, String>>, // name -> version/path
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -466,6 +491,7 @@ impl Default for MetaConfig {
                 ".DS_Store".to_string(),
             ],
             projects: HashMap::new(),
+            disabled: Vec::new(),
             plugins: None,
             modules: None,
             nested: None,
@@ -817,6 +843,91 @@ impl MetaConfig {
         })
     }
 
+    /// Resolve a project identifier to its canonical project key. Accepts a full
+    /// key, a global alias, a project-specific alias, or a basename. Returns
+    /// `None` when nothing matches. This is the single resolution used both for
+    /// explicit project selection and for normalizing the `disabled` list, so an
+    /// alias and the key it points to always collapse to the same identity.
+    pub fn resolve_identifier(&self, identifier: &str) -> Option<String> {
+        // Full project key.
+        if self.projects.contains_key(identifier) {
+            return Some(identifier.to_string());
+        }
+
+        // Global aliases (alias -> project key).
+        if let Some(aliases) = &self.aliases {
+            if let Some(project_path) = aliases.get(identifier) {
+                return Some(project_path.clone());
+            }
+        }
+
+        // Project-specific aliases.
+        for (project_name, entry) in &self.projects {
+            if let ProjectEntry::Metadata(metadata) = entry {
+                if metadata.aliases.contains(&identifier.to_string()) {
+                    return Some(project_name.clone());
+                }
+            }
+        }
+
+        // Basename match.
+        for project_name in self.projects.keys() {
+            if let Some(basename) = std::path::Path::new(project_name).file_name() {
+                if basename.to_string_lossy() == identifier {
+                    return Some(project_name.clone());
+                }
+            }
+        }
+
+        None
+    }
+
+    /// The set of canonical project keys that are disabled, via either the
+    /// per-project `enabled: false` flag or the top-level `disabled` list.
+    ///
+    /// Non-wildcard `disabled` entries are run through [`resolve_identifier`] so
+    /// keys, aliases, and basenames all normalize to canonical keys — an alias in
+    /// the list disables its project, and an alias of a disabled project can never
+    /// bypass it. Wildcard entries (`*`) are matched against every project key.
+    pub fn disabled_project_keys(&self) -> std::collections::HashSet<String> {
+        let mut set = std::collections::HashSet::new();
+
+        // A) per-project `enabled: false` flag.
+        for (key, entry) in &self.projects {
+            if let ProjectEntry::Metadata(metadata) = entry {
+                if metadata.enabled == Some(false) {
+                    set.insert(key.clone());
+                }
+            }
+        }
+
+        // B) top-level `disabled` list.
+        for pattern in &self.disabled {
+            if pattern.contains('*') {
+                for key in self.projects.keys() {
+                    if pattern_matches(key, pattern) {
+                        set.insert(key.clone());
+                    }
+                }
+            } else if let Some(resolved) = self.resolve_identifier(pattern) {
+                set.insert(resolved);
+            }
+        }
+
+        set
+    }
+
+    /// Whether the given identifier resolves to a disabled project. The
+    /// identifier may be a key, alias, or basename — it is resolved first, so
+    /// disabling cannot be sidestepped by naming the project differently.
+    pub fn is_project_disabled(&self, identifier: &str) -> bool {
+        let disabled = self.disabled_project_keys();
+        match self.resolve_identifier(identifier) {
+            Some(key) => disabled.contains(&key),
+            None => disabled.contains(identifier),
+        }
+    }
+
     /// Get scripts for a specific project
     pub fn get_project_scripts(&self, project_name: &str) -> Option<HashMap<String, String>> {
         self.projects
@@ -1089,6 +1200,80 @@ mod tests {
         let mut v = keys(list);
         v.sort();
         v
+    }
+
+    fn metadata_entry(url: &str, aliases: &[&str], enabled: Option<bool>) -> ProjectEntry {
+        ProjectEntry::Metadata(ProjectMetadata {
+            url: url.to_string(),
+            aliases: aliases.iter().map(|s| s.to_string()).collect(),
+            scripts: HashMap::new(),
+            env: HashMap::new(),
+            worktree_init: None,
+            bare: None,
+            enabled,
+        })
+    }
+
+    #[test]
+    fn disabled_via_enabled_false_flag() {
+        let mut cfg = MetaConfig::default();
+        cfg.projects
+            .insert("a".to_string(), metadata_entry("u", &[], Some(false)));
+        cfg.projects
+            .insert("b".to_string(), metadata_entry("u", &[], None));
+        let disabled = cfg.disabled_project_keys();
+        assert!(disabled.contains("a"));
+        assert!(!disabled.contains("b"));
+        assert!(cfg.is_project_disabled("a"));
+    }
+
+    #[test]
+    fn disabled_list_resolves_key_alias_and_wildcard() {
+        let mut cfg = MetaConfig::default();
+        cfg.projects.insert(
+            "services/web".to_string(),
+            metadata_entry("u", &["web"], None),
+        );
+        cfg.projects
+            .insert("services/api".to_string(), metadata_entry("u", &[], None));
+        cfg.projects
+            .insert("tools/lint".to_string(), ProjectEntry::Url("u".to_string()));
+        // alias of services/web, plus a wildcard over the services subtree.
+        cfg.disabled = vec!["web".to_string(), "services/*".to_string()];
+
+        let disabled = cfg.disabled_project_keys();
+        assert!(disabled.contains("services/web"));
+        assert!(disabled.contains("services/api"));
+        assert!(!disabled.contains("tools/lint"));
+    }
+
+    #[test]
+    fn disabled_cannot_be_bypassed_by_alias() {
+        let mut cfg = MetaConfig::default();
+        // Disabled by canonical key; project also has an alias.
+        cfg.projects.insert(
+            "old-thing".to_string(),
+            metadata_entry("u", &["legacy"], None),
+        );
+        cfg.disabled = vec!["old-thing".to_string()];
+        // Referencing it by its alias still reports disabled.
+        assert!(cfg.is_project_disabled("legacy"));
+        assert!(cfg.is_project_disabled("old-thing"));
+    }
+
+    #[test]
+    fn scoped_keys_excludes_disabled_projects() {
+        let mut cfg = MetaConfig::default();
+        cfg.projects
+            .insert("a".to_string(), ProjectEntry::Url("u".to_string()));
+        cfg.projects
+            .insert("b".to_string(), metadata_entry("u", &[], Some(false)));
+        cfg.projects
+            .insert("c".to_string(), ProjectEntry::Url("u".to_string()));
+        cfg.disabled = vec!["c".to_string()];
+
+        let keys = scoped_keys(&cfg, Path::new("/ws"), Some(Path::new("/ws/.meta")), true);
+        assert_eq!(keys, keys_sorted(&["a"]));
     }
 
     #[test]

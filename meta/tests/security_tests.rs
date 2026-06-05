@@ -245,6 +245,7 @@ mod config_safety {
                 env: HashMap::new(),
                 worktree_init: None,
                 bare: None,
+                enabled: None,
             }),
         );
 
@@ -336,6 +337,7 @@ mod config_safety {
                 env: HashMap::new(),
                 worktree_init: Some(dangerous_init.to_string()),
                 bare: None,
+                enabled: None,
             }),
         );
 
@@ -378,6 +380,7 @@ mod config_safety {
                 env: HashMap::new(),
                 worktree_init: Some("echo project".to_string()),
                 bare: None,
+                enabled: None,
             }),
         );
 
@@ -411,6 +414,7 @@ mod config_safety {
                 env,
                 worktree_init: None,
                 bare: None,
+                enabled: None,
             }),
         );
         config.save_to_file(&meta_path).unwrap();
@@ -660,6 +664,7 @@ mod exec_config_integration {
                 env: HashMap::new(),
                 worktree_init: None,
                 bare: None,
+                enabled: None,
             }),
         );
 

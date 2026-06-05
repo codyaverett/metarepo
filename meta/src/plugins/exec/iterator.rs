@@ -52,6 +52,8 @@ pub struct ProjectIterator {
     current: usize,
     include_patterns: Vec<String>,
     exclude_patterns: Vec<String>,
+    disabled: std::collections::HashSet<String>,
+    include_disabled: bool,
 }
 
 impl ProjectIterator {
@@ -72,7 +74,17 @@ impl ProjectIterator {
             current: 0,
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
+            disabled: config.disabled_project_keys(),
+            include_disabled: false,
         }
+    }
+
+    /// Also iterate over projects disabled via `enabled: false` or the top-level
+    /// `disabled` list. Off by default, so disabled projects are skipped unless
+    /// the caller (e.g. `--include-disabled`) opts in.
+    pub fn include_disabled(mut self, include: bool) -> Self {
+        self.include_disabled = include;
+        self
     }
 
     pub fn with_include_patterns(mut self, patterns: Vec<String>) -> Self {
@@ -117,6 +129,11 @@ impl ProjectIterator {
     }
 
     fn matches_patterns(&self, project: &ProjectInfo) -> bool {
+        // Disabled projects are skipped unless explicitly included.
+        if !self.include_disabled && self.disabled.contains(&project.name) {
+            return false;
+        }
+
         // If include patterns are specified, project must match at least one
         if !self.include_patterns.is_empty() {
             let matches_include = self.include_patterns.iter().any(|pattern| {
@@ -451,6 +468,28 @@ mod tests {
 
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].name, "lib-core");
+    }
+
+    #[test]
+    fn test_iterator_skips_disabled_by_default() {
+        let temp_dir = tempdir().unwrap();
+        let mut config = create_test_config();
+        // Disable lib-core via the top-level list.
+        config.disabled = vec!["lib-core".to_string()];
+
+        let names: Vec<String> = ProjectIterator::new(&config, temp_dir.path())
+            .map(|p| p.name)
+            .collect();
+        assert!(!names.contains(&"lib-core".to_string()));
+        assert_eq!(names.len(), 4);
+
+        // include_disabled brings it back.
+        let names: Vec<String> = ProjectIterator::new(&config, temp_dir.path())
+            .include_disabled(true)
+            .map(|p| p.name)
+            .collect();
+        assert!(names.contains(&"lib-core".to_string()));
+        assert_eq!(names.len(), 5);
     }
 
     #[test]

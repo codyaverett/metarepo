@@ -85,6 +85,7 @@ fn create_default_config() -> MetaConfig {
             ".DS_Store".to_string(),
         ],
         projects: HashMap::new(),
+        disabled: Vec::new(),
         plugins: None,
         modules: None,
         nested: None,
