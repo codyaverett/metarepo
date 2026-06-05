@@ -17,11 +17,12 @@ const GATEWAY_TIMEOUT: Duration = Duration::from_secs(30);
 /// Gateway meta-tools fronting the saved downstream MCP servers. They keep the
 /// top-level tool surface small (progressive disclosure): browse the catalog,
 /// open one server's tools on demand, search across all, then proxy a call.
-const GATEWAY_TOOLS: [&str; 4] = [
+const GATEWAY_TOOLS: [&str; 5] = [
     "mcp_catalog",
     "mcp_list_tools",
     "mcp_search_tools",
     "mcp_call",
+    "mcp_workspaces",
 ];
 
 /// Write capability a tool needs, used to gate it against the serve policy.
@@ -39,7 +40,9 @@ enum ToolKind {
 fn tool_kind(name: &str) -> ToolKind {
     match name {
         "help" | "git_status" | "git_diff" | "project_list" | "mcp_list_servers"
-        | "mcp_catalog" | "mcp_list_tools" | "mcp_search_tools" => ToolKind::Read,
+        | "mcp_catalog" | "mcp_list_tools" | "mcp_search_tools" | "mcp_workspaces" => {
+            ToolKind::Read
+        }
         "exec" => ToolKind::Exec,
         // mcp_call proxies a downstream tool that could mutate state, so it is a
         // write (blocked in read-only, allowed in read-write/full).
@@ -65,6 +68,7 @@ pub struct ServePolicy {
     pub mode: ServeMode,
     pub allow_exec: bool,
     pub tools: Option<Vec<String>>,
+    pub projects: Option<Vec<String>>,
 }
 
 impl Default for ServePolicy {
@@ -73,6 +77,7 @@ impl Default for ServePolicy {
             mode: ServeMode::Full,
             allow_exec: true,
             tools: None,
+            projects: None,
         }
     }
 }
@@ -93,8 +98,29 @@ impl ServePolicy {
                 policy.allow_exec = allow;
             }
             policy.tools = s.tools.clone();
+            policy.projects = s.projects.clone();
         }
         policy
+    }
+
+    /// Restrict an `exec` call to the policy's project allowlist. Returns the
+    /// effective project list to pass via `--projects`, or an error if the call
+    /// requested a project outside the allowlist. `None` means no restriction.
+    fn exec_projects(&self, requested: &[String]) -> Result<Option<Vec<String>>> {
+        let Some(allowed) = &self.projects else {
+            return Ok(None);
+        };
+        if requested.is_empty() {
+            return Ok(Some(allowed.clone()));
+        }
+        if let Some(bad) = requested.iter().find(|p| !allowed.contains(p)) {
+            return Err(anyhow::anyhow!(
+                "Project '{}' is outside this server's allowed projects: {}",
+                bad,
+                allowed.join(", ")
+            ));
+        }
+        Ok(Some(requested.to_vec()))
     }
 
     /// Whether a tool may be listed and called under this policy.
@@ -191,17 +217,38 @@ struct Resource {
     mime_type: Option<String>,
 }
 
+/// One workspace this server may operate on: the `.meta` to inject as `--config`,
+/// the directory to run tool subprocesses in, and that workspace's serve policy.
+#[derive(Debug, Clone)]
+pub struct WorkspaceTarget {
+    pub name: String,
+    pub config: Option<PathBuf>,
+    pub root: Option<PathBuf>,
+    pub policy: ServePolicy,
+}
+
+impl WorkspaceTarget {
+    /// Derive a short name (directory basename) for a workspace, falling back to
+    /// "default" when unpinned.
+    pub fn derive_name(root: Option<&std::path::Path>) -> String {
+        root.and_then(|r| r.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "default".to_string())
+    }
+}
+
 pub struct MetarepoMcpServer {
     tools: Vec<Tool>,
     resources: Vec<Resource>,
     metarepo_path: PathBuf,
-    /// `.meta` file this server is pinned to. Injected as `--config` on every
-    /// spawned tool subprocess so tools cannot drift to another workspace.
-    workspace_config: Option<PathBuf>,
-    /// Working directory for spawned tool subprocesses (the workspace root).
-    workspace_root: Option<PathBuf>,
-    /// Permission policy gating which tools are listed and callable.
-    policy: ServePolicy,
+    /// Workspaces this server may serve. One entry = pinned/single mode; several
+    /// = allowlist mode, where each tool call selects one by a `workspace` arg.
+    targets: Vec<WorkspaceTarget>,
+    /// True when more than one workspace is allowed (allowlist mode).
+    multi: bool,
+    /// Policy gating the workspace-independent gateway meta-tools. The single
+    /// target's policy when pinned; full access in allowlist mode.
+    gateway_policy: ServePolicy,
     /// Cache of downstream `(tool name, description)` lists keyed by server name,
     /// so repeated list/search calls don't respawn a server. Single-threaded.
     tool_cache: RefCell<HashMap<String, Vec<(String, String)>>>,
@@ -219,23 +266,84 @@ impl MetarepoMcpServer {
         Self::with_options(None, None, ServePolicy::default())
     }
 
-    /// Server pinned to a workspace with an explicit policy.
+    /// Server pinned to a single workspace with an explicit policy.
     pub fn with_options(
         workspace_config: Option<PathBuf>,
         workspace_root: Option<PathBuf>,
         policy: ServePolicy,
     ) -> Self {
+        let name = WorkspaceTarget::derive_name(workspace_root.as_deref());
+        let target = WorkspaceTarget {
+            name,
+            config: workspace_config,
+            root: workspace_root,
+            policy,
+        };
+        Self::with_targets(vec![target], false)
+    }
+
+    /// Server allowed to operate on several workspaces (allowlist mode when
+    /// `multi` is true). The first target is the default when a call omits the
+    /// `workspace` argument and only one is configured.
+    pub fn with_targets(targets: Vec<WorkspaceTarget>, multi: bool) -> Self {
         let metarepo_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("meta"));
+        let gateway_policy = if multi {
+            ServePolicy::default()
+        } else {
+            targets
+                .first()
+                .map(|t| t.policy.clone())
+                .unwrap_or_default()
+        };
 
         Self {
             tools: Self::build_tools(),
             resources: Vec::new(),
             metarepo_path,
-            workspace_config,
-            workspace_root,
-            policy,
+            targets,
+            multi,
+            gateway_policy,
             tool_cache: RefCell::new(HashMap::new()),
         }
+    }
+
+    /// Resolve which workspace a tool call targets. In pinned mode the single
+    /// target is always used; in allowlist mode the call's `workspace` argument
+    /// selects one (by name, config path, or root), defaulting to the sole entry.
+    fn resolve_target(&self, arguments: &Value) -> Result<&WorkspaceTarget> {
+        let requested = arguments.get("workspace").and_then(|v| v.as_str());
+        if !self.multi {
+            return self
+                .targets
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("No workspace configured"));
+        }
+        match requested {
+            Some(name) => self
+                .targets
+                .iter()
+                .find(|t| {
+                    t.name == name
+                        || t.config.as_deref().map(|p| p.to_string_lossy()) == Some(name.into())
+                        || t.root.as_deref().map(|p| p.to_string_lossy()) == Some(name.into())
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Workspace '{}' is not allowed. Allowed: {}",
+                        name,
+                        self.workspace_names().join(", ")
+                    )
+                }),
+            None if self.targets.len() == 1 => Ok(&self.targets[0]),
+            None => Err(anyhow::anyhow!(
+                "This server hosts multiple workspaces; pass a 'workspace' argument. Allowed: {}",
+                self.workspace_names().join(", ")
+            )),
+        }
+    }
+
+    fn workspace_names(&self) -> Vec<String> {
+        self.targets.iter().map(|t| t.name.clone()).collect()
     }
 
     fn build_tools() -> Vec<Tool> {
@@ -463,6 +571,11 @@ impl MetarepoMcpServer {
                 }),
             },
             Tool {
+                name: "mcp_workspaces".to_string(),
+                description: "List the workspaces this server may operate on".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
+            Tool {
                 name: "mcp_call".to_string(),
                 description: "Call a tool on a saved downstream MCP server and return its result"
                     .to_string(),
@@ -546,14 +659,29 @@ impl MetarepoMcpServer {
     }
 
     fn handle_initialize(&self, id: Value, _params: Option<Value>) -> JsonRpcResponse {
-        let workspace = match &self.workspace_config {
-            Some(p) => p.display().to_string(),
-            None => "discovered from the launch directory".to_string(),
+        let instructions = if self.multi {
+            let lines: Vec<String> = self
+                .targets
+                .iter()
+                .map(|t| format!("  - {} ({})", t.name, t.policy.summary()))
+                .collect();
+            format!(
+                "Metarepo MCP server hosting {} workspaces; pass a 'workspace' argument to \
+                 workspace tools (or call mcp_workspaces).\n{}",
+                self.targets.len(),
+                lines.join("\n")
+            )
+        } else {
+            let t = &self.targets[0];
+            let workspace = match &t.config {
+                Some(p) => p.display().to_string(),
+                None => "discovered from the launch directory".to_string(),
+            };
+            format!(
+                "Metarepo MCP server. Workspace: {workspace}. Policy: {}.",
+                t.policy.summary()
+            )
         };
-        let instructions = format!(
-            "Metarepo MCP server. Workspace: {workspace}. Policy: {}.",
-            self.policy.summary()
-        );
 
         let server_info = ServerInfo {
             name: "metarepo-mcp-server".to_string(),
@@ -576,13 +704,49 @@ impl MetarepoMcpServer {
     }
 
     fn handle_tools_list(&self, id: Value) -> JsonRpcResponse {
-        // Only advertise tools the policy permits, so a read-only or restricted
-        // server does not offer tools it will then reject.
-        let tools: Vec<&Tool> = self
-            .tools
-            .iter()
-            .filter(|t| self.policy.allows(&t.name))
-            .collect();
+        let tools: Vec<Value> = if self.multi {
+            // Allowlist mode: which workspace tools are permitted varies per call,
+            // so advertise them all and add a `workspace` selector to each
+            // workspace tool's schema. Gateway tools stay workspace-independent.
+            self.tools
+                .iter()
+                .map(|t| {
+                    let mut v = serde_json::to_value(t).unwrap_or(json!({}));
+                    if !GATEWAY_TOOLS.contains(&t.name.as_str()) {
+                        if let Some(props) = v
+                            .get_mut("inputSchema")
+                            .and_then(|s| s.get_mut("properties"))
+                            .and_then(|p| p.as_object_mut())
+                        {
+                            props.insert(
+                                "workspace".to_string(),
+                                json!({
+                                    "type": "string",
+                                    "description": "Which hosted workspace to act on (see mcp_workspaces)"
+                                }),
+                            );
+                        }
+                    }
+                    v
+                })
+                .collect()
+        } else {
+            // Pinned mode: only advertise tools the policy permits, so a
+            // restricted server does not offer tools it will then reject. Gateway
+            // tools use the gateway policy; workspace tools use the workspace's.
+            let policy = &self.targets[0].policy;
+            self.tools
+                .iter()
+                .filter(|t| {
+                    if GATEWAY_TOOLS.contains(&t.name.as_str()) {
+                        self.gateway_policy.allows(&t.name)
+                    } else {
+                        policy.allows(&t.name)
+                    }
+                })
+                .map(|t| serde_json::to_value(t).unwrap_or(json!({})))
+                .collect()
+        };
         JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id,
@@ -660,31 +824,41 @@ impl MetarepoMcpServer {
     }
 
     fn execute_tool(&self, name: &str, arguments: Value) -> Result<String> {
-        // Enforce the serve policy before doing any work.
-        if !self.policy.allows(name) {
-            return Err(anyhow::anyhow!(
-                "Tool '{}' is not permitted by this server's policy ({})",
-                name,
-                self.policy.summary()
-            ));
+        // Gateway meta-tools are workspace-independent; gate them with the
+        // gateway policy and dispatch to downstream MCP servers.
+        if GATEWAY_TOOLS.contains(&name) {
+            if !self.gateway_policy.allows(name) {
+                return Err(anyhow::anyhow!(
+                    "Tool '{}' is not permitted by this server's policy ({})",
+                    name,
+                    self.gateway_policy.summary()
+                ));
+            }
+            return self.execute_gateway_tool(name, &arguments);
         }
 
-        // Gateway meta-tools talk to downstream MCP servers instead of shelling
-        // out to this binary.
-        if GATEWAY_TOOLS.contains(&name) {
-            return self.execute_gateway_tool(name, &arguments);
+        // Workspace tools: resolve which workspace this call targets, then gate
+        // it against that workspace's policy.
+        let target = self.resolve_target(&arguments)?;
+        if !target.policy.allows(name) {
+            return Err(anyhow::anyhow!(
+                "Tool '{}' is not permitted by workspace '{}' ({})",
+                name,
+                target.name,
+                target.policy.summary()
+            ));
         }
 
         let mut cmd = Command::new(&self.metarepo_path);
 
-        // Pin spawned subprocesses to the served workspace and enable
+        // Pin spawned subprocesses to the resolved workspace and enable
         // experimental subcommands (mcp_* tools need `-x`). `--config` forces the
         // child to use this workspace's .meta instead of re-discovering from cwd.
         cmd.arg("--experimental");
-        if let Some(config) = &self.workspace_config {
+        if let Some(config) = &target.config {
             cmd.arg("--config").arg(config);
         }
-        if let Some(root) = &self.workspace_root {
+        if let Some(root) = &target.root {
             cmd.current_dir(root);
         }
 
@@ -758,14 +932,25 @@ impl MetarepoMcpServer {
                 if let Some(command) = arguments.get("command").and_then(|v| v.as_str()) {
                     cmd.arg(command);
                 }
-                if let Some(projects) = arguments.get("projects").and_then(|v| v.as_array()) {
-                    let project_list: Vec<String> = projects
-                        .iter()
-                        .filter_map(|p| p.as_str().map(String::from))
-                        .collect();
-                    if !project_list.is_empty() {
-                        cmd.arg("--projects");
-                        cmd.arg(project_list.join(","));
+                let requested: Vec<String> = arguments
+                    .get("projects")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|p| p.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                // Apply the workspace's project allowlist (if any): defaults to the
+                // allowed set and rejects anything outside it.
+                match target.policy.exec_projects(&requested)? {
+                    Some(list) if !list.is_empty() => {
+                        cmd.arg("--projects").arg(list.join(","));
+                    }
+                    _ => {
+                        if !requested.is_empty() {
+                            cmd.arg("--projects").arg(requested.join(","));
+                        }
                     }
                 }
             }
@@ -817,6 +1002,25 @@ impl MetarepoMcpServer {
 
     /// Dispatch a gateway meta-tool against the saved downstream servers.
     fn execute_gateway_tool(&self, name: &str, arguments: &Value) -> Result<String> {
+        // mcp_workspaces describes this server, not a downstream one.
+        if name == "mcp_workspaces" {
+            let workspaces: Vec<Value> = self
+                .targets
+                .iter()
+                .map(|t| {
+                    json!({
+                        "name": t.name,
+                        "config": t.config.as_ref().map(|p| p.display().to_string()),
+                        "policy": t.policy.summary(),
+                    })
+                })
+                .collect();
+            return Ok(serde_json::to_string_pretty(&json!({
+                "mode": if self.multi { "allowlist" } else { "pinned" },
+                "workspaces": workspaces,
+            }))?);
+        }
+
         let config = McpConfig::load().context("Failed to load saved MCP servers")?;
         match name {
             "mcp_catalog" => self.gateway_catalog(&config),
@@ -952,27 +1156,60 @@ where
         .block_on(fut)
 }
 
-pub fn print_vscode_config() {
+/// Print ready-to-paste Claude Desktop config.
+///
+/// With no `workspaces`, pins to the current directory. With several and
+/// `allowlist=false`, emits one pinned entry per workspace. With `allowlist=true`,
+/// emits a single entry hosting all of them (per-call `workspace` selection).
+pub fn print_vscode_config(workspaces: &[String], allowlist: bool) {
     let meta_path = std::env::current_exe()
         .unwrap_or_else(|_| PathBuf::from("meta"))
         .to_string_lossy()
         .to_string();
 
+    let basename = |p: &str| {
+        std::path::Path::new(p)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "workspace".to_string())
+    };
+
     // `mcp` is experimental, so the client must launch `meta -x mcp serve`.
-    // `--meta <path>` pins the server to one workspace (recommended); omit it to
-    // discover the workspace from the launch directory.
-    let cwd = std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| ".".to_string());
-    let claude_config = json!({
-        "mcpServers": {
-            "metarepo": {
+    let mut servers = serde_json::Map::new();
+    if allowlist && !workspaces.is_empty() {
+        servers.insert(
+            "metarepo".to_string(),
+            json!({
+                "command": meta_path,
+                "args": ["-x", "mcp", "serve", "--allow-workspaces", workspaces.join(",")],
+                "env": {}
+            }),
+        );
+    } else if !workspaces.is_empty() {
+        for ws in workspaces {
+            servers.insert(
+                format!("metarepo-{}", basename(ws)),
+                json!({
+                    "command": meta_path,
+                    "args": ["-x", "mcp", "serve", "--meta", ws],
+                    "env": {}
+                }),
+            );
+        }
+    } else {
+        let cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| ".".to_string());
+        servers.insert(
+            "metarepo".to_string(),
+            json!({
                 "command": meta_path,
                 "args": ["-x", "mcp", "serve", "--meta", cwd],
                 "env": {}
-            }
-        }
-    });
+            }),
+        );
+    }
+    let claude_config = json!({ "mcpServers": servers });
 
     println!("=== Claude Desktop Configuration ===");
     println!();
@@ -1009,6 +1246,7 @@ mod tests {
             mode,
             allow_exec,
             tools,
+            projects: None,
         }
     }
 
@@ -1072,9 +1310,68 @@ mod tests {
             mode: Some("read-only".to_string()),
             allow_exec: Some(false),
             tools: None,
+            projects: None,
         };
         let p = ServePolicy::from_settings(Some(&s));
         assert_eq!(p.mode, ServeMode::ReadOnly);
         assert!(!p.allow_exec);
+    }
+
+    #[test]
+    fn exec_projects_defaults_and_rejects_outside_allowlist() {
+        let mut p = ServePolicy::default();
+        // No allowlist: no restriction.
+        assert_eq!(p.exec_projects(&[]).unwrap(), None);
+
+        p.projects = Some(vec!["web".into(), "api".into()]);
+        // Empty request → defaults to the allowlist.
+        assert_eq!(
+            p.exec_projects(&[]).unwrap(),
+            Some(vec!["web".into(), "api".into()])
+        );
+        // Subset request is kept.
+        assert_eq!(
+            p.exec_projects(&["web".into()]).unwrap(),
+            Some(vec!["web".into()])
+        );
+        // Outside the allowlist is rejected.
+        assert!(p.exec_projects(&["secret".into()]).is_err());
+    }
+
+    fn target(name: &str, mode: ServeMode) -> WorkspaceTarget {
+        WorkspaceTarget {
+            name: name.to_string(),
+            config: None,
+            root: None,
+            policy: policy(mode, true, None),
+        }
+    }
+
+    #[test]
+    fn resolve_target_pinned_ignores_workspace_arg() {
+        let s = MetarepoMcpServer::with_targets(vec![target("only", ServeMode::Full)], false);
+        let t = s.resolve_target(&json!({ "workspace": "nope" })).unwrap();
+        assert_eq!(t.name, "only");
+    }
+
+    #[test]
+    fn resolve_target_allowlist_requires_and_validates_workspace() {
+        let s = MetarepoMcpServer::with_targets(
+            vec![
+                target("acme", ServeMode::Full),
+                target("personal", ServeMode::ReadOnly),
+            ],
+            true,
+        );
+        // Missing workspace with several targets is an error.
+        assert!(s.resolve_target(&json!({})).is_err());
+        // Unknown workspace is rejected.
+        assert!(s.resolve_target(&json!({ "workspace": "ghost" })).is_err());
+        // Known workspace resolves, carrying its own policy.
+        let t = s
+            .resolve_target(&json!({ "workspace": "personal" }))
+            .unwrap();
+        assert_eq!(t.name, "personal");
+        assert_eq!(t.policy.mode, ServeMode::ReadOnly);
     }
 }

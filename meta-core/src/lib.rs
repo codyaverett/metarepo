@@ -449,6 +449,10 @@ pub struct McpServeSettings {
     /// tools are listed and callable (intersected with the mode/exec gates).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,
+    /// Optional allowlist of project names the `exec` tool may target. When set,
+    /// `exec` defaults to these projects and rejects any outside the list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
 }
 
 impl Default for MetaConfig {

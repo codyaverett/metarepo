@@ -1,7 +1,7 @@
 # MCP gateway & workspace scoping — design
 
-Status: **phases 1–2 implemented** (#86, #87); phases 3–4 are still proposals.
-Tracks how the experimental `meta mcp` plugin grows into (a) a
+Status: **phases 1, 2, and 4 implemented** (#86, #87, #89); phase 3 is still a
+proposal. Tracks how the experimental `meta mcp` plugin grows into (a) a
 progressive-disclosure gateway in front of other MCP servers, and (b) a
 workspace-scoped, permission-aware server.
 
@@ -43,7 +43,22 @@ via a per-call current-thread runtime. The browse tools are reads; `mcp_call` is
 a write (blocked under `read-only`). Not yet applied: the saved `working_dir`/
 `env` on a downstream config (same limitation as `meta mcp connect`).
 
-The rest of this document remains the design for the unshipped phases (3–4).
+### Phase 4 — shipped
+
+- **Allowlist mode**: `meta mcp serve --allow-workspaces a,b,c` hosts several
+  workspaces from one server. Workspace tools take a `workspace` argument
+  (advertised in their schema, validated against the list); the new
+  `mcp_workspaces` tool lists the hosted workspaces. Each workspace's own
+  `[mcp.serve]` policy applies per call; gateway meta-tools stay
+  workspace-independent. Omitting `workspace` with several hosts is an error.
+- **`mcp.serve.projects`** is now enforced: the `exec` tool defaults to the
+  allowlisted projects and rejects any project outside it.
+- **`meta mcp config`** generates client blocks: `--meta a,b,c` emits one pinned
+  entry per workspace (`metarepo-<name>`); add `--allow-workspaces` to emit a
+  single allowlist entry instead.
+
+Phase 3 (Tier B dynamic promotion via `tools/list_changed`) remains the only
+unshipped phase; the design for it is below.
 
 ## 1. Where we are today
 

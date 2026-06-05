@@ -1,6 +1,6 @@
 use super::client::McpClient;
 use super::config::McpConfig;
-use super::mcp_server::{print_vscode_config, MetarepoMcpServer, ServePolicy};
+use super::mcp_server::{print_vscode_config, MetarepoMcpServer, ServePolicy, WorkspaceTarget};
 use super::server::McpServerConfig;
 use anyhow::Result;
 use clap::ArgMatches;
@@ -287,6 +287,16 @@ impl McpPlugin {
                             )
                             .takes_value(true),
                     )
+                    .arg(
+                        arg("allow-workspaces")
+                            .long("allow-workspaces")
+                            .help(
+                                "Comma-separated workspaces to host (allowlist mode). Tools take \
+                                 a 'workspace' argument selecting one; each workspace's own \
+                                 [mcp.serve] policy applies. Overrides --meta.",
+                            )
+                            .takes_value(true),
+                    )
                     .help_description(
                         "Run Metarepo itself as an MCP server, speaking JSON-RPC over stdio.\n\
                          \n\
@@ -323,7 +333,21 @@ impl McpPlugin {
                          \n\
                            meta mcp config",
                     )
-                    .with_help_formatting(),
+                    .with_help_formatting()
+                    .arg(
+                        arg("meta")
+                            .long("meta")
+                            .help(
+                                "Comma-separated workspaces to emit entries for (one pinned \
+                                 entry each). Defaults to the current directory.",
+                            )
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("allow-workspaces")
+                            .long("allow-workspaces")
+                            .help("Emit a single allowlist entry hosting all --meta workspaces"),
+                    ),
             )
             .handler("add", handle_add)
             .handler("list", handle_list)
@@ -655,11 +679,59 @@ fn resolve_workspace(
     (config.meta_file_path.clone(), root)
 }
 
+/// Build a workspace target from a `.meta` file/dir path, loading its policy.
+fn target_from_path(raw: &str) -> WorkspaceTarget {
+    let path = PathBuf::from(raw.trim());
+    let (config, root) = if path.is_dir() {
+        match MetaConfig::discover_from(&path) {
+            Ok(Some(found)) => {
+                let root = found
+                    .path
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| path.clone());
+                (Some(found.path), Some(root))
+            }
+            _ => (None, Some(path.clone())),
+        }
+    } else {
+        (Some(path.clone()), path.parent().map(Path::to_path_buf))
+    };
+    let pinned = match &config {
+        Some(p) => MetaConfig::load_from_file(p).unwrap_or_default(),
+        None => MetaConfig::default(),
+    };
+    let policy = ServePolicy::from_settings(pinned.mcp.as_ref().and_then(|m| m.serve.as_ref()));
+    WorkspaceTarget {
+        name: WorkspaceTarget::derive_name(root.as_deref()),
+        config,
+        root,
+        policy,
+    }
+}
+
 /// Handler for the serve command
 fn handle_serve(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let (meta_file, root) = resolve_workspace(matches, config);
+    // Allowlist mode: host several workspaces, selected per call.
+    if let Some(list) = matches.get_one::<String>("allow-workspaces") {
+        let targets: Vec<WorkspaceTarget> = list
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(target_from_path)
+            .collect();
+        if targets.is_empty() {
+            return Err(anyhow::anyhow!(
+                "--allow-workspaces listed no valid workspaces"
+            ));
+        }
+        let mut server = MetarepoMcpServer::with_targets(targets, true);
+        server.run()?;
+        return Ok(());
+    }
 
-    // Read the pinned workspace's [mcp.serve] policy (defaults to full access).
+    // Pinned mode: a single workspace (from --meta or launch-dir discovery).
+    let (meta_file, root) = resolve_workspace(matches, config);
     let pinned = match &meta_file {
         Some(p) => MetaConfig::load_from_file(p).unwrap_or_else(|_| config.meta_config.clone()),
         None => config.meta_config.clone(),
@@ -672,8 +744,19 @@ fn handle_serve(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 }
 
 /// Handler for the config command
-fn handle_config(_matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    print_vscode_config();
+fn handle_config(matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
+    let workspaces: Vec<String> = matches
+        .get_one::<String>("meta")
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    let allowlist = matches.get_flag("allow-workspaces");
+    print_vscode_config(&workspaces, allowlist);
     Ok(())
 }
 
@@ -716,6 +799,11 @@ impl MetaPlugin for McpPlugin {
             ConfigSetting::new(
                 "mcp.serve.tools",
                 "Optional allowlist of tool names exposed when serving",
+                ConfigValueType::StringList,
+            ),
+            ConfigSetting::new(
+                "mcp.serve.projects",
+                "Optional allowlist of projects the exec tool may target when serving",
                 ConfigValueType::StringList,
             ),
         ]
