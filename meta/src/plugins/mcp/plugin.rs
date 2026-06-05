@@ -1,13 +1,16 @@
 use super::client::McpClient;
 use super::config::McpConfig;
-use super::mcp_server::{print_vscode_config, MetarepoMcpServer};
+use super::mcp_server::{print_vscode_config, MetarepoMcpServer, ServePolicy};
 use super::server::McpServerConfig;
 use anyhow::Result;
 use clap::ArgMatches;
-use metarepo_core::{arg, command, plugin, BasePlugin, MetaPlugin, RuntimeConfig};
+use metarepo_core::{
+    arg, command, plugin, BasePlugin, ConfigSetting, ConfigValueType, MetaConfig, MetaPlugin,
+    RuntimeConfig,
+};
 use serde_json::json;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// McpPlugin using the new simplified plugin architecture
 pub struct McpPlugin;
@@ -274,6 +277,16 @@ impl McpPlugin {
             .command(
                 command("serve")
                     .about("Run Metarepo as an MCP server over stdio")
+                    .arg(
+                        arg("meta")
+                            .long("meta")
+                            .help(
+                                "Pin the server to this workspace (a .meta file or its \
+                                 directory). Tools run with --config set to it. Defaults to \
+                                 discovery from the launch directory.",
+                            )
+                            .takes_value(true),
+                    )
                     .help_description(
                         "Run Metarepo itself as an MCP server, speaking JSON-RPC over stdio.\n\
                          \n\
@@ -603,9 +616,57 @@ async fn handle_call_tool_async(matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
+/// Resolve the workspace this server should be pinned to: returns the `.meta`
+/// file to inject as `--config` and the directory to run tool subprocesses in.
+///
+/// `--meta` may point at a `.meta` file or a directory containing one; without
+/// it we fall back to whatever was discovered from the launch directory.
+fn resolve_workspace(
+    matches: &ArgMatches,
+    config: &RuntimeConfig,
+) -> (Option<PathBuf>, Option<PathBuf>) {
+    if let Some(raw) = matches.get_one::<String>("meta") {
+        let path = PathBuf::from(raw);
+        if path.is_dir() {
+            // Discover the .meta inside the directory.
+            match MetaConfig::discover_from(&path) {
+                Ok(Some(found)) => {
+                    let root = found
+                        .path
+                        .parent()
+                        .map(Path::to_path_buf)
+                        .unwrap_or_else(|| path.clone());
+                    return (Some(found.path), Some(root));
+                }
+                _ => return (None, Some(path)),
+            }
+        }
+        // Treat as a .meta file path.
+        let root = path.parent().map(Path::to_path_buf);
+        return (Some(path), root);
+    }
+
+    // No --meta: use whatever the launch directory discovered.
+    let root = config
+        .meta_file_path
+        .as_ref()
+        .and_then(|p| p.parent())
+        .map(Path::to_path_buf);
+    (config.meta_file_path.clone(), root)
+}
+
 /// Handler for the serve command
-fn handle_serve(_matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
-    let mut server = MetarepoMcpServer::new();
+fn handle_serve(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let (meta_file, root) = resolve_workspace(matches, config);
+
+    // Read the pinned workspace's [mcp.serve] policy (defaults to full access).
+    let pinned = match &meta_file {
+        Some(p) => MetaConfig::load_from_file(p).unwrap_or_else(|_| config.meta_config.clone()),
+        None => config.meta_config.clone(),
+    };
+    let policy = ServePolicy::from_settings(pinned.mcp.as_ref().and_then(|m| m.serve.as_ref()));
+
+    let mut server = MetarepoMcpServer::with_options(meta_file, root, policy);
     server.run()?;
     Ok(())
 }
@@ -636,6 +697,28 @@ impl MetaPlugin for McpPlugin {
         // Delegate to the builder-based plugin
         let plugin = Self::create_plugin();
         plugin.handle_command(matches, config)
+    }
+
+    fn settings(&self) -> Vec<ConfigSetting> {
+        vec![
+            ConfigSetting::new(
+                "mcp.serve.mode",
+                "Policy when served via mcp serve: full (default), read-write, or read-only",
+                ConfigValueType::String,
+            )
+            .with_default("full"),
+            ConfigSetting::new(
+                "mcp.serve.allow-exec",
+                "Allow the arbitrary-shell exec tool when serving (default: true)",
+                ConfigValueType::Bool,
+            )
+            .with_default("true"),
+            ConfigSetting::new(
+                "mcp.serve.tools",
+                "Optional allowlist of tool names exposed when serving",
+                ConfigValueType::StringList,
+            ),
+        ]
     }
 }
 

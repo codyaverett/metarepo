@@ -1,9 +1,134 @@
+use super::client::McpClient;
+use super::config::McpConfig;
+use super::server::McpServerConfig;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
+
+/// How long to wait for a downstream MCP server to connect/respond.
+const GATEWAY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Gateway meta-tools fronting the saved downstream MCP servers. They keep the
+/// top-level tool surface small (progressive disclosure): browse the catalog,
+/// open one server's tools on demand, search across all, then proxy a call.
+const GATEWAY_TOOLS: [&str; 4] = [
+    "mcp_catalog",
+    "mcp_list_tools",
+    "mcp_search_tools",
+    "mcp_call",
+];
+
+/// Write capability a tool needs, used to gate it against the serve policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolKind {
+    /// Read-only inspection (always allowed).
+    Read,
+    /// Mutates repos or workspace config.
+    Write,
+    /// The arbitrary-shell `exec` tool (gated separately).
+    Exec,
+}
+
+/// Classify a tool name by the capability it needs.
+fn tool_kind(name: &str) -> ToolKind {
+    match name {
+        "help" | "git_status" | "git_diff" | "project_list" | "mcp_list_servers"
+        | "mcp_catalog" | "mcp_list_tools" | "mcp_search_tools" => ToolKind::Read,
+        "exec" => ToolKind::Exec,
+        // mcp_call proxies a downstream tool that could mutate state, so it is a
+        // write (blocked in read-only, allowed in read-write/full).
+        _ => ToolKind::Write,
+    }
+}
+
+/// How permissive the served workspace is. Mirrors `mcp.serve.mode` in `.meta`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServeMode {
+    /// Everything, including `exec` (subject to `allow_exec`). Default.
+    Full,
+    /// Reads and writes, but never `exec`.
+    ReadWrite,
+    /// Reads only.
+    ReadOnly,
+}
+
+/// Resolved permission policy for `meta mcp serve`. Defaults are full access so
+/// existing setups are unchanged.
+#[derive(Debug, Clone)]
+pub struct ServePolicy {
+    pub mode: ServeMode,
+    pub allow_exec: bool,
+    pub tools: Option<Vec<String>>,
+}
+
+impl Default for ServePolicy {
+    fn default() -> Self {
+        Self {
+            mode: ServeMode::Full,
+            allow_exec: true,
+            tools: None,
+        }
+    }
+}
+
+impl ServePolicy {
+    /// Build a policy from a workspace's `[mcp.serve]` block (if any).
+    pub fn from_settings(settings: Option<&metarepo_core::McpServeSettings>) -> Self {
+        let mut policy = ServePolicy::default();
+        if let Some(s) = settings {
+            if let Some(mode) = s.mode.as_deref() {
+                policy.mode = match mode.to_ascii_lowercase().as_str() {
+                    "read-only" | "readonly" => ServeMode::ReadOnly,
+                    "read-write" | "readwrite" => ServeMode::ReadWrite,
+                    _ => ServeMode::Full,
+                };
+            }
+            if let Some(allow) = s.allow_exec {
+                policy.allow_exec = allow;
+            }
+            policy.tools = s.tools.clone();
+        }
+        policy
+    }
+
+    /// Whether a tool may be listed and called under this policy.
+    fn allows(&self, name: &str) -> bool {
+        if let Some(list) = &self.tools {
+            if !list.iter().any(|t| t == name) {
+                return false;
+            }
+        }
+        match tool_kind(name) {
+            ToolKind::Read => true,
+            ToolKind::Write => self.mode != ServeMode::ReadOnly,
+            ToolKind::Exec => self.mode == ServeMode::Full && self.allow_exec,
+        }
+    }
+
+    /// One-line human summary for the `initialize` instructions.
+    fn summary(&self) -> String {
+        let mode = match self.mode {
+            ServeMode::Full => "full",
+            ServeMode::ReadWrite => "read-write",
+            ServeMode::ReadOnly => "read-only",
+        };
+        let exec = if self.mode == ServeMode::Full && self.allow_exec {
+            "exec enabled"
+        } else {
+            "exec disabled"
+        };
+        match &self.tools {
+            Some(list) => format!("mode={mode}, {exec}, tools=[{}]", list.join(", ")),
+            None => format!("mode={mode}, {exec}"),
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JsonRpcRequest {
@@ -37,6 +162,10 @@ struct ServerInfo {
     #[serde(rename = "protocolVersion")]
     protocol_version: String,
     capabilities: ServerCapabilities,
+    /// MCP `instructions`: surfaced to the client so the model knows which
+    /// workspace this server is pinned to and what its policy allows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instructions: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,6 +195,16 @@ pub struct MetarepoMcpServer {
     tools: Vec<Tool>,
     resources: Vec<Resource>,
     metarepo_path: PathBuf,
+    /// `.meta` file this server is pinned to. Injected as `--config` on every
+    /// spawned tool subprocess so tools cannot drift to another workspace.
+    workspace_config: Option<PathBuf>,
+    /// Working directory for spawned tool subprocesses (the workspace root).
+    workspace_root: Option<PathBuf>,
+    /// Permission policy gating which tools are listed and callable.
+    policy: ServePolicy,
+    /// Cache of downstream `(tool name, description)` lists keyed by server name,
+    /// so repeated list/search calls don't respawn a server. Single-threaded.
+    tool_cache: RefCell<HashMap<String, Vec<(String, String)>>>,
 }
 
 impl Default for MetarepoMcpServer {
@@ -75,13 +214,27 @@ impl Default for MetarepoMcpServer {
 }
 
 impl MetarepoMcpServer {
+    /// Unpinned, full-access server (backward-compatible default).
     pub fn new() -> Self {
+        Self::with_options(None, None, ServePolicy::default())
+    }
+
+    /// Server pinned to a workspace with an explicit policy.
+    pub fn with_options(
+        workspace_config: Option<PathBuf>,
+        workspace_root: Option<PathBuf>,
+        policy: ServePolicy,
+    ) -> Self {
         let metarepo_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("meta"));
 
         Self {
             tools: Self::build_tools(),
             resources: Vec::new(),
             metarepo_path,
+            workspace_config,
+            workspace_root,
+            policy,
+            tool_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -273,6 +426,56 @@ impl MetarepoMcpServer {
                     }
                 }),
             },
+            // Gateway meta-tools: progressive disclosure over saved downstream
+            // MCP servers. Browse the catalog, open one server's tools on demand,
+            // search across all, then proxy a call — instead of surfacing every
+            // downstream tool at the top level.
+            Tool {
+                name: "mcp_catalog".to_string(),
+                description: "List the saved downstream MCP servers this gateway can reach"
+                    .to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+            },
+            Tool {
+                name: "mcp_list_tools".to_string(),
+                description:
+                    "List the tools a saved downstream MCP server exposes (connects on demand)"
+                        .to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "required": ["server"],
+                    "properties": {
+                        "server": { "type": "string", "description": "Saved server name" }
+                    }
+                }),
+            },
+            Tool {
+                name: "mcp_search_tools".to_string(),
+                description:
+                    "Search tool names and descriptions across all saved downstream servers"
+                        .to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "required": ["query"],
+                    "properties": {
+                        "query": { "type": "string", "description": "Case-insensitive substring" }
+                    }
+                }),
+            },
+            Tool {
+                name: "mcp_call".to_string(),
+                description: "Call a tool on a saved downstream MCP server and return its result"
+                    .to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "required": ["server", "tool"],
+                    "properties": {
+                        "server": { "type": "string", "description": "Saved server name" },
+                        "tool": { "type": "string", "description": "Tool name on that server" },
+                        "arguments": { "type": "object", "description": "Tool arguments (default {})" }
+                    }
+                }),
+            },
         ]
     }
 
@@ -343,6 +546,15 @@ impl MetarepoMcpServer {
     }
 
     fn handle_initialize(&self, id: Value, _params: Option<Value>) -> JsonRpcResponse {
+        let workspace = match &self.workspace_config {
+            Some(p) => p.display().to_string(),
+            None => "discovered from the launch directory".to_string(),
+        };
+        let instructions = format!(
+            "Metarepo MCP server. Workspace: {workspace}. Policy: {}.",
+            self.policy.summary()
+        );
+
         let server_info = ServerInfo {
             name: "metarepo-mcp-server".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -352,6 +564,7 @@ impl MetarepoMcpServer {
                 resources: None,
                 prompts: None,
             },
+            instructions: Some(instructions),
         };
 
         JsonRpcResponse {
@@ -363,12 +576,17 @@ impl MetarepoMcpServer {
     }
 
     fn handle_tools_list(&self, id: Value) -> JsonRpcResponse {
+        // Only advertise tools the policy permits, so a read-only or restricted
+        // server does not offer tools it will then reject.
+        let tools: Vec<&Tool> = self
+            .tools
+            .iter()
+            .filter(|t| self.policy.allows(&t.name))
+            .collect();
         JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id,
-            result: Some(json!({
-                "tools": self.tools
-            })),
+            result: Some(json!({ "tools": tools })),
             error: None,
         }
     }
@@ -442,7 +660,33 @@ impl MetarepoMcpServer {
     }
 
     fn execute_tool(&self, name: &str, arguments: Value) -> Result<String> {
+        // Enforce the serve policy before doing any work.
+        if !self.policy.allows(name) {
+            return Err(anyhow::anyhow!(
+                "Tool '{}' is not permitted by this server's policy ({})",
+                name,
+                self.policy.summary()
+            ));
+        }
+
+        // Gateway meta-tools talk to downstream MCP servers instead of shelling
+        // out to this binary.
+        if GATEWAY_TOOLS.contains(&name) {
+            return self.execute_gateway_tool(name, &arguments);
+        }
+
         let mut cmd = Command::new(&self.metarepo_path);
+
+        // Pin spawned subprocesses to the served workspace and enable
+        // experimental subcommands (mcp_* tools need `-x`). `--config` forces the
+        // child to use this workspace's .meta instead of re-discovering from cwd.
+        cmd.arg("--experimental");
+        if let Some(config) = &self.workspace_config {
+            cmd.arg("--config").arg(config);
+        }
+        if let Some(root) = &self.workspace_root {
+            cmd.current_dir(root);
+        }
 
         match name {
             "help" => {
@@ -570,6 +814,142 @@ impl MetarepoMcpServer {
 
         Ok(result)
     }
+
+    /// Dispatch a gateway meta-tool against the saved downstream servers.
+    fn execute_gateway_tool(&self, name: &str, arguments: &Value) -> Result<String> {
+        let config = McpConfig::load().context("Failed to load saved MCP servers")?;
+        match name {
+            "mcp_catalog" => self.gateway_catalog(&config),
+            "mcp_list_tools" => {
+                let server = arguments
+                    .get("server")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("mcp_list_tools requires a 'server' argument")
+                    })?;
+                let tools = self.downstream_tools(&config, server)?;
+                Ok(serde_json::to_string_pretty(&json!({
+                    "server": server,
+                    "tools": tools.iter().map(|(n, d)| json!({ "name": n, "description": d }))
+                        .collect::<Vec<_>>(),
+                }))?)
+            }
+            "mcp_search_tools" => {
+                let query = arguments
+                    .get("query")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("mcp_search_tools requires a 'query' argument"))?
+                    .to_lowercase();
+                let mut matches = Vec::new();
+                let mut server_names: Vec<&String> = config.servers.keys().collect();
+                server_names.sort();
+                for server in server_names {
+                    // A failing server should not abort the whole search.
+                    let tools = match self.downstream_tools(&config, server) {
+                        Ok(t) => t,
+                        Err(_) => continue,
+                    };
+                    for (tool, desc) in tools {
+                        if tool.to_lowercase().contains(&query)
+                            || desc.to_lowercase().contains(&query)
+                        {
+                            matches.push(json!({
+                                "server": server, "tool": tool, "description": desc
+                            }));
+                        }
+                    }
+                }
+                Ok(serde_json::to_string_pretty(&json!({
+                    "query": query, "matches": matches
+                }))?)
+            }
+            "mcp_call" => {
+                let server = arguments
+                    .get("server")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("mcp_call requires a 'server' argument"))?;
+                let tool = arguments
+                    .get("tool")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("mcp_call requires a 'tool' argument"))?;
+                let tool_args = arguments.get("arguments").cloned().unwrap_or(json!({}));
+                let cfg = resolve_server(&config, server)?;
+                let result = run_async(async move {
+                    let mut client = connect_downstream(&cfg).await?;
+                    let r = client.call_tool(tool, tool_args).await;
+                    client.close().await.ok();
+                    r
+                })?;
+                Ok(serde_json::to_string_pretty(&result)?)
+            }
+            _ => Err(anyhow::anyhow!("Unknown gateway tool: {}", name)),
+        }
+    }
+
+    /// List the saved downstream servers without connecting to any of them.
+    fn gateway_catalog(&self, config: &McpConfig) -> Result<String> {
+        let mut names: Vec<&String> = config.servers.keys().collect();
+        names.sort();
+        let servers: Vec<Value> = names
+            .into_iter()
+            .map(|n| {
+                let s = &config.servers[n];
+                json!({ "name": n, "command": s.command, "args": s.args })
+            })
+            .collect();
+        Ok(serde_json::to_string_pretty(
+            &json!({ "servers": servers }),
+        )?)
+    }
+
+    /// Tools for one downstream server, using the cache or connecting on demand.
+    fn downstream_tools(&self, config: &McpConfig, server: &str) -> Result<Vec<(String, String)>> {
+        if let Some(cached) = self.tool_cache.borrow().get(server) {
+            return Ok(cached.clone());
+        }
+        let cfg = resolve_server(config, server)?;
+        let tools = run_async(async move {
+            let mut client = connect_downstream(&cfg).await?;
+            let t = client.list_tools().await;
+            client.close().await.ok();
+            t
+        })?;
+        let list: Vec<(String, String)> = tools
+            .into_iter()
+            .map(|t| (t.name, t.description.unwrap_or_default()))
+            .collect();
+        self.tool_cache
+            .borrow_mut()
+            .insert(server.to_string(), list.clone());
+        Ok(list)
+    }
+}
+
+/// Resolve a saved server by name, erroring if it is unknown.
+fn resolve_server(config: &McpConfig, name: &str) -> Result<McpServerConfig> {
+    config.servers.get(name).cloned().ok_or_else(|| {
+        anyhow::anyhow!("No saved MCP server named '{}'. Add it with mcp add.", name)
+    })
+}
+
+/// Connect to a downstream server with a timeout. Note: working_dir/env on the
+/// saved config are not yet applied (same limitation as the `mcp connect` CLI).
+async fn connect_downstream(cfg: &McpServerConfig) -> Result<McpClient> {
+    tokio::time::timeout(GATEWAY_TIMEOUT, McpClient::connect(&cfg.command, &cfg.args))
+        .await
+        .map_err(|_| anyhow::anyhow!("Timed out connecting to MCP server '{}'", cfg.name))?
+}
+
+/// Run an async gateway operation from the synchronous server loop.
+fn run_async<F, T>(fut: F) -> Result<T>
+where
+    F: std::future::Future<Output = Result<T>>,
+{
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("Failed to start async runtime")?
+        .block_on(fut)
 }
 
 pub fn print_vscode_config() {
@@ -578,11 +958,17 @@ pub fn print_vscode_config() {
         .to_string_lossy()
         .to_string();
 
+    // `mcp` is experimental, so the client must launch `meta -x mcp serve`.
+    // `--meta <path>` pins the server to one workspace (recommended); omit it to
+    // discover the workspace from the launch directory.
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| ".".to_string());
     let claude_config = json!({
         "mcpServers": {
             "metarepo": {
                 "command": meta_path,
-                "args": ["mcp", "serve"],
+                "args": ["-x", "mcp", "serve", "--meta", cwd],
                 "env": {}
             }
         }
@@ -598,12 +984,13 @@ pub fn print_vscode_config() {
     println!();
     println!("=== Available Tools ===");
     println!();
-    println!("The Metarepo MCP server exposes 13 tools:");
+    println!("The Metarepo MCP server exposes these tools (subject to the serve policy):");
     println!("  • help - Get help and list available commands");
     println!("  • git_status, git_diff, git_commit, git_pull, git_push");
     println!("  • project_list, project_add, project_remove");
     println!("  • exec - Execute commands across projects");
     println!("  • mcp_add_server, mcp_list_servers, mcp_remove_server");
+    println!("  • mcp_catalog, mcp_list_tools, mcp_search_tools, mcp_call (gateway)");
     println!();
     println!("=== Testing ===");
     println!();
@@ -611,4 +998,83 @@ pub fn print_vscode_config() {
     println!("  meta mcp serve");
     println!();
     println!("Then send JSON-RPC commands via stdin");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn policy(mode: ServeMode, allow_exec: bool, tools: Option<Vec<String>>) -> ServePolicy {
+        ServePolicy {
+            mode,
+            allow_exec,
+            tools,
+        }
+    }
+
+    #[test]
+    fn full_default_allows_everything() {
+        let p = policy(ServeMode::Full, true, None);
+        assert!(p.allows("git_status"));
+        assert!(p.allows("git_commit"));
+        assert!(p.allows("exec"));
+    }
+
+    #[test]
+    fn read_only_denies_writes_and_exec() {
+        let p = policy(ServeMode::ReadOnly, true, None);
+        assert!(p.allows("git_status"));
+        assert!(p.allows("project_list"));
+        assert!(!p.allows("git_commit"));
+        assert!(!p.allows("project_add"));
+        assert!(!p.allows("exec"));
+    }
+
+    #[test]
+    fn read_write_allows_writes_but_not_exec() {
+        let p = policy(ServeMode::ReadWrite, true, None);
+        assert!(p.allows("git_commit"));
+        assert!(!p.allows("exec")); // exec only in Full
+    }
+
+    #[test]
+    fn allow_exec_false_disables_exec_in_full() {
+        let p = policy(ServeMode::Full, false, None);
+        assert!(p.allows("git_commit"));
+        assert!(!p.allows("exec"));
+    }
+
+    #[test]
+    fn tools_allowlist_intersects_with_mode() {
+        let p = policy(ServeMode::Full, true, Some(vec!["git_status".into()]));
+        assert!(p.allows("git_status"));
+        assert!(!p.allows("git_commit")); // not in allowlist
+        assert!(!p.allows("exec")); // not in allowlist
+    }
+
+    #[test]
+    fn gateway_browse_tools_are_reads_call_is_write() {
+        // Browsing the gateway is read-only; proxying a call is a write.
+        assert_eq!(tool_kind("mcp_catalog"), ToolKind::Read);
+        assert_eq!(tool_kind("mcp_list_tools"), ToolKind::Read);
+        assert_eq!(tool_kind("mcp_search_tools"), ToolKind::Read);
+        assert_eq!(tool_kind("mcp_call"), ToolKind::Write);
+
+        let ro = policy(ServeMode::ReadOnly, true, None);
+        assert!(ro.allows("mcp_catalog"));
+        assert!(ro.allows("mcp_search_tools"));
+        assert!(!ro.allows("mcp_call")); // read-only cannot proxy a call
+    }
+
+    #[test]
+    fn from_settings_parses_mode_and_exec() {
+        let s = metarepo_core::McpServeSettings {
+            mode: Some("read-only".to_string()),
+            allow_exec: Some(false),
+            tools: None,
+        };
+        let p = ServePolicy::from_settings(Some(&s));
+        assert_eq!(p.mode, ServeMode::ReadOnly);
+        assert!(!p.allow_exec);
+    }
 }

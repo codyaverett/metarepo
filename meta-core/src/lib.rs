@@ -360,6 +360,8 @@ pub struct MetaConfig {
     pub plugins_integrity: Option<String>, // "off" (default) | "required"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<SkillSettings>, // `meta skill` configuration
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<McpSettings>, // experimental `meta mcp serve` policy
     /// Per-command `helpDescription` overrides keyed by dotted command path
     /// (e.g. "project" or "project.add"). A user-set entry replaces whatever the
     /// plugin/module declared for that command's man-page `Description:` section.
@@ -416,6 +418,39 @@ pub struct SkillSettings {
     pub api_key: Option<String>,
 }
 
+/// Configuration for the experimental `meta mcp` plugin (the `[mcp]` block in
+/// `.meta`). Currently only the `serve` policy is honored; all fields are
+/// optional and default to full access so existing setups are unchanged.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct McpSettings {
+    /// Policy applied when this workspace is served via `meta mcp serve`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serve: Option<McpServeSettings>,
+}
+
+/// The `[mcp.serve]` policy controlling what an MCP client may do to a workspace.
+/// Defaults preserve today's behavior (full access).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct McpServeSettings {
+    /// `full` (default) | `read-write` | `read-only`. `read-only` rejects write
+    /// tools; `read-write` allows writes but not the `exec` tool; `full` allows
+    /// everything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// When false, the arbitrary-shell `exec` tool is rejected even in `full`.
+    /// Defaults to true.
+    #[serde(
+        rename = "allow-exec",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub allow_exec: Option<bool>,
+    /// Optional explicit allowlist of exposed tool names. When set, only these
+    /// tools are listed and callable (intersected with the mode/exec gates).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<String>>,
+}
+
 impl Default for MetaConfig {
     fn default() -> Self {
         Self {
@@ -436,6 +471,7 @@ impl Default for MetaConfig {
             default_bare: None,
             plugins_integrity: None,
             skill: None,
+            mcp: None,
             help_descriptions: None,
         }
     }

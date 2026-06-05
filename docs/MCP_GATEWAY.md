@@ -1,10 +1,49 @@
 # MCP gateway & workspace scoping — design
 
-Status: **proposal** (no code yet). Tracks how the experimental `meta mcp`
-plugin could grow into (a) a progressive-disclosure gateway in front of other MCP
-servers, and (b) a workspace-scoped, permission-aware server.
+Status: **phases 1–2 implemented** (#86, #87); phases 3–4 are still proposals.
+Tracks how the experimental `meta mcp` plugin grows into (a) a
+progressive-disclosure gateway in front of other MCP servers, and (b) a
+workspace-scoped, permission-aware server.
 
-This document is a plan for review. It does not change behavior.
+### Phase 1 — shipped
+
+- `meta mcp serve --meta <file-or-dir>` pins the server to one workspace. Every
+  spawned tool subprocess runs with `--experimental --config <that .meta>` and a
+  fixed working directory, so tools cannot drift to another workspace. (The flag
+  is `--meta`, not `--workspace`, because `--workspace`/`-w` is the global
+  all-projects scope flag.)
+- An opt-in `[mcp.serve]` policy in `.meta`, declared via `MetaPlugin::settings()`
+  (so `meta config` edits it): `mode` (`full` default / `read-write` /
+  `read-only`), `allow-exec` (default true), and `tools` (allowlist). Defaults
+  preserve full access. `tools/list` is filtered to permitted tools and calls are
+  rejected with the policy summary.
+- The active workspace + policy are reported in the MCP `initialize`
+  `instructions`.
+- `meta mcp config` now emits `-x` and a `--meta` arg in the generated client
+  block.
+- Deferred to a later sub-task: the `mcp.serve.projects` restriction (not yet
+  enforced, so not yet declared as a setting).
+
+### Phase 2 — shipped (Tier A)
+
+`meta mcp serve` now fronts the saved downstream servers in
+`~/.config/meta/mcp/servers.json` with four navigational meta-tools, so the
+top-level surface stays small:
+
+- `mcp_catalog` — list saved downstream servers (no connection; cheap).
+- `mcp_list_tools(server)` — connect on demand and list one server's tools.
+- `mcp_search_tools(query)` — case-insensitive search across all servers' tool
+  names/descriptions.
+- `mcp_call(server, tool, arguments)` — proxy a downstream tool call.
+
+Downstream connections are lazy (only spawned when `list_tools`/`search`/`call`
+needs them), tool lists are cached per server for the server's lifetime, and each
+connection has a 30s timeout. The sync server loop bridges to the async client
+via a per-call current-thread runtime. The browse tools are reads; `mcp_call` is
+a write (blocked under `read-only`). Not yet applied: the saved `working_dir`/
+`env` on a downstream config (same limitation as `meta mcp connect`).
+
+The rest of this document remains the design for the unshipped phases (3–4).
 
 ## 1. Where we are today
 
@@ -103,9 +142,9 @@ push notifications, and not all clients honor `list_changed`. Ship Tier A first
 
 ### 4.1 Scoping models (both supported)
 
-**Model 1 — pinned single workspace (default).**
-`meta mcp serve --workspace <path>` resolves the `.meta` **once** at startup,
-records its root, and forces every spawned tool subprocess to run with
+**Model 1 — pinned single workspace (default; shipped in phase 1).**
+`meta mcp serve --meta <path>` resolves the `.meta` **once** at startup, records
+its root, and forces every spawned tool subprocess to run with
 `--config <that file>` and a fixed working directory. A tool can no longer drift
 to another workspace via cwd. Multi-workspace is expressed as **one client entry
 per workspace**:
@@ -113,8 +152,8 @@ per workspace**:
 ```json
 {
   "mcpServers": {
-    "metarepo-acme":     { "command": "meta", "args": ["-x", "mcp", "serve", "--workspace", "/work/acme"] },
-    "metarepo-personal": { "command": "meta", "args": ["-x", "mcp", "serve", "--workspace", "/home/me/personal"] }
+    "metarepo-acme":     { "command": "meta", "args": ["-x", "mcp", "serve", "--meta", "/work/acme"] },
+    "metarepo-personal": { "command": "meta", "args": ["-x", "mcp", "serve", "--meta", "/home/me/personal"] }
   }
 }
 ```
