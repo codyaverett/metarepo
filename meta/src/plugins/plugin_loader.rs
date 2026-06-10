@@ -453,7 +453,9 @@ impl PluginLoader {
         } else if spec.starts_with("git+") {
             // git+ plugins are built and copied into the plugin dir at install
             // time under the conventional name; load that binary.
-            let binary = Self::plugin_dir()?.join(format!("metarepo-plugin-{}", name));
+            let binary = crate::plugins::plugin_manager::install::with_executable_ext(
+                Self::plugin_dir()?.join(format!("metarepo-plugin-{}", name)),
+            );
             Self::load_from_path(&binary)?
         } else {
             // Assume it's a crates.io plugin installed via cargo install.
@@ -468,18 +470,23 @@ impl PluginLoader {
     /// Resolve the on-disk path a spec loads from (mirrors the dispatch in
     /// [`Self::load_plugin_spec`]) for integrity hashing.
     fn resolve_load_path(name: &str, spec: &str) -> Result<PathBuf> {
+        use crate::plugins::plugin_manager::install::with_executable_ext;
         if let Some(stripped) = spec.strip_prefix("file:") {
             Ok(expand_tilde(stripped))
         } else if spec.starts_with("git+") {
-            Ok(Self::plugin_dir()?.join(format!("metarepo-plugin-{}", name)))
+            Ok(with_executable_ext(
+                Self::plugin_dir()?.join(format!("metarepo-plugin-{}", name)),
+            ))
         } else {
             let home = std::env::var("HOME")
                 .or_else(|_| std::env::var("USERPROFILE"))
                 .context("Could not determine home directory")?;
-            Ok(PathBuf::from(home)
-                .join(".cargo")
-                .join("bin")
-                .join(format!("metarepo-plugin-{}", name)))
+            Ok(with_executable_ext(
+                PathBuf::from(home)
+                    .join(".cargo")
+                    .join("bin")
+                    .join(format!("metarepo-plugin-{}", name)),
+            ))
         }
     }
 
@@ -558,7 +565,9 @@ impl PluginLoader {
             .context("Could not determine home directory")?;
 
         let cargo_bin = PathBuf::from(home).join(".cargo").join("bin");
-        let plugin_binary = cargo_bin.join(format!("metarepo-plugin-{}", name));
+        let plugin_binary = crate::plugins::plugin_manager::install::with_executable_ext(
+            cargo_bin.join(format!("metarepo-plugin-{}", name)),
+        );
 
         if plugin_binary.exists() {
             Self::load_from_path(&plugin_binary)

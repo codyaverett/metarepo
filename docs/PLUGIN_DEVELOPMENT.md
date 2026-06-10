@@ -307,6 +307,16 @@ Then:
 meta hello greet Ada
 ```
 
+### Windows binary resolution
+
+Plugins are addressed by their conventional extension-less name
+(`metarepo-plugin-<name>`), but on Windows the installed file carries an
+extension: `cargo install` produces `.exe`, and script-based plugins are
+`.cmd`/`.bat` shims. When the bare path does not exist, meta resolves the
+binary by trying `.exe`, `.cmd`, and `.bat` in that order. `file:` installs
+also keep the source file's extension when copying into the plugin directory,
+so the installed copy stays spawnable.
+
 ### Managing plugins
 
 ```bash

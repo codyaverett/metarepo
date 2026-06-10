@@ -98,12 +98,55 @@ fn ok(out: Output) -> Output {
     out
 }
 
+/// Name of the greet plugin's script: a bash script on unix, a batch file on
+/// Windows (which cannot execute `.sh` files as processes).
+const GREET_SCRIPT: &str = if cfg!(windows) {
+    "greet.cmd"
+} else {
+    "greet.sh"
+};
+
+#[cfg(not(windows))]
+fn greet_script_body() -> String {
+    r#"#!/usr/bin/env bash
+set -euo pipefail
+sub="${1:-}"
+case "$sub" in
+  hello)
+    echo "Hello, ${METAREPO_ARG_NAME:-world}!"
+    ;;
+  *)
+    echo "usage: greet hello <name>" >&2
+    exit 1
+    ;;
+esac
+"#
+    .to_string()
+}
+
+#[cfg(windows)]
+fn greet_script_body() -> String {
+    // cmd.exe is unreliable with bare-LF batch files; emit CRLF.
+    [
+        "@echo off",
+        "if \"%1\"==\"hello\" goto hello",
+        "echo usage: greet hello NAME 1>&2",
+        "exit /b 1",
+        ":hello",
+        "if defined METAREPO_ARG_NAME (echo Hello, %METAREPO_ARG_NAME%!) else (echo Hello, world!)",
+        "exit /b 0",
+        "",
+    ]
+    .join("\r\n")
+}
+
 /// Write a minimal shell manifest plugin (the `greet` example) into `dir`.
 fn write_manifest_plugin(dir: &Path) {
     fs::create_dir_all(dir).unwrap();
     fs::write(
         dir.join("plugin.manifest.toml"),
-        r#"[plugin]
+        format!(
+            r#"[plugin]
 name = "greet"
 version = "0.1.0"
 description = "test manifest plugin"
@@ -119,27 +162,12 @@ required = true
 takes_value = true
 
 [config.execution]
-binary = "./greet.sh"
-"#,
+binary = "./{GREET_SCRIPT}"
+"#
+        ),
     )
     .unwrap();
-    fs::write(
-        dir.join("greet.sh"),
-        r#"#!/usr/bin/env bash
-set -euo pipefail
-sub="${1:-}"
-case "$sub" in
-  hello)
-    echo "Hello, ${METAREPO_ARG_NAME:-world}!"
-    ;;
-  *)
-    echo "usage: greet hello <name>" >&2
-    exit 1
-    ;;
-esac
-"#,
-    )
-    .unwrap();
+    fs::write(dir.join(GREET_SCRIPT), greet_script_body()).unwrap();
 }
 
 fn install_greet(f: &Fixture) {
@@ -190,7 +218,7 @@ fn tampered_binary_is_refused_under_integrity() {
 
     // Mutate the installed binary after install (append a harmless comment so
     // the bytes — and thus the digest — change without breaking the script).
-    let script = f.installed_path("greet/greet.sh");
+    let script = f.installed_path(&format!("greet/{GREET_SCRIPT}"));
     let mut contents = fs::read_to_string(&script).unwrap();
     contents.push_str("\n# tampered\n");
     fs::write(&script, contents).unwrap();
@@ -226,7 +254,7 @@ fn verify_fails_after_tamper() {
     let f = Fixture::new();
     install_greet(&f);
 
-    let script = f.installed_path("greet/greet.sh");
+    let script = f.installed_path(&format!("greet/{GREET_SCRIPT}"));
     let mut contents = fs::read_to_string(&script).unwrap();
     contents.push_str("\n# tampered\n");
     fs::write(&script, contents).unwrap();
@@ -248,7 +276,7 @@ fn list_flags_tampered_plugin_even_without_integrity_mode() {
     let f = Fixture::new();
     install_greet(&f);
 
-    let script = f.installed_path("greet/greet.sh");
+    let script = f.installed_path(&format!("greet/{GREET_SCRIPT}"));
     let mut contents = fs::read_to_string(&script).unwrap();
     contents.push_str("\n# tampered\n");
     fs::write(&script, contents).unwrap();
@@ -276,13 +304,29 @@ fn list_shows_integrity_ok_when_required() {
     );
 }
 
-/// Write an executable shell script at `path` that speaks the plugin protocol
-/// and reports name `fake` at version `reports`.
-fn write_protocol_script(path: &Path, reports: &str) {
-    fs::write(
-        path,
-        format!(
-            r#"#!/usr/bin/env bash
+/// Write an executable script at `base` that speaks the plugin protocol and
+/// reports name `fake` at version `reports`. On Windows the script is a `.cmd`
+/// batch file (bash scripts cannot be spawned there); the actual path written
+/// is returned.
+fn write_protocol_script(base: &Path, reports: &str) -> PathBuf {
+    let path = if cfg!(windows) {
+        base.with_extension("cmd")
+    } else {
+        base.to_path_buf()
+    };
+    fs::write(&path, protocol_script_body(reports)).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn protocol_script_body(reports: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
 while IFS= read -r line; do
   case "$line" in
     *GetInfo*)
@@ -303,14 +347,51 @@ while IFS= read -r line; do
   esac
 done
 "#
-        ),
     )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
+}
+
+#[cfg(windows)]
+fn protocol_script_body(reports: &str) -> String {
+    // Batch read-loop over stdin: one JSON request per line, one JSON response
+    // per line. CRLF endings — cmd.exe is unreliable with bare-LF batch files.
+    // The request is matched by writing it to a scratch file and running
+    // findstr over that file: piping `echo !line!` into findstr would not work,
+    // because each side of a cmd.exe pipe runs in a child without the parent's
+    // variable context.
+    [
+        "@echo off",
+        "setlocal",
+        ":loop",
+        "set \"line=\"",
+        "set /p \"line=\"",
+        "if not defined line exit /b 0",
+        ">\"%~dp0req.txt\" echo(%line%",
+        "findstr /c:\"GetInfo\" \"%~dp0req.txt\" >nul",
+        "if not errorlevel 1 goto info",
+        "findstr /c:\"RegisterCommands\" \"%~dp0req.txt\" >nul",
+        "if not errorlevel 1 goto commands",
+        "findstr /c:\"GetSettings\" \"%~dp0req.txt\" >nul",
+        "if not errorlevel 1 goto settings",
+        "findstr /c:\"HandleCommand\" \"%~dp0req.txt\" >nul",
+        "if not errorlevel 1 goto handle",
+        "echo {\"type\":\"Error\",\"message\":\"unknown request\"}",
+        "goto loop",
+        ":info",
+        "echo {\"type\":\"Info\",\"name\":\"fake\",\"version\":\"@VERSION@\",\"experimental\":false,\"protocol_version\":\"1.0\"}",
+        "goto loop",
+        ":commands",
+        "echo {\"type\":\"Commands\",\"commands\":[{\"name\":\"fake\",\"about\":\"fake plugin\",\"subcommands\":[],\"args\":[]}]}",
+        "goto loop",
+        ":settings",
+        "echo {\"type\":\"Settings\",\"settings\":[]}",
+        "goto loop",
+        ":handle",
+        "echo {\"type\":\"Success\",\"message\":\"fake ran\"}",
+        "goto loop",
+        "",
+    ]
+    .join("\r\n")
+    .replace("@VERSION@", reports)
 }
 
 /// Place a fake protocol plugin in the fixture's `~/.cargo/bin` (where crates
@@ -319,6 +400,8 @@ done
 fn install_fake_crates_plugin(f: &Fixture, reports: &str, pin: &str) {
     let bin_dir = f.home.join(".cargo").join("bin");
     fs::create_dir_all(&bin_dir).unwrap();
+    // On Windows this writes metarepo-plugin-fake.cmd; resolution falls back
+    // to extension candidates for the conventional extension-less name.
     write_protocol_script(&bin_dir.join("metarepo-plugin-fake"), reports);
     fs::write(
         f.config_path(),
@@ -332,8 +415,7 @@ fn install_records_probed_version_for_unpinned_binary() {
     let f = Fixture::new();
     // A protocol plugin reporting 2.0.0, installed from a file source with no
     // version pin: the lockfile should capture the probed version, not "*".
-    let script = f.ws.join("metarepo-plugin-probe");
-    write_protocol_script(&script, "2.0.0");
+    let script = write_protocol_script(&f.ws.join("metarepo-plugin-probe"), "2.0.0");
     let from = format!("file:{}", script.display());
     ok(f.meta(&["plugin", "install", "probe", "--from", &from]));
 

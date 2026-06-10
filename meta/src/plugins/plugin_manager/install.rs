@@ -48,11 +48,35 @@ fn expand_tilde(path: &str) -> PathBuf {
 /// For manifest plugins this is the manifest file; otherwise the binary.
 pub fn resolved_binary_path(plugin_name: &str, spec: &PluginSpec) -> Result<PathBuf> {
     match spec {
-        PluginSpec::Crates { crate_name, .. } => Ok(cargo_bin_dir()?.join(crate_name)),
+        PluginSpec::Crates { crate_name, .. } => {
+            Ok(with_executable_ext(cargo_bin_dir()?.join(crate_name)))
+        }
         PluginSpec::File { path } => Ok(expand_tilde(path)),
         // git+ builds are copied into the plugin dir under the conventional name.
-        PluginSpec::Git { .. } => Ok(plugin_dir()?.join(default_crate_name(plugin_name))),
+        PluginSpec::Git { .. } => Ok(with_executable_ext(
+            plugin_dir()?.join(default_crate_name(plugin_name)),
+        )),
     }
+}
+
+/// Plugins are addressed by their conventional extension-less name
+/// (`metarepo-plugin-<name>`), but on Windows the file on disk carries an
+/// extension: `cargo install` produces `.exe`, and script shims are
+/// `.cmd`/`.bat`. When the bare path is missing, resolve to the first existing
+/// extension candidate. No-op on other platforms or when the bare path exists.
+pub fn with_executable_ext(path: PathBuf) -> PathBuf {
+    if !cfg!(windows) || path.exists() {
+        return path;
+    }
+    for ext in ["exe", "cmd", "bat"] {
+        let mut s = path.clone().into_os_string();
+        s.push(format!(".{ext}"));
+        let candidate = PathBuf::from(s);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    path
 }
 
 /// Per-plugin directory for manifest plugins: `~/.config/metarepo/plugins/<name>`.
@@ -263,7 +287,16 @@ fn install_file(plugin_name: &str, source: &Path) -> Result<PathBuf> {
     if !source.exists() {
         bail!("Plugin path does not exist: {}", source.display());
     }
-    let dest = plugin_dir()?.join(default_crate_name(plugin_name));
+    // Keep the source extension on Windows: an extension-less copy of a
+    // `.exe`/`.cmd` cannot be spawned there.
+    let mut dest_name = default_crate_name(plugin_name);
+    if cfg!(windows) {
+        if let Some(ext) = source.extension().and_then(|e| e.to_str()) {
+            dest_name.push('.');
+            dest_name.push_str(ext);
+        }
+    }
+    let dest = plugin_dir()?.join(dest_name);
     fs::copy(source, &dest)
         .with_context(|| format!("Failed to copy {} to {}", source.display(), dest.display()))?;
     make_executable(&dest)?;
