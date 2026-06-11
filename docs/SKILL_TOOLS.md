@@ -38,6 +38,23 @@ The `skill` plugin now covers the full lifecycle of working with skills:
 | Vetting skills | `audit` |
 | Importing skills | `steal` (local path or git URL), `add` (skills.sh) |
 
+### Bundled skill update safety
+
+`install` and `update` record a sha256 fingerprint of the files they write in
+`.claude/skills/meta-tool/.skill-lock.json`. `meta skill update` only rewrites
+the skill when the installed files still match that fingerprint (a pristine
+copy of an older bundle). It refuses — leaving the files untouched and
+explaining why — when:
+
+- the installed files were locally modified,
+- the installed version is newer than the bundled one (downgrade), or
+- no fingerprint was recorded (legacy or hand-rolled install).
+
+Pass `--force` / `-f` to overwrite anyway. `update` no longer installs the
+skill when absent; `meta skill install` (or `meta init --with-skill`) is the
+opt-in entry point. Pristine legacy installs gain a fingerprint on their next
+successful `update`/`install`.
+
 ## Subcommands
 
 ### scan
