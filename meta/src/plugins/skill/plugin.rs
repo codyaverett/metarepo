@@ -1,6 +1,6 @@
 use super::{
     adapt, audit, bundled_version, install, installed_version, is_installed, locations, registry,
-    remove, scan, search, steal, update, SkillAction,
+    remove, scan, search, steal, update, SkillAction, UpdateRefusal,
 };
 use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -137,6 +137,29 @@ fn print_action(action: &SkillAction) {
             "  {} Claude Code skill already up to date",
             "·".bright_black()
         ),
+        SkillAction::NotInstalled => println!(
+            "  {} Skill not installed; nothing to update. Run 'meta skill install' to opt in.",
+            "·".bright_black()
+        ),
+        SkillAction::Refused(reason) => {
+            match reason {
+                UpdateRefusal::LocallyModified => println!(
+                    "  {} Skill has local modifications; refusing to overwrite them.",
+                    "⚠".yellow()
+                ),
+                UpdateRefusal::InstalledNewer { installed, bundled } => println!(
+                    "  {} Installed skill ({installed}) is newer than the bundled one ({bundled}); refusing to downgrade.",
+                    "⚠".yellow()
+                ),
+                UpdateRefusal::UnknownProvenance => println!(
+                    "  {} Installed skill has no recorded fingerprint, so local edits cannot be ruled out; refusing to overwrite.",
+                    "⚠".yellow()
+                ),
+            }
+            println!(
+                "    Back up or diff .claude/skills/meta-tool/ first, then re-run with 'meta skill update --force' to overwrite."
+            );
+        }
     }
 }
 
@@ -232,8 +255,8 @@ impl MetaPlugin for SkillPlugin {
                 print_action(&action);
                 Ok(())
             }
-            Some(("update", _)) => {
-                let action = update(&config.working_dir)?;
+            Some(("update", m)) => {
+                let action = update(&config.working_dir, m.get_flag("force"))?;
                 print_action(&action);
                 Ok(())
             }
@@ -414,14 +437,25 @@ fn skill_command() -> Command {
                 .after_long_help(metarepo_core::format_help_description(
                     "Refresh the installed meta-tool skill to the bundled version.\n\
                      \n\
-                     Compares the version installed under .claude/skills/meta-tool/\n\
-                     against the version shipped with this binary and rewrites the\n\
-                     skill when the bundled one is newer. When the installed copy is\n\
-                     already current this reports that and makes no changes.\n\
+                     Rewrites .claude/skills/meta-tool/ only when it is safe: the\n\
+                     installed files must match the fingerprint recorded when they\n\
+                     were written (no local edits) and must not be newer than the\n\
+                     bundled version. Locally modified, newer, or unrecognized\n\
+                     installs are left untouched with an explanation; pass\n\
+                     --force / -f to overwrite anyway. Does not install the skill\n\
+                     when absent (use meta skill install).\n\
                      \n\
                      Examples:\n  \
-                       meta skill update   Update when a newer version is bundled",
-                )),
+                       meta skill update      Update when safe\n  \
+                       meta skill update -f   Overwrite local edits with the bundle",
+                ))
+                .arg(
+                    Arg::new("force")
+                        .long("force")
+                        .short('f')
+                        .action(ArgAction::SetTrue)
+                        .help("Overwrite even if the installed skill was edited or is newer"),
+                ),
         )
         .subcommand(
             Command::new("status")
