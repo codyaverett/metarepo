@@ -102,6 +102,8 @@ source can be:
 - a **single skill** — a directory containing a `SKILL.md`, or a `SKILL.md` path;
 - a **directory tree** containing many skills;
 - a **git URL** — cloned shallowly (`git clone --depth 1`), then treated as a tree.
+  Pin a branch, tag, or commit SHA with `--ref` (alias `--branch`) or the inline
+  `url#ref` syntax; the default branch is used otherwise.
 
 When the source holds more than one skill you choose which to take. In a terminal
 this opens a full-screen **picker**: a static header describing the source repo
@@ -116,6 +118,8 @@ the source directory name), and each copy passes the audit gate independently.
 meta skill steal ~/Downloads/some-skill                 # copy one local skill
 meta skill steal ./skills                               # pick from a local tree
 meta skill steal https://github.com/owner/repo.git      # clone, pick, copy
+meta skill steal https://github.com/owner/repo.git --ref v2.1  # steal from a branch/tag/SHA
+meta skill steal https://github.com/owner/repo.git#dev   # same, inline ref syntax
 meta skill steal https://github.com/owner/repo.git --preview   # preview all, copy none
 meta skill steal https://github.com/owner/repo.git --all       # copy every skill
 meta skill steal <git-url> --name foo --name bar        # copy named skills (scriptable)
@@ -129,6 +133,13 @@ Flags:
 - `--dest <dir>` — destination skills root. Resolution order: `--dest` > the
   configured `[skill] dest` (see below) > `$CLAUDE_SKILLS_HOME` > `./.claude/skills`
   > `~/.claude/skills`.
+- `--ref <ref>` (alias `--branch`) — for git URL sources, the branch, tag, or
+  commit SHA to steal from. Branches and tags clone shallowly at the ref; a
+  commit SHA is fetched into the clone and checked out. `url#ref` is equivalent
+  (an explicit `--ref` must agree if both are given). The ref is recorded as
+  `ref = "..."` in the `.meta-source.toml` provenance file alongside the
+  resolved commit. A ref that does not exist on the remote fails with a
+  distinct error naming the ref.
 - `--all` — steal every skill found in the source.
 - `--name <name>` — steal the skill(s) with this name (repeatable). Matches the
   frontmatter name or the source directory name (case-insensitive).
@@ -259,10 +270,13 @@ Install a skill from skills.sh by its id (audit-gated, like `steal`).
 ```bash
 meta skill add vercel-labs/agent-skills/vercel-react-best-practices
 meta skill add <id> --dest ~/.claude/skills --overwrite
+meta skill add <id> --ref v2         # resolve from a branch, tag, or SHA
 meta skill add <id> --force          # install despite HIGH findings
 ```
 
-Flags mirror `steal`: `--dest`, `--overwrite`, `--force`/`-f`.
+Flags mirror `steal`: `--dest`, `--overwrite`, `--force`/`-f`, and `--ref`
+(alias `--branch`). Because the skills.sh API only serves the latest registry
+copy, `--ref` always resolves via the GitHub path, even when an API key is set.
 
 ## Installing from skills.sh
 

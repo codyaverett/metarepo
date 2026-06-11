@@ -311,6 +311,7 @@ impl MetaPlugin for SkillPlugin {
                     dest.as_deref(),
                     m.get_flag("force"),
                     m.get_flag("overwrite"),
+                    m.get_one::<String>("ref").map(String::as_str),
                     &resolved_detail_url(config),
                     resolved_api_key(config).as_deref(),
                 )
@@ -341,6 +342,7 @@ impl MetaPlugin for SkillPlugin {
                     dest.as_deref(),
                     m.get_flag("force"),
                     m.get_flag("overwrite"),
+                    m.get_one::<String>("ref").map(String::as_str),
                     select,
                     non_interactive,
                 )
@@ -616,6 +618,7 @@ fn skill_command() -> Command {
                      \n\
                      Examples:\n  \
                        meta skill add owner/repo/skill            Install (audit-gated)\n  \
+                       meta skill add owner/repo/skill --ref v2   Resolve from a branch/tag/SHA\n  \
                        meta skill add owner/repo/skill --overwrite  Replace an existing copy\n  \
                        meta skill add owner/repo/skill --force    Install despite HIGH findings",
                 ))
@@ -629,6 +632,15 @@ fn skill_command() -> Command {
                     Arg::new("dest")
                         .long("dest")
                         .help("Destination skills root (defaults to first existing candidate)"),
+                )
+                .arg(
+                    Arg::new("ref")
+                        .long("ref")
+                        .visible_alias("branch")
+                        .help(
+                            "Git branch, tag, or commit SHA to resolve from \
+                             (forces GitHub resolution; the keyed skills.sh API has no refs)",
+                        ),
                 )
                 .arg(
                     Arg::new("force")
@@ -658,6 +670,8 @@ fn skill_command() -> Command {
                        meta skill steal ./path/to/skill        Copy one local skill\n  \
                        meta skill steal ./skills               Pick from a local tree\n  \
                        meta skill steal https://github.com/o/r.git   Clone and pick\n  \
+                       meta skill steal <git-url> --ref v2.1   Steal from a branch, tag, or SHA\n  \
+                       meta skill steal <git-url>#dev          Same, inline ref syntax\n  \
                        meta skill steal <git-url> --preview    Preview every skill, copy none\n  \
                        meta skill steal <git-url> --all        Copy every skill found\n  \
                        meta skill steal <git-url> --name foo --name bar  Copy by name\n  \
@@ -676,7 +690,10 @@ fn skill_command() -> Command {
                      terminal, or --all / --name when scripted (required without a TTY).\n\
                      \n\
                      Key flags: --dest sets the destination skills root (else [skill]\n\
-                     dest / candidate chain); --all takes every skill; --name <n>\n\
+                     dest / candidate chain); --ref (alias --branch) pins a git URL\n\
+                     source to a branch, tag, or commit SHA (inline url#ref also\n\
+                     works, and the ref is recorded in the provenance file);\n\
+                     --all takes every skill; --name <n>\n\
                      (repeatable) takes named skills; --preview shows findings and a body\n\
                      excerpt and copies nothing; --adapt [purpose] runs a headless AI\n\
                      command to tailor each copy to this repo; --overwrite replaces an\n\
@@ -699,6 +716,15 @@ fn skill_command() -> Command {
                     Arg::new("dest")
                         .long("dest")
                         .help("Destination skills root (defaults to first existing candidate)"),
+                )
+                .arg(
+                    Arg::new("ref")
+                        .long("ref")
+                        .visible_alias("branch")
+                        .help(
+                            "Git branch, tag, or commit SHA to steal from \
+                             (git URL sources only; url#ref also works)",
+                        ),
                 )
                 .arg(
                     Arg::new("all")

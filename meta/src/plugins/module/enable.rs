@@ -129,6 +129,7 @@ pub fn enable(repo: &Path, meta_file: &Path, force: bool, overwrite: bool) -> Re
             None,
             force,
             overwrite,
+            None,
             steal::SelectOpts::default(),
             metarepo_core::NonInteractiveMode::Defaults,
         )

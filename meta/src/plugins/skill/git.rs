@@ -19,6 +19,9 @@ pub struct Provenance {
     pub subpath: String,
     /// Whether the working tree had uncommitted changes at steal time.
     pub dirty: bool,
+    /// The branch, tag, or commit the caller asked for (`--ref` / `url#ref`),
+    /// when the steal was pinned to one. The resolved SHA is in `commit`.
+    pub git_ref: Option<String>,
 }
 
 /// The filename recording provenance inside a stolen skill.
@@ -79,6 +82,7 @@ pub fn derive(dir: &Path) -> Option<Provenance> {
         commit,
         subpath,
         dirty,
+        git_ref: None,
     })
 }
 
@@ -108,18 +112,35 @@ impl Provenance {
         } else {
             ""
         };
-        format!("{}@{} ({}){}", self.url, self.short(), self.subpath, dirty)
+        let r = self
+            .git_ref
+            .as_deref()
+            .map(|r| format!("#{r}"))
+            .unwrap_or_default();
+        format!(
+            "{}{}@{} ({}){}",
+            self.url,
+            r,
+            self.short(),
+            self.subpath,
+            dirty
+        )
     }
 
     /// Write the provenance file into a stolen skill directory.
     pub fn write_file(&self, skill_dir: &Path) -> Result<()> {
+        let ref_line = self
+            .git_ref
+            .as_deref()
+            .map(|r| format!("ref = \"{r}\"\n"))
+            .unwrap_or_default();
         let body = format!(
             "# Provenance recorded by `meta skill steal`.\n\
              url = \"{}\"\n\
-             commit = \"{}\"\n\
+             {}commit = \"{}\"\n\
              subpath = \"{}\"\n\
              dirty = {}\n",
-            self.url, self.commit, self.subpath, self.dirty
+            self.url, ref_line, self.commit, self.subpath, self.dirty
         );
         let path = skill_dir.join(PROVENANCE_FILE);
         std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))
@@ -197,10 +218,28 @@ mod tests {
             commit: "abc123".into(),
             subpath: "skills/demo".into(),
             dirty: false,
+            git_ref: None,
         };
         p.write_file(tmp.path()).unwrap();
         let body = fs::read_to_string(tmp.path().join(PROVENANCE_FILE)).unwrap();
         assert!(body.contains("url = \"https://github.com/o/r.git\""));
         assert!(body.contains("subpath = \"skills/demo\""));
+        assert!(!body.contains("ref = "));
+    }
+
+    #[test]
+    fn write_file_records_ref_when_pinned() {
+        let tmp = tempdir().unwrap();
+        let p = Provenance {
+            url: "https://github.com/o/r.git".into(),
+            commit: "abc123".into(),
+            subpath: ".".into(),
+            dirty: false,
+            git_ref: Some("v1.2.3".into()),
+        };
+        p.write_file(tmp.path()).unwrap();
+        let body = fs::read_to_string(tmp.path().join(PROVENANCE_FILE)).unwrap();
+        assert!(body.contains("ref = \"v1.2.3\""));
+        assert!(p.summary().contains("#v1.2.3@"));
     }
 }

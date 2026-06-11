@@ -77,12 +77,15 @@ struct FileEntry {
 ///
 /// `detail_url` is the resolved skill-detail endpoint and `api_key` the resolved
 /// key (env > config), already chosen by the caller. When `api_key` is set the
-/// keyed path is used, otherwise resolution falls back to GitHub.
+/// keyed path is used, otherwise resolution falls back to GitHub. A `git_ref`
+/// (branch, tag, or commit SHA) forces the GitHub path, since the skills.sh
+/// API only serves the latest registry copy.
 pub fn run(
     id: &str,
     dest_root: Option<&str>,
     force: bool,
     overwrite: bool,
+    git_ref: Option<&str>,
     detail_url: &str,
     api_key: Option<&str>,
 ) -> Result<()> {
@@ -90,30 +93,41 @@ pub fn run(
     let tmp = TempDir::new().context("creating temp working dir")?;
 
     let skill_dir = match api_key {
-        Some(key) if !key.trim().is_empty() => {
+        Some(key) if !key.trim().is_empty() && git_ref.is_none() => {
             println!("  {} Fetching {} from skills.sh", "↓".cyan(), parsed.id);
             resolve_via_api(&parsed, key.trim(), tmp.path(), detail_url)?
         }
         _ => {
-            println!(
-                "  {} Resolving {} via GitHub ({})",
-                "↓".cyan(),
-                parsed.slug,
-                parsed.source
-            );
-            resolve_via_github(&parsed, tmp.path())?
+            match git_ref {
+                Some(r) => println!(
+                    "  {} Resolving {} via GitHub ({} at {})",
+                    "↓".cyan(),
+                    parsed.slug,
+                    parsed.source,
+                    r
+                ),
+                None => println!(
+                    "  {} Resolving {} via GitHub ({})",
+                    "↓".cyan(),
+                    parsed.slug,
+                    parsed.source
+                ),
+            }
+            resolve_via_github(&parsed, tmp.path(), git_ref)?
         }
     };
 
     let dir = skill_dir
         .to_str()
         .ok_or_else(|| anyhow!("resolved skill path is not valid UTF-8"))?;
-    // The registry resolves to exactly one skill dir, so steal copies it directly.
+    // The registry resolves to exactly one skill dir, so steal copies it
+    // directly; provenance derives from the clone, with the ref passed along.
     steal::run(
         dir,
         dest_root,
         force,
         overwrite,
+        git_ref,
         steal::SelectOpts::default(),
         metarepo_core::NonInteractiveMode::Defaults,
     )
@@ -161,11 +175,12 @@ fn write_files(dir: &Path, files: &[FileEntry]) -> Result<()> {
     Ok(())
 }
 
-/// Keyless path: shallow-clone the source repo and find the matching skill dir.
-fn resolve_via_github(parsed: &ParsedId, tmp: &Path) -> Result<PathBuf> {
+/// Keyless path: shallow-clone the source repo (at `git_ref` when given) and
+/// find the matching skill dir.
+fn resolve_via_github(parsed: &ParsedId, tmp: &Path, git_ref: Option<&str>) -> Result<PathBuf> {
     let repo_dir = tmp.join("repo");
     let repo_url = format!("https://github.com/{}.git", parsed.source);
-    source::shallow_clone(&repo_url, &repo_dir)?;
+    source::shallow_clone_ref(&repo_url, &repo_dir, git_ref)?;
 
     let mut skills = collect_skill_dirs(&repo_dir);
     if skills.is_empty() {
