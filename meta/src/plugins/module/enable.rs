@@ -501,10 +501,9 @@ mod tests {
     /// Build a workspace with a `.meta` and a module repo containing a manifest
     /// plugin and a skill. Returns (workspace_root, meta_file, module_repo).
     fn scaffold(skill_body: &str) -> (PathBuf, PathBuf, PathBuf) {
-        let tmp = tempdir().unwrap();
-        let ws = tmp.path().canonicalize().unwrap();
-        // Persist the tempdir by leaking it: tests are short-lived processes.
-        std::mem::forget(tmp);
+        // Persist the tempdir for the test's lifetime: tests are short-lived
+        // processes, so the directory is reclaimed by the OS afterwards.
+        let ws = tempdir().unwrap().keep().canonicalize().unwrap();
 
         let meta_file = ws.join(".meta");
         MetaConfig::default()
