@@ -7,6 +7,7 @@ This directory contains security-related documentation, testing strategies, and 
 ```
 docs/security/
 ├── README.md                          # This file
+├── threat-model.md                    # Supply-chain threat model: trust anchors, mitigations, residual risks
 ├── SECURITY_TESTING_STRATEGY.md       # Comprehensive security testing strategy
 ├── SECURITY_HOTFIX.patch              # Critical vulnerability patches
 └── implement-security.sh              # Automated security implementation script
