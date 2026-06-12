@@ -31,7 +31,7 @@ console = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 tui-textarea = { workspace = true }
-metarepo-core = { version = "0.53.1", path = "../meta-core" }
+metarepo-core = { version = "0.53.2", path = "../meta-core" }
 
 # Plugin dependencies (now built-in)
 # Git plugin dependencies
