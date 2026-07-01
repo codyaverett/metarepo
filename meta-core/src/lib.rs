@@ -353,6 +353,10 @@ pub struct ProjectMetadata {
     /// `None` or `Some(true)` means the project is managed normally.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Records the shallow-clone depth used when the project was added so
+    /// re-clones (`meta git update`) stay shallow. `None` means a full clone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<i32>,
 }
 
 /// The .meta file configuration format
@@ -989,6 +993,13 @@ impl MetaConfig {
         false
     }
 
+    pub fn get_project_depth(&self, project_name: &str) -> Option<i32> {
+        if let Some(ProjectEntry::Metadata(metadata)) = self.projects.get(project_name) {
+            return metadata.depth;
+        }
+        None
+    }
+
     /// Deserialize a plugin's top-level config block (the table named `name`,
     /// e.g. `skill`) into a plugin-defined settings struct. Returns `None` when
     /// the block is absent or null. This is the typed accessor plugins use to
@@ -1211,6 +1222,7 @@ mod tests {
             worktree_init: None,
             bare: None,
             enabled,
+            depth: None,
         })
     }
 
@@ -1662,5 +1674,53 @@ mod tests {
         // Should return an error
         let result = MetaConfig::load_from_file(&meta_file);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn project_metadata_depth_roundtrips_from_json() {
+        // A .meta file with a project entry that records a shallow-clone depth.
+        let json = r#"{
+            "projects": {
+                "shallow-project": {
+                    "url": "https://example.com/shallow-project.git",
+                    "depth": 1
+                }
+            }
+        }"#;
+        let config: MetaConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.get_project_depth("shallow-project"), Some(1));
+
+        match config.projects.get("shallow-project") {
+            Some(ProjectEntry::Metadata(metadata)) => assert_eq!(metadata.depth, Some(1)),
+            other => panic!("expected metadata entry, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn project_metadata_depth_none_is_omitted_from_serialized_json() {
+        // No depth was recorded (full clone) — the field must be skipped
+        // entirely rather than serialized as `"depth": null`.
+        let metadata = ProjectMetadata {
+            url: "https://example.com/full-project.git".to_string(),
+            aliases: Vec::new(),
+            scripts: HashMap::new(),
+            env: HashMap::new(),
+            worktree_init: None,
+            bare: None,
+            enabled: None,
+            depth: None,
+        };
+        let json = serde_json::to_string(&metadata).unwrap();
+        assert!(
+            !json.contains("depth"),
+            "expected `depth` to be omitted when None, got: {json}"
+        );
+
+        // Round-tripping back through MetaConfig confirms no depth is recorded.
+        let mut config = MetaConfig::default();
+        config
+            .projects
+            .insert("full-project".to_string(), ProjectEntry::Metadata(metadata));
+        assert_eq!(config.get_project_depth("full-project"), None);
     }
 }

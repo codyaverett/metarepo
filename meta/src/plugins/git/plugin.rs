@@ -1,6 +1,6 @@
 use super::{clone_missing_repos, clone_repository, get_git_status};
 use crate::plugins::exec::{execute_with_projects, ProjectInfo, ProjectIterator};
-use crate::plugins::shared::detect_default_branch;
+use crate::plugins::shared::{detect_default_branch, parse_depth_arg};
 use crate::plugins::worktree::list_worktrees;
 use anyhow::Result;
 use clap::ArgMatches;
@@ -48,11 +48,14 @@ impl GitPlugin {
                          the current working directory. If the clone contains a workspace\n\
                          config (.meta), metarepo switches into it and clones each missing\n\
                          child project so the whole workspace is checked out in one step.\n\
+                         Use --depth to perform a shallow clone; the depth is recorded so\n\
+                         later re-clones (meta git update) stay shallow.\n\
                          \n\
                          Examples:\n\
                          \n\
                            meta git clone git@github.com:org/workspace.git\n\
-                           meta git c https://github.com/org/workspace.git",
+                           meta git c https://github.com/org/workspace.git\n\
+                           meta git clone --depth 1 https://github.com/org/workspace.git",
                     )
                     .aliases(vec!["c".to_string()])
                     .with_help_formatting()
@@ -60,6 +63,12 @@ impl GitPlugin {
                         arg("url")
                             .help("Repository URL to clone")
                             .required(true)
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("depth")
+                            .long("depth")
+                            .help("Create a shallow clone with the given history depth")
                             .takes_value(true),
                     ),
             )
@@ -168,6 +177,9 @@ impl GitPlugin {
 /// Handler for the clone command
 fn handle_clone(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let url = matches.get_one::<String>("url").unwrap();
+
+    let depth = parse_depth_arg(matches.get_one::<String>("depth"))?;
+
     println!("Cloning meta repository from: {}", url);
 
     // Extract repo name from URL for directory name
@@ -178,7 +190,7 @@ fn handle_clone(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         .trim_end_matches(".git");
 
     let target_path = config.working_dir.join(repo_name);
-    clone_repository(url, &target_path, false)?;
+    clone_repository(url, &target_path, false, depth)?;
 
     // After cloning, look for a workspace config and clone child repos
     if MetaConfig::config_in_dir(&target_path).is_some() {

@@ -256,6 +256,7 @@ pub fn convert_to_bare(project_name: &str, base_path: &Path) -> Result<()> {
             worktree_init: None,
             bare: Some(true),
             enabled: None,
+            depth: None,
         }),
     );
 

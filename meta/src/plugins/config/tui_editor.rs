@@ -928,6 +928,7 @@ impl ConfigEditor {
                     worktree_init: None,
                     bare: None,
                     enabled: None,
+                    depth: None,
                 }),
             );
             self.state.modified = true;

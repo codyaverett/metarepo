@@ -7,6 +7,7 @@ This guide covers advanced worktree configuration options in Metarepo, including
 - [Overview](#overview)
 - [Post-Create Commands (worktree_init)](#post-create-commands-worktree_init)
 - [Bare Repository Support](#bare-repository-support)
+- [Shallow Clone Depth](#shallow-clone-depth)
 - [Configuration Examples](#configuration-examples)
 - [Best Practices](#best-practices)
 
@@ -521,6 +522,72 @@ mv .git ../.git.backup
 cp -r ../.git/. .git/  # Copy bare git to working directory
 git config --unset core.bare
 git reset --hard HEAD
+```
+
+## Shallow Clone Depth
+
+### Quick Start: Adding a Shallow Clone
+
+Pass `--depth <N>` to `meta project add` or `meta git clone` to limit how much
+history is fetched:
+
+```bash
+# Only fetch the most recent commit
+meta project add my-app https://github.com/user/my-app.git --depth 1
+
+# Clone an entire meta workspace shallowly
+meta git clone --depth 1 https://github.com/user/meta-workspace.git
+```
+
+`--depth` must be a positive integer; `0` or a negative value is rejected
+before any network access happens.
+
+### Configuration
+
+The depth used at add-time is recorded per-project in `.meta` (as `depth`) so
+that a later `meta git update` — which re-clones any project missing from
+disk — repeats the same shallow clone instead of silently fetching full
+history:
+
+```json
+{
+  "projects": {
+    "shallow-app": {
+      "url": "git@github.com:user/shallow-app.git",
+      "depth": 1
+    },
+    "full-app": {
+      "url": "git@github.com:user/full-app.git"
+      // No "depth" set → full clone (default)
+    }
+  }
+}
+```
+
+There is no `default_depth` equivalent to `default_bare` — depth is opt-in
+per project, since it's a project-add-time decision rather than an ongoing
+workspace policy.
+
+**Interaction with `--bare`:** `--depth` and `--bare` combine freely; a
+shallow clone can also be a bare repository with worktrees.
+
+**Interaction with recursive/flattened imports:** `meta project add --depth
+<N>` combined with `--recursive`, `--flatten`, or `--max-depth` prints a
+warning and imports the root project (and any nested projects it discovers)
+in full — shallow depth is not threaded through recursive imports, since
+nested repos are cloned to build the full project tree.
+
+### Shallow-Cloning an Entire Org
+
+Combine `--depth` with the GitHub CLI to pull every repo in an org into the
+workspace as lightweight, depth-1 clones:
+
+```bash
+meta init
+gh repo list ORG --limit 1000 --json name,url --jq '.[] | "\(.name) \(.url)"' \
+  | while read -r name url; do
+      meta project add "$name" "$url" --depth 1
+    done
 ```
 
 ## Configuration Examples

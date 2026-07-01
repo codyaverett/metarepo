@@ -3,6 +3,7 @@ use super::{
     list_projects, list_projects_minimal, remove_project, rename_project, show_project_tree,
     update_project_gitignore, update_projects,
 };
+use crate::plugins::shared::parse_depth_arg;
 use anyhow::Result;
 use clap::ArgMatches;
 use colored::Colorize;
@@ -68,8 +69,11 @@ impl ProjectPlugin {
                          local: when it has none). With no source you are prompted in a TTY.\n\
                          \n\
                          By default clones use the bare-with-worktrees layout (disable per\n\
-                         workspace via default_bare); pass --bare to force it. Use --init-git\n\
-                         to git init a plain directory before tracking it. Use --recursive\n\
+                         workspace via default_bare); pass --bare to force it. Use --depth to\n\
+                         perform a shallow git clone (the depth is recorded so re-clones via\n\
+                         meta git update stay shallow); this does not apply to recursive\n\
+                         imports. Use --init-git to git init a plain directory before tracking\n\
+                         it. Use --recursive\n\
                          (with --max-depth, --flatten) to import nested meta repositories, or\n\
                          --no-recursive to override a workspace that enables it by default. If\n\
                          the added repo declares itself a meta module, you are shown it and,\n\
@@ -126,6 +130,12 @@ impl ProjectPlugin {
                         arg("bare")
                             .long("bare")
                             .help("Clone as bare repository with worktree structure")
+                    )
+                    .arg(
+                        arg("depth")
+                            .long("depth")
+                            .help("Git shallow clone depth (limits history fetched when cloning)")
+                            .takes_value(true)
                     )
             )
             .command(
@@ -400,6 +410,7 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
     let init_git = matches.get_flag("init-git");
     let bare = matches.get_flag("bare");
+    let clone_depth = parse_depth_arg(matches.get_one::<String>("depth"))?;
 
     let base_path = if config.meta_root().is_some() {
         config.meta_root().unwrap()
@@ -439,6 +450,12 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     };
 
     if use_recursive || flatten || max_depth.is_some() {
+        if clone_depth.is_some() {
+            eprintln!(
+                "  {} --depth is ignored for recursive imports; nested projects are cloned in full",
+                "⚠".yellow()
+            );
+        }
         import_project_recursive_with_options(
             &path,
             source,
@@ -450,7 +467,7 @@ fn handle_add(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             use_bare,
         )?;
     } else {
-        import_project_with_options(&path, source, &base_path, init_git, use_bare)?;
+        import_project_with_options(&path, source, &base_path, init_git, use_bare, clone_depth)?;
     }
 
     // If the added repo declares itself a meta module, surface it (and, in a

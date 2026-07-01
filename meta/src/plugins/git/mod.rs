@@ -14,7 +14,12 @@ pub use operations::get_git_status;
 // Import shared git operations
 use crate::plugins::shared::{clone_with_auth, create_default_worktree};
 
-pub fn clone_repository(repo_url: &str, target_path: &Path, bare: bool) -> Result<()> {
+pub fn clone_repository(
+    repo_url: &str,
+    target_path: &Path,
+    bare: bool,
+    depth: Option<i32>,
+) -> Result<()> {
     if target_path.exists() {
         return Err(anyhow::anyhow!(
             "Target directory already exists: {:?}",
@@ -34,7 +39,7 @@ pub fn clone_repository(repo_url: &str, target_path: &Path, bare: bool) -> Resul
 
         // Clone as bare repo to <project>/.git/
         let bare_path = target_path.join(".git");
-        clone_with_auth(repo_url, &bare_path, true)?;
+        clone_with_auth(repo_url, &bare_path, true, depth)?;
 
         // Create the project directory
         std::fs::create_dir_all(target_path)?;
@@ -48,7 +53,7 @@ pub fn clone_repository(repo_url: &str, target_path: &Path, bare: bool) -> Resul
         println!("Cloning {}...", repo_name.bright_white());
 
         // Use shared clone_with_auth for consistent cloning behavior
-        clone_with_auth(repo_url, target_path, false)?;
+        clone_with_auth(repo_url, target_path, false, depth)?;
 
         println!("{} Complete\n", "✓".green());
     }
@@ -64,7 +69,7 @@ pub fn clone_missing_repos() -> Result<()> {
     let base_path = meta_file.parent().unwrap();
 
     // Collect missing projects first to show count
-    let missing_projects: Vec<(String, String, std::path::PathBuf, bool)> = config
+    let missing_projects: Vec<(String, String, std::path::PathBuf, bool, Option<i32>)> = config
         .projects
         .keys()
         .filter_map(|project_path| {
@@ -72,7 +77,8 @@ pub fn clone_missing_repos() -> Result<()> {
             if !full_path.exists() {
                 config.get_project_url(project_path).map(|url| {
                     let is_bare = config.is_bare_repo(project_path);
-                    (project_path.clone(), url, full_path, is_bare)
+                    let depth = config.get_project_depth(project_path);
+                    (project_path.clone(), url, full_path, is_bare, depth)
                 })
             } else {
                 None
@@ -95,7 +101,9 @@ pub fn clone_missing_repos() -> Result<()> {
     let mut success_count = 0;
     let mut failed_count = 0;
 
-    for (i, (project_path, repo_url, full_path, is_bare)) in missing_projects.iter().enumerate() {
+    for (i, (project_path, repo_url, full_path, is_bare, depth)) in
+        missing_projects.iter().enumerate()
+    {
         let project_name = project_path.rsplit('/').next().unwrap_or(project_path);
         println!(
             "[{}/{}] Cloning {}",
@@ -104,7 +112,7 @@ pub fn clone_missing_repos() -> Result<()> {
             project_name.bright_white()
         );
 
-        match clone_repository(repo_url, full_path, *is_bare) {
+        match clone_repository(repo_url, full_path, *is_bare, *depth) {
             Ok(_) => success_count += 1,
             Err(e) => {
                 eprintln!("{} Failed: {}\n", "✗".red(), e);

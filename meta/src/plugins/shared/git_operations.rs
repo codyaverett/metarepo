@@ -4,8 +4,49 @@ use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
 use std::path::Path;
 use std::process::Command;
 
-/// Clone a repository with authentication support
-pub fn clone_with_auth(url: &str, path: &Path, bare: bool) -> Result<Repository> {
+/// Parse and validate a `--depth <N>` CLI argument value into a shallow-clone
+/// depth, shared by `meta git clone` and `meta project add`.
+///
+/// Returns `Ok(None)` when `raw` is `None` (no `--depth` given). Returns an
+/// error when the value fails to parse as an integer or is not a positive
+/// integer, so callers surface a clear message before attempting any clone.
+pub fn parse_depth_arg(raw: Option<&String>) -> Result<Option<i32>> {
+    match raw {
+        Some(s) => {
+            let d: i32 = s.parse().map_err(|_| {
+                anyhow::anyhow!("Invalid --depth value '{}': must be a positive integer", s)
+            })?;
+            if d <= 0 {
+                return Err(anyhow::anyhow!(
+                    "Invalid --depth value {}: depth must be a positive integer",
+                    d
+                ));
+            }
+            Ok(Some(d))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Clone a repository with authentication support.
+///
+/// `depth` optionally requests a shallow clone with the given history depth.
+/// A value of `Some(d)` with `d <= 0` is rejected.
+pub fn clone_with_auth(
+    url: &str,
+    path: &Path,
+    bare: bool,
+    depth: Option<i32>,
+) -> Result<Repository> {
+    if let Some(d) = depth {
+        if d <= 0 {
+            return Err(anyhow::anyhow!(
+                "Invalid clone depth {}: depth must be a positive integer",
+                d
+            ));
+        }
+    }
+
     // Check if this is an SSH URL
     if url.starts_with("git@") || url.starts_with("ssh://") {
         // Set up authentication callbacks for SSH
@@ -61,6 +102,9 @@ pub fn clone_with_auth(url: &str, path: &Path, bare: bool) -> Result<Repository>
         // Configure fetch options with our callbacks
         let mut fetch_options = FetchOptions::new();
         fetch_options.remote_callbacks(callbacks);
+        if let Some(d) = depth {
+            fetch_options.depth(d);
+        }
 
         // Build the repository with authentication
         let mut builder = git2::build::RepoBuilder::new();
@@ -79,17 +123,22 @@ pub fn clone_with_auth(url: &str, path: &Path, bare: bool) -> Result<Repository>
             }
         })
     } else {
-        // For HTTPS URLs, use standard clone without authentication callbacks
-        if bare {
-            let mut builder = git2::build::RepoBuilder::new();
-            builder.bare(true);
-            builder
-                .clone(url, path)
-                .map_err(|e| anyhow::anyhow!("Failed to clone repository: {}", e))
-        } else {
-            Repository::clone(url, path)
-                .map_err(|e| anyhow::anyhow!("Failed to clone repository: {}", e))
+        // For HTTPS URLs, use RepoBuilder without authentication callbacks so we
+        // can still apply a shallow-clone depth when requested.
+        let mut fetch_options = FetchOptions::new();
+        if let Some(d) = depth {
+            fetch_options.depth(d);
         }
+
+        let mut builder = git2::build::RepoBuilder::new();
+        builder.fetch_options(fetch_options);
+        if bare {
+            builder.bare(true);
+        }
+
+        builder
+            .clone(url, path)
+            .map_err(|e| anyhow::anyhow!("Failed to clone repository: {}", e))
     }
 }
 
@@ -167,4 +216,75 @@ pub fn detect_default_branch(repo_path: &Path) -> Result<String> {
 
     // Ultimate fallback
     Ok("main".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clone_with_auth_rejects_non_positive_depth() {
+        // A dummy, unreachable URL and path — the depth validation must fail
+        // before any network access or filesystem work is attempted.
+        let path = Path::new("/nonexistent/does-not-matter");
+
+        let err = match clone_with_auth("https://example.invalid/repo.git", path, false, Some(0)) {
+            Err(e) => e,
+            Ok(_) => panic!("depth of 0 must be rejected"),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Invalid clone depth 0: depth must be a positive integer"
+        );
+
+        let err = match clone_with_auth("https://example.invalid/repo.git", path, false, Some(-1)) {
+            Err(e) => e,
+            Ok(_) => panic!("negative depth must be rejected"),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Invalid clone depth -1: depth must be a positive integer"
+        );
+    }
+
+    #[test]
+    fn parse_depth_arg_none_when_flag_absent() {
+        assert_eq!(parse_depth_arg(None).unwrap(), None);
+    }
+
+    #[test]
+    fn parse_depth_arg_accepts_positive_integer() {
+        let raw = "1".to_string();
+        assert_eq!(parse_depth_arg(Some(&raw)).unwrap(), Some(1));
+
+        let raw = "42".to_string();
+        assert_eq!(parse_depth_arg(Some(&raw)).unwrap(), Some(42));
+    }
+
+    #[test]
+    fn parse_depth_arg_rejects_zero_and_negative() {
+        let raw = "0".to_string();
+        let err = parse_depth_arg(Some(&raw)).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Invalid --depth value 0: depth must be a positive integer"
+        );
+
+        let raw = "-3".to_string();
+        let err = parse_depth_arg(Some(&raw)).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Invalid --depth value -3: depth must be a positive integer"
+        );
+    }
+
+    #[test]
+    fn parse_depth_arg_rejects_non_numeric() {
+        let raw = "abc".to_string();
+        let err = parse_depth_arg(Some(&raw)).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Invalid --depth value 'abc': must be a positive integer"
+        );
+    }
 }

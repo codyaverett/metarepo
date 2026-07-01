@@ -208,6 +208,31 @@ workspace/
 
 See [Worktree Configuration](docs/WORKTREE.md) for detailed documentation.
 
+### Shallow Clones
+
+Pass `--depth <N>` to `meta project add` or `meta git clone` to limit history
+fetched during clone. The depth is recorded per-project in `.meta`, so a later
+`meta git update` re-clones the same project shallowly too:
+
+```bash
+meta project add my-app https://github.com/user/my-app.git --depth 1
+meta git clone --depth 1 https://github.com/user/meta-workspace.git
+```
+
+This is handy for pulling an entire GitHub org into a workspace without
+fetching full history for every repo:
+
+```bash
+meta init
+gh repo list ORG --limit 1000 --json name,url --jq '.[] | "\(.name) \(.url)"' \
+  | while read -r name url; do
+      meta project add "$name" "$url" --depth 1
+    done
+```
+
+See [Worktree Configuration](docs/WORKTREE.md#shallow-clone-depth) for details
+on combining `--depth` with bare repos and recursive imports.
+
 ## Testing
 
 ```bash

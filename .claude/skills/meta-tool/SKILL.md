@@ -72,9 +72,21 @@ Clone a meta repository and all child repositories.
 
 ```bash
 meta git clone https://github.com/user/meta-workspace.git
+
+# Shallow clone: only the most recent commit
+meta git clone --depth 1 https://github.com/user/meta-workspace.git
 ```
 
 Aliases: `c`
+
+**Flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--depth` | | Create a shallow clone with the given history depth (must be a positive integer) |
+
+`--depth` is recorded in `.meta` for the cloned project, so a later `meta git
+update` (re-cloning a missing project) stays shallow too.
 
 #### `meta git status`
 
@@ -127,6 +139,7 @@ Aliases: `import`, `i`, `a`
 | `--no-recursive` | | Disable recursive import |
 | `--init-git` | | Auto-initialize git if not a repo |
 | `--bare` | | Clone as bare repository with worktree structure |
+| `--depth` | | Shallow-clone with the given history depth (must be a positive integer); ignored (with a warning) when combined with `--recursive`/`--flatten`/`--max-depth` |
 
 #### `meta project list`
 
@@ -673,6 +686,23 @@ meta exec --all --no-progress npm ci
 meta exec --all --no-progress --parallel npm run build
 ```
 
+### Shallow-Clone an Entire GitHub Org
+
+Bring every repo in an org into the workspace as a shallow (depth-1) clone —
+useful when you only need current state (e.g. for search/exec across many
+repos) and don't want the full history of each one:
+
+```bash
+meta init
+gh repo list ORG --limit 1000 --json name,url --jq '.[] | "\(.name) \(.url)"' \
+  | while read -r name url; do
+      meta project add "$name" "$url" --depth 1
+    done
+```
+
+Each project's `.meta` entry records `"depth": 1`, so a later `meta git
+update` (re-cloning any missing project) also stays shallow.
+
 ---
 
 ## Configuration Reference
@@ -710,6 +740,10 @@ destination, `--to <path>` chooses a non-default destination.
     "backend": {
       "url": "git@github.com:org/backend.git",
       "branch": "develop"
+    },
+    "vendored-lib": {
+      "url": "git@github.com:org/vendored-lib.git",
+      "depth": 1
     },
     "shared": {}
   },

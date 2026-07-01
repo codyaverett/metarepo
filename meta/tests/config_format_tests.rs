@@ -68,6 +68,7 @@ fn save_then_load_works_for_each_extension() {
                 worktree_init: None,
                 bare: None,
                 enabled: None,
+                depth: None,
             }),
         );
 

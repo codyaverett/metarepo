@@ -246,6 +246,7 @@ mod config_safety {
                 worktree_init: None,
                 bare: None,
                 enabled: None,
+                depth: None,
             }),
         );
 
@@ -338,6 +339,7 @@ mod config_safety {
                 worktree_init: Some(dangerous_init.to_string()),
                 bare: None,
                 enabled: None,
+                depth: None,
             }),
         );
 
@@ -381,6 +383,7 @@ mod config_safety {
                 worktree_init: Some("echo project".to_string()),
                 bare: None,
                 enabled: None,
+                depth: None,
             }),
         );
 
@@ -415,6 +418,7 @@ mod config_safety {
                 worktree_init: None,
                 bare: None,
                 enabled: None,
+                depth: None,
             }),
         );
         config.save_to_file(&meta_path).unwrap();
@@ -665,6 +669,7 @@ mod exec_config_integration {
                 worktree_init: None,
                 bare: None,
                 enabled: None,
+                depth: None,
             }),
         );
 

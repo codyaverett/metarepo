@@ -160,15 +160,17 @@ impl ImportContext {
 }
 
 pub fn import_project(project_path: &str, source: Option<&str>, base_path: &Path) -> Result<()> {
-    import_project_with_options(project_path, source, base_path, false, false)
+    import_project_with_options(project_path, source, base_path, false, false, None)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn import_project_with_options(
     project_path: &str,
     source: Option<&str>,
     base_path: &Path,
     init_git: bool,
     bare: bool,
+    clone_depth: Option<i32>,
 ) -> Result<()> {
     // Reject path-traversal / absolute / null-byte project names before they
     // flow into base_path.join(...) or filesystem operations below.
@@ -452,7 +454,7 @@ pub fn import_project_with_options(
 
                 // Clone as bare repo to <project>/.git/
                 let bare_path = local_project_path.join(".git");
-                clone_with_auth(&final_repo_url, &bare_path, true)?;
+                clone_with_auth(&final_repo_url, &bare_path, true, clone_depth)?;
 
                 // Create the project directory
                 std::fs::create_dir_all(&local_project_path)?;
@@ -476,7 +478,7 @@ pub fn import_project_with_options(
                     "Status:".bright_black(),
                     "Cloning repository...".yellow()
                 );
-                clone_with_auth(&final_repo_url, &local_project_path, false)?;
+                clone_with_auth(&final_repo_url, &local_project_path, false, clone_depth)?;
             }
         } else {
             return Err(anyhow::anyhow!("Cannot clone a local project URL"));
@@ -484,8 +486,8 @@ pub fn import_project_with_options(
     }
 
     // Add to .meta file
-    if bare {
-        // Use ProjectMetadata format to store bare flag
+    if bare || clone_depth.is_some() {
+        // Use ProjectMetadata format to store the bare flag and/or clone depth
         use metarepo_core::ProjectMetadata;
         config.projects.insert(
             project_path.to_string(),
@@ -495,8 +497,9 @@ pub fn import_project_with_options(
                 scripts: std::collections::HashMap::new(),
                 env: std::collections::HashMap::new(),
                 worktree_init: None,
-                bare: Some(true),
+                bare: if bare { Some(true) } else { None },
                 enabled: None,
+                depth: clone_depth,
             }),
         );
     } else {
@@ -611,8 +614,9 @@ pub fn import_project_recursive_with_options(
 
     let mut context = ImportContext::new(base_path, Some(&nested_config));
 
-    // Import the root project
-    import_project_with_options(project_path, source, base_path, init_git, bare)?;
+    // Import the root project. Shallow-clone depth is not threaded through the
+    // recursive import path; nested clones always use a full clone.
+    import_project_with_options(project_path, source, base_path, init_git, bare, None)?;
 
     // If recursive import is enabled, process nested repositories
     if nested_config.recursive_import {
@@ -791,8 +795,8 @@ fn process_nested_repositories(
             "📦".blue(),
             format!("Cloning into '{}'", target_path.display()).bright_white()
         );
-        // Nested imports don't support bare repositories for now
-        if let Err(e) = clone_with_auth(&actual_url, &target_path, false) {
+        // Nested imports don't support bare repositories or shallow clones for now
+        if let Err(e) = clone_with_auth(&actual_url, &target_path, false, None) {
             eprintln!(
                 "     {} {}",
                 "❌".red(),
