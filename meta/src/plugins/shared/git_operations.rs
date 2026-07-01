@@ -28,6 +28,45 @@ pub fn parse_depth_arg(raw: Option<&String>) -> Result<Option<i32>> {
     }
 }
 
+/// Re-truncate a shallow repository's history to `depth` commits from the
+/// current remote tips by running `git fetch --depth=<N>`.
+///
+/// A plain `git fetch`/`pull` on a shallow repository accumulates every new
+/// commit and never moves the shallow boundary, so history grows unboundedly
+/// over time. Fetching with an explicit `--depth` moves the boundary up to
+/// the new tips; commits behind it become unreachable once local branches
+/// advance (and are eventually pruned by gc).
+///
+/// Shells out to the `git` CLI rather than libgit2 because libgit2 rejects
+/// shallow fetches on some transports (e.g. local/file) that the CLI accepts.
+pub fn refetch_shallow(repo_path: &Path, depth: i32) -> Result<()> {
+    if depth <= 0 {
+        return Err(anyhow::anyhow!(
+            "Invalid fetch depth {}: depth must be a positive integer",
+            depth
+        ));
+    }
+
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("fetch")
+        .arg(format!("--depth={}", depth))
+        .output()
+        .context("Failed to run git fetch")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!(
+            "git fetch --depth={} failed: {}",
+            depth,
+            stderr.trim()
+        ));
+    }
+
+    Ok(())
+}
+
 /// Clone a repository with authentication support.
 ///
 /// `depth` optionally requests a shallow clone with the given history depth.

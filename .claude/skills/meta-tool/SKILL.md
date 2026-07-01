@@ -108,6 +108,21 @@ meta git update
 
 Aliases: `up`, `u`
 
+#### `meta git pull`
+
+Pull the latest changes for every repository in scope (concurrent by default).
+
+```bash
+meta git pull
+meta git pull --shallow   # re-truncate shallow repos to their stored depth first
+```
+
+Shallow projects (cloned with `--depth`) accumulate history on a plain pull.
+`--shallow` runs `git fetch --depth N` first for each project with a stored
+depth in `.meta`, so history stays at the configured depth.
+
+Aliases: `p`
+
 ---
 
 ### `meta project` - Project Management
@@ -702,6 +717,13 @@ gh repo list ORG --limit 1000 --json name,url --jq '.[] | "\(.name) \(.url)"' \
 
 Each project's `.meta` entry records `"depth": 1`, so a later `meta git
 update` (re-cloning any missing project) also stays shallow.
+
+To keep these repos at depth 1 over time, pull with `--shallow` — a plain
+pull would accumulate every new upstream commit:
+
+```bash
+meta git pull --shallow
+```
 
 ---
 

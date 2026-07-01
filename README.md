@@ -230,6 +230,15 @@ gh repo list ORG --limit 1000 --json name,url --jq '.[] | "\(.name) \(.url)"' \
     done
 ```
 
+Shallow repos accumulate history on a plain pull: git fetches every new
+commit and never moves the shallow boundary. Pass `--shallow` to
+`meta git pull` to first re-truncate each project with a stored depth
+(`git fetch --depth N`), keeping history at the configured depth:
+
+```bash
+meta git pull --shallow
+```
+
 See [Worktree Configuration](docs/WORKTREE.md#shallow-clone-depth) for details
 on combining `--depth` with bare repos and recursive imports.
 

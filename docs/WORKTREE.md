@@ -568,6 +568,17 @@ There is no `default_depth` equivalent to `default_bare` — depth is opt-in
 per project, since it's a project-add-time decision rather than an ongoing
 workspace policy.
 
+**Keeping history shallow over time:** a plain `git pull` (including
+`meta git pull`) on a shallow repository accumulates every new upstream
+commit — git never moves the shallow boundary on its own. Pass `--shallow`
+to `meta git pull` to first run `git fetch --depth N` for each project with
+a stored depth, re-truncating history to the configured depth before the
+pull fast-forwards:
+
+```bash
+meta git pull --shallow
+```
+
 **Interaction with `--bare`:** `--depth` and `--bare` combine freely; a
 shallow clone can also be a bare repository with worktrees.
 
