@@ -1,8 +1,8 @@
 // Integration tests for shallow-history re-truncation (`meta git pull --shallow`).
 //
 // Demonstrates the behavior gap the flag closes: a plain `git pull` on a
-// shallow clone accumulates every new upstream commit, while
-// `refetch_shallow` + pull keeps history at the configured depth. Uses local
+// shallow clone accumulates every new upstream commit, while pull +
+// `refetch_shallow` shrinks history back to the configured depth. Uses local
 // repositories only (no network); `refetch_shallow` shells out to the git
 // CLI, which supports shallow fetches over the local transport.
 
@@ -90,27 +90,32 @@ fn plain_pull_accumulates_history_on_shallow_clone() {
     );
 }
 
-/// refetch_shallow before the pull keeps history at the configured depth.
+/// refetch_shallow after the pull re-truncates history to the configured
+/// depth. This mirrors the order used by `meta git pull --shallow`: pulling
+/// first keeps the pull an ordinary fast-forward, and the depth-limited fetch
+/// afterwards moves the shallow boundary up to the new tip. (Refetching
+/// before the pull would leave the local branch with no visible common
+/// ancestor and the pull would fail as divergent under default git config.)
 #[test]
-fn refetch_shallow_then_pull_keeps_history_at_depth() {
+fn pull_then_refetch_shallow_keeps_history_at_depth() {
     let (source, clone_parent) = setup_shallow_pair();
     let clone_path = clone_parent.path().join("clone");
 
     add_commit(source.path(), 2);
     add_commit(source.path(), 3);
 
-    refetch_shallow(&clone_path, 1).expect("refetch_shallow must succeed");
     run_git(&clone_path, &["pull", "-q"]);
+    refetch_shallow(&clone_path, 1).expect("refetch_shallow must succeed");
 
     assert_eq!(
         commit_count(&clone_path),
         1,
-        "after refetch_shallow the pulled history must stay at depth 1"
+        "after the pull plus refetch_shallow, history must shrink back to depth 1"
     );
     assert_eq!(
         std::fs::read_to_string(clone_path.join("file.txt")).unwrap(),
         "commit 3",
-        "the working tree must still fast-forward to the latest commit"
+        "the working tree must be at the latest commit"
     );
 }
 

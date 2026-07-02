@@ -114,12 +114,12 @@ Pull the latest changes for every repository in scope (concurrent by default).
 
 ```bash
 meta git pull
-meta git pull --shallow   # re-truncate shallow repos to their stored depth first
+meta git pull --shallow   # re-truncate shallow repos to their stored depth
 ```
 
 Shallow projects (cloned with `--depth`) accumulate history on a plain pull.
-`--shallow` runs `git fetch --depth N` first for each project with a stored
-depth in `.meta`, so history stays at the configured depth.
+`--shallow` runs `git fetch --depth N` after the pull for each project with a
+stored depth in `.meta`, so history shrinks back to the configured depth.
 
 Aliases: `p`
 

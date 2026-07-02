@@ -131,9 +131,9 @@ impl GitPlugin {
                          narrow which projects are pulled.\n\
                          \n\
                          Shallow projects (cloned with --depth) accumulate history on a\n\
-                         plain pull. Pass --shallow to first re-truncate each project\n\
-                         with a stored depth in .meta (git fetch --depth N) so history\n\
-                         stays at the configured depth.\n\
+                         plain pull. Pass --shallow to re-truncate each project with a\n\
+                         stored depth in .meta (git fetch --depth N) after pulling so\n\
+                         history shrinks back to the configured depth.\n\
                          \n\
                          Examples:\n\
                          \n\
@@ -172,7 +172,7 @@ impl GitPlugin {
                             .takes_value(true),
                     )
                     .arg(arg("shallow").long("shallow").help(
-                        "Re-truncate history before pulling for projects with a stored \
+                        "Re-truncate history after pulling for projects with a stored \
                          shallow clone depth in .meta (fetch --depth N), so shallow \
                          repos do not accumulate history over time",
                     )),
@@ -301,7 +301,7 @@ fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     // checks (bare detection, uncommitted-change and upstream probes, worktree
     // listing) can run concurrently rather than one repo at a time.
     // Each candidate carries the project's stored shallow-clone depth (if any)
-    // so `--shallow` can re-truncate it before pulling; expanded bare-repo
+    // so `--shallow` can re-truncate it after pulling; expanded bare-repo
     // worktrees inherit the depth of the project they belong to.
     let mut candidates: Vec<(ProjectInfo, Option<i32>)> = iterator
         .map(|p| {
@@ -384,21 +384,36 @@ fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         println!();
     }
 
-    // With --shallow, re-truncate each depth-tracked repository first so the
-    // following pull fast-forwards onto a boundary at the new tip instead of
-    // accumulating every commit since the last pull. The plain fetch inside
-    // `git pull` is then a no-op and does not deepen the history again.
-    if shallow {
-        let refetch_targets: Vec<(ProjectInfo, i32)> = targets
-            .iter()
-            .filter_map(|(p, d)| d.map(|d| (p.clone(), d)))
-            .collect();
+    let refetch_targets: Vec<(ProjectInfo, i32)> = targets
+        .iter()
+        .filter_map(|(p, d)| d.map(|d| (p.clone(), d)))
+        .collect();
+    let pull_targets: Vec<ProjectInfo> = targets.into_iter().map(|(p, _)| p).collect();
 
+    // `include_main` is false here: the main repo, when not skipped, is already
+    // part of `targets` so it is filtered and pulled like any other repository.
+    execute_with_projects(
+        "git",
+        &["pull"],
+        pull_targets,
+        false,
+        parallel,
+        false,
+        false,
+    )?;
+
+    // With --shallow, re-truncate each depth-tracked repository after the
+    // pull so its history shrinks back to the stored depth. This must run
+    // after (not before) pulling: a `fetch --depth` that moves the shallow
+    // boundary past the local HEAD leaves the local and remote branches with
+    // no visible common ancestor, and a subsequent `git pull` then fails
+    // with a divergent-branches error under default git configuration.
+    if shallow {
         if refetch_targets.is_empty() {
-            println!("ℹ️  --shallow: no projects in scope have a stored clone depth in .meta\n");
+            println!("\nℹ️  --shallow: no projects in scope have a stored clone depth in .meta");
         } else {
             println!(
-                "Re-truncating {} shallow target(s) to their stored depth...",
+                "\nRe-truncating {} shallow target(s) to their stored depth...",
                 refetch_targets.len()
             );
             let results = parallel_map(refetch_targets, workers, |(project, depth)| {
@@ -410,15 +425,10 @@ fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
                     eprintln!("⚠️  {} (depth {}): {}", name, depth, e);
                 }
             }
-            println!();
         }
     }
 
-    let targets: Vec<ProjectInfo> = targets.into_iter().map(|(p, _)| p).collect();
-
-    // `include_main` is false here: the main repo, when not skipped, is already
-    // part of `targets` so it is filtered and pulled like any other repository.
-    execute_with_projects("git", &["pull"], targets, false, parallel, false, false)
+    Ok(())
 }
 
 /// Outcome of inspecting a single candidate before pulling.

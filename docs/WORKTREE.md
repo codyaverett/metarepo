@@ -571,9 +571,10 @@ workspace policy.
 **Keeping history shallow over time:** a plain `git pull` (including
 `meta git pull`) on a shallow repository accumulates every new upstream
 commit — git never moves the shallow boundary on its own. Pass `--shallow`
-to `meta git pull` to first run `git fetch --depth N` for each project with
-a stored depth, re-truncating history to the configured depth before the
-pull fast-forwards:
+to `meta git pull` to run `git fetch --depth N` for each project with a
+stored depth after the pull, re-truncating history back to the configured
+depth (running it before the pull would strand the local branch behind the
+new shallow boundary and the pull would fail as divergent):
 
 ```bash
 meta git pull --shallow
