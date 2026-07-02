@@ -12,13 +12,7 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 # transitive unmaintained crates we cannot control.
 unmaintained = "workspace"
 yanked = "deny"
-ignore = [
-    # Transitive, waiting on upstream patch releases.
-    "RUSTSEC-2024-0436", # paste unmaintained (pulled via ratatui)
-    "RUSTSEC-2026-0002", # lru IterMut UB (pulled transitively)
-    "RUSTSEC-2026-0007", # bytes integer overflow (pulled via tokio)
-    "RUSTSEC-2026-0008", # git2 UB (pulled via git2 0.18)
-]
+ignore = []
 
 [licenses]
 allow = [
