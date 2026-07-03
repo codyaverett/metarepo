@@ -637,11 +637,7 @@ pub fn import_project_with_options(
         println!(
             "     {} {}",
             "ℹ".bright_black(),
-            format!(
-                "Run 'meta project update-gitignore {}' after adding a remote",
-                project_path
-            )
-            .dimmed()
+            "Run 'meta project check --fix' after adding a remote".dimmed()
         );
     } else {
         println!(
@@ -2014,90 +2010,6 @@ fn remove_from_gitignore(base_path: &Path, project_name: &str) -> Result<()> {
 
     std::fs::write(&gitignore_path, new_content.join("\n") + "\n")?;
     // Silent - shown in summary
-
-    Ok(())
-}
-
-/// Update gitignore for a project that now has a remote
-pub fn update_project_gitignore(project_name: &str, base_path: &Path) -> Result<()> {
-    // Load the workspace config
-    let meta_file_path = locate_workspace_config(base_path)?;
-
-    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
-
-    // Check if project exists in config
-    if !config.projects.contains_key(project_name) {
-        return Err(anyhow::anyhow!(
-            "Project '{}' not found in workspace config",
-            project_name
-        ));
-    }
-
-    let project_path = base_path.join(project_name);
-    let current_url = config
-        .get_project_url(project_name)
-        .unwrap_or_else(|| "".to_string());
-
-    // Check if project is currently marked as local
-    if !current_url.starts_with("local:") {
-        println!(
-            "\n  {} {}",
-            "ℹ".bright_black(),
-            format!("Project '{}' already has a remote URL", project_name).dimmed()
-        );
-        return Ok(());
-    }
-
-    // Check if directory exists and has git
-    if !project_path.exists() || !project_path.join(".git").exists() {
-        return Err(anyhow::anyhow!(
-            "Project '{}' directory doesn't exist or is not a git repository",
-            project_name
-        ));
-    }
-
-    // Check for remote URL
-    let repo = Repository::open(&project_path)?;
-    let remote_url = get_remote_url(&repo)?;
-
-    if let Some(detected_url) = remote_url {
-        // Update the URL in config
-        config.projects.insert(
-            project_name.to_string(),
-            ProjectEntry::Url(detected_url.clone()),
-        );
-        config.save_to_file(&meta_file_path)?;
-
-        // Add to gitignore
-        update_gitignore(base_path, project_name)?;
-
-        println!(
-            "\n  {} {}",
-            "✅".green(),
-            format!("Updated project '{}'", project_name).bold().green()
-        );
-        println!("     {} {}", "Remote:".bright_black(), detected_url.green());
-        println!(
-            "     {} {}",
-            "└".bright_black(),
-            "Added to .gitignore".italic().bright_black()
-        );
-        println!();
-    } else {
-        println!(
-            "\n  {} {}",
-            "⚠️".yellow(),
-            format!("Project '{}' still has no remote", project_name)
-                .bold()
-                .yellow()
-        );
-        println!(
-            "     {} {}",
-            "└".bright_black(),
-            "Add a remote with: git remote add origin <url>".dimmed()
-        );
-        println!();
-    }
 
     Ok(())
 }

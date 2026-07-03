@@ -188,12 +188,17 @@ Convert a normal repository to bare repository with worktrees.
 meta project convert-to-bare myproject
 ```
 
-#### `meta project update-gitignore <name>`
+#### `meta project check [--fix]`
 
-Update .gitignore for a project that now has a remote.
+Report drift between the workspace config and the working tree, exiting
+non-zero when any is found (usable as a CI or pre-commit lint). Pass `--fix`
+to apply the fixable corrections: add missing `.gitignore` entries for
+remote-backed projects, and promote any `local:` project whose repo has
+gained a remote (rewrite its `.meta` entry to the remote URL and ignore it).
 
 ```bash
-meta project update-gitignore myproject
+meta project check          # report drift
+meta project check --fix    # apply the fixable corrections
 ```
 
 ---

@@ -1,7 +1,7 @@
 use super::{
     check_workspace, convert_to_bare, import_project_recursive_with_options,
     import_project_with_options, init_child_workspace, list_projects, list_projects_minimal,
-    remove_project, rename_project, show_project_tree, update_project_gitignore, update_projects,
+    remove_project, rename_project, show_project_tree, update_projects,
 };
 use crate::plugins::shared::parse_depth_arg;
 use anyhow::Result;
@@ -272,43 +272,6 @@ impl ProjectPlugin {
                     )
             )
             .command(
-                command("update-gitignore")
-                    .about("Deprecated: promote a local project to its remote (use 'check --fix')")
-                    .help_description(
-                        "Deprecated. Record a newly added remote for a project and ignore it.\n\
-                         \n\
-                         This behavior is now part of 'meta project check': running check\n\
-                         detects any local: project whose repo has gained a remote and, with\n\
-                         --fix, promotes it (rewrites the .meta entry from local: to the remote\n\
-                         URL and adds the directory to .gitignore) across the whole workspace.\n\
-                         Prefer 'meta project check --fix'; this single-project command is kept\n\
-                         for backwards compatibility.\n\
-                         \n\
-                         Use this after a project that was tracked as local: (no remote) has\n\
-                         had a git remote added to it. The command reads the repo's origin\n\
-                         URL, rewrites the project's .meta entry from local: to that URL, and\n\
-                         adds the project directory to the workspace .gitignore so the now\n\
-                         independently cloneable repo is no longer committed to the meta repo.\n\
-                         \n\
-                         If the project already has a remote URL it reports that and does\n\
-                         nothing; if no remote is configured yet it tells you to add one\n\
-                         first.\n\
-                         \n\
-                         Examples:\n\
-                         \n\
-                           git -C web remote add origin URL\n\
-                           meta project check --fix             promote web (and any others)\n\
-                           meta project update-gitignore web    deprecated single-project form",
-                    )
-                    .with_help_formatting()
-                    .arg(
-                        arg("name")
-                            .help("Name of the project to update")
-                            .required(true)
-                            .takes_value(true)
-                    )
-            )
-            .command(
                 command("rename")
                     .about("Rename a project and move its directory")
                     .help_description(
@@ -431,7 +394,6 @@ impl ProjectPlugin {
             .handler("tree", handle_tree)
             .handler("update", handle_update)
             .handler("remove", handle_remove)
-            .handler("update-gitignore", handle_update_gitignore)
             .handler("rename", handle_rename)
             .handler("convert-to-bare", handle_convert_to_bare)
             .handler("init", handle_init)
@@ -646,20 +608,6 @@ fn handle_remove(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     };
 
     remove_project(&name, &base_path, force)?;
-    Ok(())
-}
-
-/// Handler for the update-gitignore command
-fn handle_update_gitignore(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
-    let name = matches.get_one::<String>("name").unwrap();
-
-    let base_path = if config.meta_root().is_some() {
-        config.meta_root().unwrap()
-    } else {
-        config.working_dir.clone()
-    };
-
-    update_project_gitignore(name, &base_path)?;
     Ok(())
 }
 
