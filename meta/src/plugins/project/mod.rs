@@ -971,6 +971,162 @@ fn get_remote_url(repo: &Repository) -> Result<Option<String>> {
     Ok(None)
 }
 
+/// Report (and optionally fix) drift between the workspace config and the tree.
+///
+/// Runs a set of hygiene checks and prints a report. By default it is a dry run
+/// and returns an error when any drift is found, so it is usable as a CI or
+/// pre-commit lint. With `fix`, the auto-fixable checks are applied; any
+/// remaining report-only drift still yields a non-zero exit.
+///
+/// Checks:
+/// - **Missing .gitignore entry** (auto-fixable): a project backed by a real
+///   remote (URL not `local:`) that is not listed in `.gitignore`. Such repos
+///   are independently cloneable and should not be committed into the metarepo.
+/// - **Missing directory** (report only): a project in the config whose
+///   on-disk directory does not exist. Left to the user (clone or remove).
+/// - **Untracked repository** (report only): a top-level git repository on disk
+///   that is not tracked in the config. Suggests `meta project add`.
+///
+/// Stale `.gitignore` lines are intentionally not auto-removed: without
+/// provenance we cannot tell a former project entry from a hand-added ignore.
+pub fn check_workspace(base_path: &Path, fix: bool) -> Result<()> {
+    let meta_file_path = locate_workspace_config(base_path)?;
+    let config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    // Current .gitignore lines, trimmed, for membership checks.
+    let gitignore_path = base_path.join(".gitignore");
+    let ignored: HashSet<String> = if gitignore_path.exists() {
+        std::fs::read_to_string(&gitignore_path)?
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
+    // Check A: remote-backed projects missing from .gitignore (auto-fixable).
+    let mut missing_ignore: Vec<String> = Vec::new();
+    // Check B: projects whose on-disk directory is missing (report only).
+    let mut missing_dirs: Vec<String> = Vec::new();
+    for name in config.projects.keys() {
+        let url = config.get_project_url(name).unwrap_or_default();
+        let should_ignore = !url.is_empty() && !url.starts_with("local:");
+        if should_ignore && !ignored.contains(name) {
+            missing_ignore.push(name.clone());
+        }
+        if !base_path.join(name).exists() {
+            missing_dirs.push(name.clone());
+        }
+    }
+
+    // Check C: top-level git repos on disk not tracked in the config (report).
+    // Compare against the first path segment of each project key so nested
+    // project layouts (e.g. "services/api") don't flag their parent dir.
+    let tracked_roots: HashSet<String> = config
+        .projects
+        .keys()
+        .filter_map(|k| {
+            Path::new(k)
+                .components()
+                .next()
+                .map(|c| c.as_os_str().to_string_lossy().to_string())
+        })
+        .collect();
+    let ignore_names: HashSet<&str> = config.ignore.iter().map(|s| s.as_str()).collect();
+    let mut untracked: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(base_path) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || ignore_names.contains(name.as_str()) {
+                continue;
+            }
+            if tracked_roots.contains(&name) {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() && (path.join(".git").exists()) {
+                untracked.push(name);
+            }
+        }
+    }
+
+    missing_ignore.sort();
+    missing_dirs.sort();
+    untracked.sort();
+
+    let total = missing_ignore.len() + missing_dirs.len() + untracked.len();
+    if total == 0 {
+        println!("  {} Workspace is in sync.", "✓".green());
+        return Ok(());
+    }
+
+    println!("{}", "Workspace check:".bold());
+
+    // Missing .gitignore entries — fixable.
+    let mut fixed = 0usize;
+    for name in &missing_ignore {
+        if fix {
+            update_gitignore(base_path, name)?;
+            println!("  {} Added {} to .gitignore", "✓".green(), name.cyan());
+            fixed += 1;
+        } else {
+            println!(
+                "  {} .gitignore missing entry: {}",
+                "!".yellow(),
+                name.cyan()
+            );
+        }
+    }
+
+    // Report-only checks.
+    for name in &missing_dirs {
+        println!(
+            "  {} project directory missing on disk: {} (clone or remove from config)",
+            "!".yellow(),
+            name.cyan()
+        );
+    }
+    for name in &untracked {
+        println!(
+            "  {} untracked git repository: {} (run 'meta project add {}')",
+            "!".yellow(),
+            name.cyan(),
+            name
+        );
+    }
+
+    let remaining = total - fixed;
+    if remaining == 0 {
+        println!(
+            "\n  {} Fixed {} issue(s); workspace is now in sync.",
+            "✓".green(),
+            fixed
+        );
+        return Ok(());
+    }
+
+    if fix {
+        println!(
+            "\n  {} Fixed {} issue(s); {} remaining need manual attention.",
+            "·".bright_black(),
+            fixed,
+            remaining
+        );
+    } else {
+        println!(
+            "\n  {} {} issue(s) found. Run with --fix to apply the fixable ones.",
+            "·".bright_black(),
+            total
+        );
+    }
+
+    Err(anyhow::anyhow!(
+        "workspace check found {} issue(s)",
+        remaining
+    ))
+}
+
 fn update_gitignore(base_path: &Path, project_path: &str) -> Result<()> {
     let gitignore_path = base_path.join(".gitignore");
 
@@ -2018,7 +2174,7 @@ pub fn rename_project(old_name: &str, new_name: &str, base_path: &Path) -> Resul
 }
 
 #[cfg(test)]
-mod init_child_tests {
+mod project_ops_tests {
     use super::*;
     use tempfile::tempdir;
 
@@ -2069,5 +2225,59 @@ mod init_child_tests {
         assert!(err
             .to_string()
             .contains("already contains a metarepo config"));
+    }
+
+    #[test]
+    fn check_workspace_clean_is_ok() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        // A local: project needs no gitignore entry and its dir exists.
+        std::fs::write(
+            root.join(".metarepo"),
+            r#"{"projects":{"docs":"local:docs"}}"#,
+        )
+        .unwrap();
+
+        assert!(check_workspace(root, false).is_ok());
+    }
+
+    #[test]
+    fn check_workspace_fix_adds_missing_gitignore_entry() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("web")).unwrap();
+        // A remote-backed project present on disk but absent from .gitignore.
+        std::fs::write(
+            root.join(".metarepo"),
+            r#"{"projects":{"web":"https://example.com/web.git"}}"#,
+        )
+        .unwrap();
+
+        // Dry run reports drift (non-zero -> Err) and leaves .gitignore untouched.
+        assert!(check_workspace(root, false).is_err());
+        assert!(!root.join(".gitignore").exists());
+
+        // --fix adds the entry and clears the only drift, so it now succeeds.
+        check_workspace(root, true).unwrap();
+        let gitignore = std::fs::read_to_string(root.join(".gitignore")).unwrap();
+        assert!(gitignore.lines().any(|l| l.trim() == "web"));
+        assert!(check_workspace(root, false).is_ok());
+    }
+
+    #[test]
+    fn check_workspace_reports_missing_directory() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        // Local project whose directory does not exist -> report-only drift.
+        std::fs::write(
+            root.join(".metarepo"),
+            r#"{"projects":{"gone":"local:gone"}}"#,
+        )
+        .unwrap();
+
+        let err = check_workspace(root, true).unwrap_err();
+        // Even with --fix, an unfixable missing dir keeps the exit non-zero.
+        assert!(err.to_string().contains("workspace check found"));
     }
 }

@@ -1,7 +1,7 @@
 use super::{
-    convert_to_bare, import_project_recursive_with_options, import_project_with_options,
-    init_child_workspace, list_projects, list_projects_minimal, remove_project, rename_project,
-    show_project_tree, update_project_gitignore, update_projects,
+    check_workspace, convert_to_bare, import_project_recursive_with_options,
+    import_project_with_options, init_child_workspace, list_projects, list_projects_minimal,
+    remove_project, rename_project, show_project_tree, update_project_gitignore, update_projects,
 };
 use crate::plugins::shared::parse_depth_arg;
 use anyhow::Result;
@@ -287,6 +287,9 @@ impl ProjectPlugin {
                          nothing; if no remote is configured yet it tells you to add one\n\
                          first.\n\
                          \n\
+                         This promotes a single project. To scan the whole workspace for\n\
+                         .gitignore drift (and other hygiene issues), use 'meta project check'.\n\
+                         \n\
                          Examples:\n\
                          \n\
                            git -C web remote add origin URL\n\
@@ -386,6 +389,38 @@ impl ProjectPlugin {
                             .takes_value(true),
                     ),
             )
+            .command(
+                command("check")
+                    .about("Report (and optionally fix) workspace drift")
+                    .aliases(vec!["ck".to_string()])
+                    .help_description(
+                        "Check the workspace for drift between the config and the working tree.\n\
+                         \n\
+                         Runs a set of hygiene checks and prints a report. By default it is a\n\
+                         dry run and exits non-zero when any drift is found, so it works as a CI\n\
+                         or pre-commit lint. Pass --fix to apply the fixable corrections.\n\
+                         \n\
+                         Checks:\n  \
+                           - .gitignore missing an entry for a remote-backed project (fixable)\n  \
+                           - a tracked project whose directory is missing on disk (report)\n  \
+                           - a top-level git repo on disk not tracked in the config (report)\n\
+                         \n\
+                         Stale .gitignore lines are reported context permitting but never\n\
+                         auto-removed, since a former project entry cannot be told apart from a\n\
+                         hand-added ignore.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta project check           report drift, non-zero exit if any\n\
+                           meta project check --fix      apply the fixable corrections",
+                    )
+                    .with_help_formatting()
+                    .arg(
+                        arg("fix")
+                            .long("fix")
+                            .help("Apply the fixable corrections instead of only reporting"),
+                    ),
+            )
             .handler("add", handle_add)
             .handler("list", handle_list)
             .handler("tree", handle_tree)
@@ -395,6 +430,7 @@ impl ProjectPlugin {
             .handler("rename", handle_rename)
             .handler("convert-to-bare", handle_convert_to_bare)
             .handler("init", handle_init)
+            .handler("check", handle_check)
             .build()
     }
 }
@@ -662,6 +698,20 @@ fn handle_init(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     };
 
     init_child_workspace(name, &base_path)?;
+    Ok(())
+}
+
+/// Handler for the check command: report or fix workspace drift.
+fn handle_check(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let fix = matches.get_flag("fix");
+
+    let base_path = if config.meta_root().is_some() {
+        config.meta_root().unwrap()
+    } else {
+        config.working_dir.clone()
+    };
+
+    check_workspace(&base_path, fix)?;
     Ok(())
 }
 
