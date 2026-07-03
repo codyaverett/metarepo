@@ -32,6 +32,98 @@ fn locate_workspace_config(base_path: &Path) -> Result<PathBuf> {
     Ok(MetaConfig::locate_in(base_path)?.path)
 }
 
+/// Initialize a child metarepo under `base_path/name` and register it in the
+/// enclosing (parent) config, so nested config inheritance and recursive_import
+/// see it. Mirrors [`convert_to_bare`] in shape: operate on a directory under
+/// the workspace root and update the parent `.meta`.
+///
+/// The child gets its own `.meta` via the standard init path, so its config
+/// inherits shared defaults from the parent chain and overrides only what it
+/// needs. `name` must be a simple relative path inside the workspace (no
+/// absolute paths and no `..` escapes).
+pub fn init_child_workspace(name: &str, base_path: &Path) -> Result<()> {
+    // Reject absolute paths and parent-directory escapes: a child workspace must
+    // live inside the enclosing metarepo for the cascade to make sense.
+    let rel = Path::new(name);
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(anyhow::anyhow!(
+            "Child workspace name must be a relative path inside the workspace (got '{}')",
+            name
+        ));
+    }
+
+    let child_path = base_path.join(name);
+    std::fs::create_dir_all(&child_path).with_context(|| {
+        format!(
+            "Failed to create child workspace directory '{}'",
+            child_path.display()
+        )
+    })?;
+
+    // Bail out if the child already has a config rather than overwriting it.
+    if dir_has_meta_config(&child_path) {
+        return Err(anyhow::anyhow!(
+            "'{}' already contains a metarepo config; nothing to initialize",
+            child_path.display()
+        ));
+    }
+
+    // Create the child .meta using the standard init path (default options).
+    let report = crate::plugins::init::initialize_meta_repo_with_options(
+        &child_path,
+        crate::plugins::init::InitOptions::default(),
+    )?;
+
+    // Register the child in the parent config so it is a tracked project and
+    // recursive_import can pull its projects up. Local (non-remote) projects use
+    // the `local:` URL convention already used by `meta project add`.
+    let parent_cfg_path = locate_workspace_config(base_path)?;
+    let mut parent = MetaConfig::load_from_file(&parent_cfg_path)?;
+    if parent.projects.contains_key(name) {
+        println!(
+            "  {} '{}' is already registered in the parent config; left unchanged.",
+            "·".bright_black(),
+            name
+        );
+    } else {
+        parent.projects.insert(
+            name.to_string(),
+            ProjectEntry::Url(format!("local:{}", name)),
+        );
+        parent.save_to_file(&parent_cfg_path)?;
+    }
+
+    let child_cfg = report
+        .config_path
+        .unwrap_or_else(|| child_path.join(".metarepo"));
+    println!(
+        "\n  {} {}",
+        "✅".green(),
+        format!("Initialized child workspace '{}'", name)
+            .bold()
+            .green()
+    );
+    println!(
+        "     {} {}",
+        "└".bright_black(),
+        format!("Created {}", child_cfg.display())
+            .italic()
+            .bright_black()
+    );
+    println!(
+        "     {} {}",
+        "└".bright_black(),
+        "Registered in the parent config".italic().bright_black()
+    );
+    println!();
+
+    Ok(())
+}
+
 /// Whether `dir` directly contains any recognized metarepo config file. Used to
 /// detect whether a child project is itself a meta repository, regardless of
 /// which supported config filename it uses.
@@ -1923,4 +2015,59 @@ pub fn rename_project(old_name: &str, new_name: &str, base_path: &Path) -> Resul
     println!();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod init_child_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn write_parent(root: &Path) {
+        std::fs::write(root.join(".metarepo"), r#"{"projects":{}}"#).unwrap();
+    }
+
+    #[test]
+    fn init_child_creates_config_and_registers_in_parent() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        write_parent(root);
+
+        init_child_workspace("services/api", root).unwrap();
+
+        // Child got its own config.
+        assert!(dir_has_meta_config(&root.join("services/api")));
+
+        // Parent now tracks the child as a local project.
+        let parent = MetaConfig::load_from_file(root.join(".metarepo")).unwrap();
+        assert_eq!(
+            parent.projects.get("services/api"),
+            Some(&ProjectEntry::Url("local:services/api".to_string()))
+        );
+    }
+
+    #[test]
+    fn init_child_rejects_parent_escape() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        write_parent(root);
+
+        let err = init_child_workspace("../escape", root).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("relative path inside the workspace"));
+    }
+
+    #[test]
+    fn init_child_refuses_existing_child_config() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        write_parent(root);
+
+        init_child_workspace("child", root).unwrap();
+        // Second attempt must not clobber the existing child config.
+        let err = init_child_workspace("child", root).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("already contains a metarepo config"));
+    }
 }

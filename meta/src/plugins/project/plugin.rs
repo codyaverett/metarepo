@@ -1,7 +1,7 @@
 use super::{
     convert_to_bare, import_project_recursive_with_options, import_project_with_options,
-    list_projects, list_projects_minimal, remove_project, rename_project, show_project_tree,
-    update_project_gitignore, update_projects,
+    init_child_workspace, list_projects, list_projects_minimal, remove_project, rename_project,
+    show_project_tree, update_project_gitignore, update_projects,
 };
 use crate::plugins::shared::parse_depth_arg;
 use anyhow::Result;
@@ -359,6 +359,33 @@ impl ProjectPlugin {
                             .takes_value(true)
                     )
             )
+            .command(
+                command("init")
+                    .about("Initialize a nested child workspace and register it in the parent")
+                    .help_description(
+                        "Create a child metarepo under the current workspace and register it.\n\
+                         \n\
+                         Makes a directory <name> inside the workspace root, gives it its own\n\
+                         .meta via the standard init path, and adds it to the parent config as a\n\
+                         tracked local project. The child config inherits shared defaults from\n\
+                         the enclosing .meta chain and overrides only what it needs, so settings\n\
+                         and global scripts set once at the top flow down to nested repos.\n\
+                         \n\
+                         The name must be a relative path inside the workspace (no absolute\n\
+                         paths and no .. escapes). Refuses to clobber an existing child config.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta project init services/api    scaffold a nested workspace",
+                    )
+                    .with_help_formatting()
+                    .arg(
+                        arg("name")
+                            .help("Relative path of the child workspace to create")
+                            .required(true)
+                            .takes_value(true),
+                    ),
+            )
             .handler("add", handle_add)
             .handler("list", handle_list)
             .handler("tree", handle_tree)
@@ -367,6 +394,7 @@ impl ProjectPlugin {
             .handler("update-gitignore", handle_update_gitignore)
             .handler("rename", handle_rename)
             .handler("convert-to-bare", handle_convert_to_bare)
+            .handler("init", handle_init)
             .build()
     }
 }
@@ -620,6 +648,20 @@ fn handle_convert_to_bare(matches: &ArgMatches, config: &RuntimeConfig) -> Resul
     };
 
     convert_to_bare(project, &base_path)?;
+    Ok(())
+}
+
+/// Handler for the init command: scaffold a nested child workspace.
+fn handle_init(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let name = matches.get_one::<String>("name").unwrap();
+
+    let base_path = if config.meta_root().is_some() {
+        config.meta_root().unwrap()
+    } else {
+        config.working_dir.clone()
+    };
+
+    init_child_workspace(name, &base_path)?;
     Ok(())
 }
 
