@@ -989,9 +989,22 @@ fn get_remote_url(repo: &Repository) -> Result<Option<String>> {
 ///
 /// Stale `.gitignore` lines are intentionally not auto-removed: without
 /// provenance we cannot tell a former project entry from a hand-added ignore.
+/// If `name` is currently tracked as a `local:` project but its on-disk
+/// directory is a git repository with a configured remote, return that remote
+/// URL. This is the signal that a local project is ready to be promoted to an
+/// independently cloneable repo (folded from the old `update-gitignore`).
+fn detect_promotable_remote(base_path: &Path, name: &str) -> Option<String> {
+    let project_path = base_path.join(name);
+    if !project_path.join(".git").exists() {
+        return None;
+    }
+    let repo = Repository::open(&project_path).ok()?;
+    get_remote_url(&repo).ok().flatten()
+}
+
 pub fn check_workspace(base_path: &Path, fix: bool) -> Result<()> {
     let meta_file_path = locate_workspace_config(base_path)?;
-    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
 
     // Current .gitignore lines, trimmed, for membership checks.
     let gitignore_path = base_path.join(".gitignore");
@@ -1009,14 +1022,22 @@ pub fn check_workspace(base_path: &Path, fix: bool) -> Result<()> {
     let mut missing_ignore: Vec<String> = Vec::new();
     // Check B: projects whose on-disk directory is missing (report only).
     let mut missing_dirs: Vec<String> = Vec::new();
+    // Check D: local: projects whose repo now has a remote (auto-fixable) —
+    // (name, detected_url). Folds in the old update-gitignore behavior.
+    let mut promotable: Vec<(String, String)> = Vec::new();
     for name in config.projects.keys() {
         let url = config.get_project_url(name).unwrap_or_default();
-        let should_ignore = !url.is_empty() && !url.starts_with("local:");
+        let is_local = url.is_empty() || url.starts_with("local:");
+        let should_ignore = !is_local;
         if should_ignore && !ignored.contains(name) {
             missing_ignore.push(name.clone());
         }
         if !base_path.join(name).exists() {
             missing_dirs.push(name.clone());
+        } else if is_local {
+            if let Some(detected) = detect_promotable_remote(base_path, name) {
+                promotable.push((name.clone(), detected));
+            }
         }
     }
 
@@ -1054,8 +1075,9 @@ pub fn check_workspace(base_path: &Path, fix: bool) -> Result<()> {
     missing_ignore.sort();
     missing_dirs.sort();
     untracked.sort();
+    promotable.sort();
 
-    let total = missing_ignore.len() + missing_dirs.len() + untracked.len();
+    let total = missing_ignore.len() + missing_dirs.len() + untracked.len() + promotable.len();
     if total == 0 {
         println!("  {} Workspace is in sync.", "✓".green());
         return Ok(());
@@ -1077,6 +1099,37 @@ pub fn check_workspace(base_path: &Path, fix: bool) -> Result<()> {
                 name.cyan()
             );
         }
+    }
+
+    // Promotable local projects — fixable: rewrite the config entry from local:
+    // to the detected remote and ignore the directory. Save the config once
+    // after applying all promotions.
+    let mut promoted_any = false;
+    for (name, url) in &promotable {
+        if fix {
+            config
+                .projects
+                .insert(name.clone(), ProjectEntry::Url(url.clone()));
+            update_gitignore(base_path, name)?;
+            promoted_any = true;
+            println!(
+                "  {} Promoted {} to {} and added to .gitignore",
+                "✓".green(),
+                name.cyan(),
+                url.green()
+            );
+            fixed += 1;
+        } else {
+            println!(
+                "  {} local project has a remote now: {} -> {} (promote with --fix)",
+                "!".yellow(),
+                name.cyan(),
+                url.green()
+            );
+        }
+    }
+    if promoted_any {
+        config.save_to_file(&meta_file_path)?;
     }
 
     // Report-only checks.
@@ -2279,5 +2332,34 @@ mod project_ops_tests {
         let err = check_workspace(root, true).unwrap_err();
         // Even with --fix, an unfixable missing dir keeps the exit non-zero.
         assert!(err.to_string().contains("workspace check found"));
+    }
+
+    #[test]
+    fn check_workspace_fix_promotes_local_project_with_remote() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path();
+        // A local: project whose on-disk repo has gained a remote.
+        let repo = git2::Repository::init(root.join("web")).unwrap();
+        repo.remote("origin", "https://example.com/web.git")
+            .unwrap();
+        std::fs::write(
+            root.join(".metarepo"),
+            r#"{"projects":{"web":"local:web"}}"#,
+        )
+        .unwrap();
+
+        // Dry run reports the promotable project as drift.
+        assert!(check_workspace(root, false).is_err());
+
+        // --fix rewrites the config entry to the detected remote and ignores it.
+        check_workspace(root, true).unwrap();
+        let config = MetaConfig::load_from_file(root.join(".metarepo")).unwrap();
+        assert_eq!(
+            config.get_project_url("web").as_deref(),
+            Some("https://example.com/web.git")
+        );
+        let gitignore = std::fs::read_to_string(root.join(".gitignore")).unwrap();
+        assert!(gitignore.lines().any(|l| l.trim() == "web"));
+        assert!(check_workspace(root, false).is_ok());
     }
 }

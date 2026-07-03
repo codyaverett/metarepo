@@ -273,9 +273,16 @@ impl ProjectPlugin {
             )
             .command(
                 command("update-gitignore")
-                    .about("Promote a local project to its detected remote and ignore it")
+                    .about("Deprecated: promote a local project to its remote (use 'check --fix')")
                     .help_description(
-                        "Record a newly added remote for a project and ignore its directory.\n\
+                        "Deprecated. Record a newly added remote for a project and ignore it.\n\
+                         \n\
+                         This behavior is now part of 'meta project check': running check\n\
+                         detects any local: project whose repo has gained a remote and, with\n\
+                         --fix, promotes it (rewrites the .meta entry from local: to the remote\n\
+                         URL and adds the directory to .gitignore) across the whole workspace.\n\
+                         Prefer 'meta project check --fix'; this single-project command is kept\n\
+                         for backwards compatibility.\n\
                          \n\
                          Use this after a project that was tracked as local: (no remote) has\n\
                          had a git remote added to it. The command reads the repo's origin\n\
@@ -287,13 +294,11 @@ impl ProjectPlugin {
                          nothing; if no remote is configured yet it tells you to add one\n\
                          first.\n\
                          \n\
-                         This promotes a single project. To scan the whole workspace for\n\
-                         .gitignore drift (and other hygiene issues), use 'meta project check'.\n\
-                         \n\
                          Examples:\n\
                          \n\
                            git -C web remote add origin URL\n\
-                           meta project update-gitignore web    record remote and ignore web",
+                           meta project check --fix             promote web (and any others)\n\
+                           meta project update-gitignore web    deprecated single-project form",
                     )
                     .with_help_formatting()
                     .arg(
