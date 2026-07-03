@@ -28,7 +28,9 @@ impl RunPlugin {
                         "Run a named script defined in the workspace config (.meta).\n\
                          \n\
                          Scripts can be defined globally or per-project; a project script overrides a\n\
-                         global script of the same name. With no project selection, the script runs in\n\
+                         global script of the same name. In a nested workspace, global scripts cascade\n\
+                         down the .meta chain: an outer config supplies shared defaults and a nearer\n\
+                         config overrides them by name. With no project selection, the script runs in\n\
                          the in-scope projects that define it (based on your current directory). Run\n\
                          without a script name in a terminal to pick one interactively.\n\
                          \n\

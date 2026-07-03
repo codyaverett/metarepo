@@ -948,6 +948,23 @@ impl MetaConfig {
             })
     }
 
+    /// Merge global scripts across a discovery chain ordered outermost → nearest
+    /// (as returned by [`discover_chain_from`](Self::discover_chain_from)). Nearer
+    /// definitions override farther ones, so an outermost `.meta` supplies shared
+    /// defaults that nested workspaces inherit and may selectively override.
+    ///
+    /// Only global scripts are merged here; project-specific scripts live in the
+    /// nearest config and still override globals at lookup time.
+    pub fn merge_global_scripts(chain: &[MetaConfig]) -> HashMap<String, String> {
+        let mut merged = HashMap::new();
+        for cfg in chain {
+            if let Some(scripts) = &cfg.scripts {
+                merged.extend(scripts.clone());
+            }
+        }
+        merged
+    }
+
     /// Get all available scripts (project-specific and global)
     pub fn get_all_scripts(&self, project_name: Option<&str>) -> HashMap<String, String> {
         let mut scripts = HashMap::new();
@@ -1321,6 +1338,34 @@ mod tests {
             paths,
             vec![outer.join(".metarepo"), inner.join(".metarepo")]
         );
+    }
+
+    #[test]
+    fn merge_global_scripts_nearest_overrides() {
+        let outer: MetaConfig = serde_json::from_str(
+            r#"{"projects":{},"scripts":{"build":"outer-build","lint":"outer-lint"}}"#,
+        )
+        .unwrap();
+        let inner: MetaConfig =
+            serde_json::from_str(r#"{"projects":{},"scripts":{"build":"inner-build"}}"#).unwrap();
+
+        // Chain is outermost -> nearest.
+        let merged = MetaConfig::merge_global_scripts(&[outer, inner]);
+        // Nearest wins for overlapping keys...
+        assert_eq!(merged.get("build").map(String::as_str), Some("inner-build"));
+        // ...and outer-only keys are inherited.
+        assert_eq!(merged.get("lint").map(String::as_str), Some("outer-lint"));
+    }
+
+    #[test]
+    fn merge_global_scripts_handles_missing_scripts() {
+        let outer: MetaConfig =
+            serde_json::from_str(r#"{"projects":{},"scripts":{"build":"outer-build"}}"#).unwrap();
+        let inner: MetaConfig = serde_json::from_str(r#"{"projects":{}}"#).unwrap();
+
+        let merged = MetaConfig::merge_global_scripts(&[outer, inner]);
+        assert_eq!(merged.get("build").map(String::as_str), Some("outer-build"));
+        assert_eq!(merged.len(), 1);
     }
 
     #[test]

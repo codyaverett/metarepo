@@ -12,6 +12,31 @@ pub use self::plugin::RunPlugin;
 
 mod plugin;
 
+/// Load the workspace config at `base_path` with global scripts cascaded down
+/// the enclosing .meta chain (outermost defaults, nearest overrides). Project
+/// scripts are untouched and still override globals at lookup time. In a flat
+/// (single-.meta) workspace this returns the same scripts the config already
+/// had, so the cascade is a no-op there.
+fn load_config_with_script_cascade(base_path: &Path) -> Result<MetaConfig> {
+    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
+    let mut config = MetaConfig::load_from_file(&meta_file_path)?;
+
+    if let Ok(found) = MetaConfig::discover_chain_from(base_path) {
+        if found.len() > 1 {
+            let chain: Vec<MetaConfig> = found
+                .iter()
+                .filter_map(|d| MetaConfig::load_from_file(&d.path).ok())
+                .collect();
+            let merged = MetaConfig::merge_global_scripts(&chain);
+            if !merged.is_empty() {
+                config.scripts = Some(merged);
+            }
+        }
+    }
+
+    Ok(config)
+}
+
 /// Execute a script for selected projects
 #[allow(clippy::too_many_arguments)]
 pub fn run_script(
@@ -26,9 +51,7 @@ pub fn run_script(
     streaming: bool,
     env_vars: &HashMap<String, String>,
 ) -> Result<()> {
-    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
-
-    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    let config = load_config_with_script_cascade(base_path)?;
 
     // Determine which projects to operate on
     let mut selected_projects = if projects.is_empty() {
@@ -437,9 +460,7 @@ fn resolve_project_identifier(config: &MetaConfig, identifier: &str) -> Option<S
 
 /// List all available scripts
 pub fn list_scripts(base_path: &Path, project: Option<&str>) -> Result<()> {
-    let meta_file_path = MetaConfig::locate_in(base_path)?.path;
-
-    let config = MetaConfig::load_from_file(&meta_file_path)?;
+    let config = load_config_with_script_cascade(base_path)?;
 
     println!("\n  {} {}", "📜".cyan(), "Available Scripts".bold());
     println!("  {}", "═".repeat(60).bright_black());

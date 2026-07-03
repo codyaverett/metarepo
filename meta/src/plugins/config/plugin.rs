@@ -178,6 +178,16 @@ impl ConfigPlugin {
         None
     }
 
+    /// The `--root` write target: the outermost config in the chain (shared
+    /// defaults). Returns its path and config, or `None` when the chain is empty
+    /// or the outermost entry has no real file path (the fallback placeholder).
+    fn root_write_target(chain: &[(PathBuf, MetaConfig)]) -> Option<(PathBuf, MetaConfig)> {
+        match chain.first() {
+            Some((path, cfg)) if !path.as_os_str().is_empty() => Some((path.clone(), cfg.clone())),
+            _ => None,
+        }
+    }
+
     /// List every configurable setting declared by registered plugins, with its
     /// type, description, effective value, and (when nested) its source file.
     fn handle_list(&self, config: &RuntimeConfig) -> Result<()> {
@@ -258,6 +268,7 @@ impl ConfigPlugin {
     fn handle_set(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         let key = matches.get_one::<String>("key").unwrap();
         let value_str = matches.get_one::<String>("value").unwrap();
+        let to_root = matches.get_flag("root");
 
         // If the key is a declared setting, validate the value against its type.
         // Otherwise fall back to free-form JSON-or-string parsing (still
@@ -271,18 +282,36 @@ impl ConfigPlugin {
                 .unwrap_or_else(|_| serde_json::Value::String(value_str.to_string())),
         };
 
+        // Pick the write target. By default a set lands in the nearest .meta
+        // (the active config). With --root it lands in the outermost .meta of
+        // the chain — the shared defaults every nested workspace inherits.
+        let (meta_file, base_config) = if to_root {
+            Self::root_write_target(&Self::config_chain(config)).ok_or_else(|| {
+                anyhow!("--root requires a discoverable .meta chain; none was found")
+            })?
+        } else {
+            let path = config
+                .meta_file_path
+                .clone()
+                .ok_or_else(|| anyhow!("Could not find .meta file path"))?;
+            (path, config.meta_config.clone())
+        };
+
         // Apply with intermediate objects created as needed (so `skill.dest`
         // works even when the `[skill]` block does not exist yet).
-        let updated_config = config.meta_config.with_dotted_set(key, value)?;
-
-        let meta_file = config
-            .meta_file_path
-            .clone()
-            .ok_or_else(|| anyhow!("Could not find .meta file path"))?;
-
+        let updated_config = base_config.with_dotted_set(key, value)?;
         updated_config.save_to_file(&meta_file)?;
 
-        println!("✓ Config updated: {} = {}", key, value_str);
+        if to_root {
+            println!(
+                "✓ Config updated: {} = {} {}",
+                key,
+                value_str,
+                format!("(in {})", meta_file.display()).bright_black()
+            );
+        } else {
+            println!("✓ Config updated: {} = {}", key, value_str);
+        }
 
         Ok(())
     }
@@ -427,10 +456,15 @@ impl MetaPlugin for ConfigPlugin {
                              setting a nested key works even when its parent does not exist yet.\n\
                              Values may begin with a hyphen.\n\
                              \n\
+                             By default a write lands in the nearest .meta (the active config). In a\n\
+                             nested workspace, pass --root to write to the outermost .meta instead —\n\
+                             the shared defaults every nested workspace inherits.\n\
+                             \n\
                              Examples:\n  \
                                meta config set skill.search-limit 50\n  \
                                meta config set skill.dest ~/.config/skills\n  \
-                               meta config set default_bare true\n",
+                               meta config set default_bare true\n  \
+                               meta config set skill.dest ~/skills --root   Write to the outermost .meta\n",
                         ))
                         .arg(
                             Arg::new("key")
@@ -444,6 +478,12 @@ impl MetaPlugin for ConfigPlugin {
                                 .value_name("VALUE")
                                 .allow_hyphen_values(true)
                                 .help("Value to set"),
+                        )
+                        .arg(
+                            Arg::new("root")
+                                .long("root")
+                                .action(ArgAction::SetTrue)
+                                .help("Write to the outermost .meta in the chain (shared defaults) instead of the nearest"),
                         ),
                 )
                 .subcommand(
@@ -606,5 +646,29 @@ mod tests {
 
         // Unset everywhere.
         assert!(ConfigPlugin::effective_dotted(&chain, "skill.api-key").is_none());
+    }
+
+    #[test]
+    fn root_write_target_picks_outermost() {
+        let chain = vec![
+            (
+                PathBuf::from("/ws/.meta"),
+                cfg(r#"{"projects":{},"skill":{"dest":"~/outer"}}"#),
+            ),
+            (
+                PathBuf::from("/ws/inner/.meta"),
+                cfg(r#"{"projects":{},"skill":{"dest":"~/inner"}}"#),
+            ),
+        ];
+
+        let (path, _) = ConfigPlugin::root_write_target(&chain).unwrap();
+        assert_eq!(path, PathBuf::from("/ws/.meta"));
+    }
+
+    #[test]
+    fn root_write_target_none_for_placeholder_path() {
+        // The config_chain fallback pushes an empty path when nothing is found.
+        let chain = vec![(PathBuf::new(), cfg(r#"{"projects":{}}"#))];
+        assert!(ConfigPlugin::root_write_target(&chain).is_none());
     }
 }
