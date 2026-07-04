@@ -7,11 +7,48 @@
 
 use git2::{Repository, StatusOptions};
 use std::path::Path;
+use std::process::Command;
 
 mod dashboard;
 mod plugin;
 
 pub use plugin::StatusPlugin;
+
+/// Fetch the selected repository (`git fetch`). Blocks on the network; the
+/// dashboard refreshes ahead/behind counts afterward.
+pub(super) fn fetch(path: &Path) -> Result<(), String> {
+    run_git(path, &["fetch", "--quiet"])
+}
+
+/// Fast-forward pull the selected repository (`git pull --ff-only`). Fails
+/// cleanly (surfaced in the status line) for bare or diverged repos rather than
+/// creating a merge commit.
+pub(super) fn pull(path: &Path) -> Result<(), String> {
+    run_git(path, &["pull", "--ff-only", "--quiet"])
+}
+
+/// Run `git -C <path> <args>`, returning the trimmed stderr on failure. Uses the
+/// git CLI so the user's configured credentials/helpers apply, matching the rest
+/// of the codebase.
+fn run_git(path: &Path, args: &[&str]) -> Result<(), String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .map_err(|e| format!("could not run git: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let msg = err.trim();
+        Err(if msg.is_empty() {
+            format!("git exited with {}", output.status)
+        } else {
+            msg.lines().next().unwrap_or(msg).to_string()
+        })
+    }
+}
 
 /// The git state of one tracked project, as shown in the dashboard.
 #[derive(Debug, Clone, PartialEq)]
@@ -211,6 +248,51 @@ mod tests {
         match gather_one(&repo) {
             RepoState::Ok { dirty, .. } => assert_eq!(dirty, 1),
             other => panic!("expected dirty Ok, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fetch_then_gather_reports_behind() {
+        let tmp = tempdir().unwrap();
+        let bare = tmp.path().join("remote.git");
+        git(
+            tmp.path(),
+            &["init", "-q", "--bare", bare.to_str().unwrap()],
+        );
+
+        // Clone A, push an initial commit on main.
+        let a = tmp.path().join("a");
+        git(
+            tmp.path(),
+            &["clone", "-q", bare.to_str().unwrap(), a.to_str().unwrap()],
+        );
+        std::fs::write(a.join("f.txt"), "one").unwrap();
+        git(&a, &["add", "."]);
+        git(&a, &["commit", "-qm", "one"]);
+        git(&a, &["push", "-q", "-u", "origin", "HEAD:main"]);
+
+        // Clone B (tracks origin/main at "one").
+        let b = tmp.path().join("b");
+        git(
+            tmp.path(),
+            &["clone", "-q", bare.to_str().unwrap(), b.to_str().unwrap()],
+        );
+
+        // A advances the remote by one commit.
+        std::fs::write(a.join("f.txt"), "two").unwrap();
+        git(&a, &["commit", "-qam", "two"]);
+        git(&a, &["push", "-q"]);
+
+        // Before fetch, B does not know it is behind.
+        assert!(matches!(gather_one(&b), RepoState::Ok { behind: 0, .. }));
+
+        // Our fetch updates the tracking ref; gather now reports behind = 1.
+        super::fetch(&b).unwrap();
+        match gather_one(&b) {
+            RepoState::Ok { behind, ahead, .. } => {
+                assert_eq!((ahead, behind), (0, 1));
+            }
+            other => panic!("expected Ok behind=1, got {other:?}"),
         }
     }
 

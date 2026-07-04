@@ -90,6 +90,8 @@ impl Dashboard {
             HelpSection::new(
                 "Dashboard",
                 vec![
+                    ("f", "Fetch the selected repo"),
+                    ("p", "Pull (fast-forward) the selected repo"),
                     ("r", "Refresh status"),
                     ("?", "Toggle this help"),
                     ("q / Esc", "Quit"),
@@ -162,7 +164,7 @@ impl Dashboard {
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "r: refresh   ?: help   q: quit",
+            "f: fetch   p: pull   r: refresh   ?: help   q: quit",
             Style::default().fg(Color::DarkGray),
         )));
         lines
@@ -211,13 +213,21 @@ impl MenuApp for Dashboard {
             self.show_help = false;
             return Ok(true);
         }
-        // Refresh is dashboard-specific.
-        if matches!(
-            (key.code, key.modifiers),
-            (KeyCode::Char('r'), KeyModifiers::NONE)
-        ) {
-            self.refresh();
-            return Ok(true);
+        // Dashboard-specific actions.
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('r'), KeyModifiers::NONE) => {
+                self.refresh();
+                return Ok(true);
+            }
+            (KeyCode::Char('f'), KeyModifiers::NONE) => {
+                self.run_repo_op("fetch", super::fetch);
+                return Ok(true);
+            }
+            (KeyCode::Char('p'), KeyModifiers::NONE) => {
+                self.run_repo_op("pull", super::pull);
+                return Ok(true);
+            }
+            _ => {}
         }
 
         match metarepo_core::tui::handle_key(key, false) {
@@ -293,6 +303,10 @@ impl MenuApp for Dashboard {
         let line = Line::from(vec![
             Span::styled("j/k", Style::default().fg(Color::Cyan)),
             Span::raw(":Nav  "),
+            Span::styled("f", Style::default().fg(Color::Cyan)),
+            Span::raw(":Fetch  "),
+            Span::styled("p", Style::default().fg(Color::Cyan)),
+            Span::raw(":Pull  "),
             Span::styled("r", Style::default().fg(Color::Cyan)),
             Span::raw(":Refresh  "),
             Span::styled("?", Style::default().fg(Color::Cyan)),
@@ -353,6 +367,32 @@ impl Dashboard {
             unsafe {
                 (*ptr).toggle();
             }
+        }
+    }
+
+    /// Run a git operation (`op`) on the selected repo, then refresh and report
+    /// the outcome in the status line. Skips non-existent / non-git selections.
+    /// Blocks on the network while the operation runs.
+    fn run_repo_op(&mut self, verb: &str, op: fn(&std::path::Path) -> Result<(), String>) {
+        let Some(status) = self.selected_status() else {
+            self.state.set_status("Select a project first");
+            return;
+        };
+        if matches!(status.state, RepoState::Missing | RepoState::NotGit) {
+            self.state.set_status(format!(
+                "Cannot {verb}: {} is not a cloned repo",
+                status.name
+            ));
+            return;
+        }
+        let name = status.name.clone();
+        let path = self.base_path.join(&name);
+        match op(&path) {
+            Ok(()) => {
+                self.refresh();
+                self.state.set_status(format!("{verb}: {name} done"));
+            }
+            Err(e) => self.state.set_status(format!("{verb} {name} failed: {e}")),
         }
     }
 }
