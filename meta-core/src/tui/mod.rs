@@ -12,6 +12,7 @@ mod modes;
 // New menuconfig-style interface (recommended)
 mod menu_app;
 mod simple_keys;
+mod tree_shell;
 
 // Widgets (shared between both interfaces)
 pub mod widgets;
@@ -24,6 +25,7 @@ pub use modes::{EditorMode, Mode};
 // New exports (recommended)
 pub use menu_app::{MenuApp, MenuAppState};
 pub use simple_keys::{handle_key, Action};
+pub use tree_shell::{centered_rect, render_tree_pane, search_and_reveal};
 
 // Shared exports
 pub use widgets::{

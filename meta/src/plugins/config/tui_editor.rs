@@ -4,8 +4,9 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use metarepo_core::{
     tui::{
-        init_terminal, restore_terminal, Action, Breadcrumb, ContextBar, HelpSection,
-        KeybindingHelp, MenuApp, MenuAppState, TreeNode, TreeWidget,
+        centered_rect, init_terminal, render_tree_pane, restore_terminal, search_and_reveal,
+        Action, Breadcrumb, ContextBar, HelpSection, KeybindingHelp, MenuApp, MenuAppState,
+        TreeNode,
     },
     ConfigSetting, ConfigValueType, MetaConfig,
 };
@@ -19,27 +20,6 @@ use ratatui::{
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tui_textarea::{Input, TextArea};
-
-/// A `Rect` centered within `area`, sized to `percent_x` x `percent_y` of it.
-/// Used to place popup overlays (e.g. the help panel).
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(vertical[1])[1]
-}
 
 /// Encode a declared setting's dotted key and value type into a `TreeNode`
 /// `node_type` so `save` can route the edit back through the typed config API.
@@ -1149,49 +1129,8 @@ impl ConfigEditor {
     /// Expand to and select the first node whose label or value contains
     /// `query` (case-insensitive). Returns false if nothing matched.
     fn jump_to_match(&mut self, query: &str) -> bool {
-        let q = query.trim().to_lowercase();
-        if q.is_empty() {
-            return false;
-        }
-        fn matches(node: &TreeNode, q: &str) -> bool {
-            node.label.to_lowercase().contains(q)
-                || node
-                    .value
-                    .as_deref()
-                    .map(|v| v.to_lowercase().contains(q))
-                    .unwrap_or(false)
-        }
-        fn expand_to(node: &mut TreeNode, q: &str) -> bool {
-            if matches(node, q) {
-                return true;
-            }
-            for c in &mut node.children {
-                if expand_to(c, q) {
-                    node.expanded = true;
-                    return true;
-                }
-            }
-            false
-        }
-        let mut found = false;
-        for r in &mut self.tree_roots {
-            if expand_to(r, &q) {
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            return false;
-        }
-        if let Some(idx) = self
-            .tree_roots
-            .iter()
-            .flat_map(|r| r.flatten(true))
-            .position(|n| matches(n, &q))
-        {
-            self.state.tree_state.selected = idx;
-        }
-        true
+        // Delegate to the shared tree-shell search (expand-to-match + select).
+        search_and_reveal(&mut self.tree_roots, &mut self.state.tree_state, query)
     }
 
     /// The project that owns the currently-selected node, if the selection is
@@ -2091,27 +2030,15 @@ impl MenuApp for ConfigEditor {
     }
 
     fn render_content(&mut self, frame: &mut Frame, area: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50), // Tree
-                Constraint::Percentage(50), // Detail/Edit panel
-            ])
-            .split(area);
-
-        // Cache the tree viewport's inner height (area minus top/bottom border)
-        // so key handlers can scroll to keep the selection on screen.
-        self.state.tree_state.viewport_height = chunks[0].height.saturating_sub(2) as usize;
-
-        // Render tree
-        let tree = TreeWidget::new(&self.tree_roots, &self.state.tree_state).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Config Tree ")
-                .border_style(Style::default().fg(Color::Cyan)),
+        // Left tree pane via the shared shell; the returned area is the detail
+        // pane, which the config editor fills with its own panels below.
+        let detail_area = render_tree_pane(
+            frame,
+            area,
+            &self.tree_roots,
+            &mut self.state.tree_state,
+            "Config Tree",
         );
-
-        frame.render_widget(tree, chunks[0]);
 
         // Render detail/edit panel
         if let Some((opts, idx)) = &self.add_menu {
@@ -2146,7 +2073,7 @@ impl MenuApp for ConfigEditor {
                     .title(" Add ")
                     .border_style(Style::default().fg(Color::Green)),
             );
-            frame.render_widget(panel, chunks[1]);
+            frame.render_widget(panel, detail_area);
         } else if let Some(textarea) = &mut self.textarea {
             // Render text editor (or search prompt)
             let title = if self.searching {
@@ -2162,7 +2089,7 @@ impl MenuApp for ConfigEditor {
                 .border_style(Style::default().fg(Color::Green));
 
             textarea.set_block(block);
-            frame.render_widget(&*textarea, chunks[1]);
+            frame.render_widget(&*textarea, detail_area);
         } else {
             // Show selected node details
             let visible: Vec<_> = self
@@ -2212,7 +2139,7 @@ impl MenuApp for ConfigEditor {
                 )
                 .wrap(Wrap { trim: false });
 
-            frame.render_widget(detail_panel, chunks[1]);
+            frame.render_widget(detail_panel, detail_area);
         }
     }
 
