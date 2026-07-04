@@ -326,6 +326,13 @@ impl ConfigEditor {
                 ],
             ),
             HelpSection::new(
+                "Cascade",
+                vec![
+                    ("o", "Override an inherited value locally"),
+                    ("O", "Reveal the source of an inherited value"),
+                ],
+            ),
+            HelpSection::new(
                 "Workspace",
                 vec![
                     ("/", "Search and jump to a node"),
@@ -335,6 +342,89 @@ impl ConfigEditor {
                 ],
             ),
         ]
+    }
+
+    /// The dotted setting key of the currently-selected node, if it is a declared
+    /// setting node (skill.*, default_bare, worktree_init, ...).
+    fn selected_setting_key(&self) -> Option<String> {
+        let nt = self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .nth(self.state.tree_state.selected)
+            .map(|n| n.node_type.clone())?;
+        parse_setting_node_type(&nt).map(|(_, key)| key.to_string())
+    }
+
+    /// Override an inherited setting in the nearest config: copy its effective
+    /// (inherited) value into `self.config` so it becomes a local override. A
+    /// no-op with a status hint when the selection is not an inherited setting.
+    fn override_inherited_here(&mut self) {
+        let key = match self.selected_setting_key() {
+            Some(k) => k,
+            None => {
+                self.state
+                    .set_status("Select a setting to override it locally");
+                return;
+            }
+        };
+
+        // Only meaningful when the value is inherited (unset locally).
+        if Self::inherited_annotation(&self.config, &self.ancestors, &key).is_none() {
+            self.state
+                .set_status(format!("'{}' is not inherited — nothing to override", key));
+            return;
+        }
+
+        let effective = match Self::effective_value(&self.config, &self.ancestors, &key) {
+            Some(v) => v,
+            None => {
+                self.state
+                    .set_status(format!("'{}' has no value to copy", key));
+                return;
+            }
+        };
+
+        // Route through the typed config API so the override matches the
+        // setting's declared type (falling back to a string), mirroring an edit.
+        let parsed = self
+            .settings
+            .iter()
+            .find(|s| s.key == key)
+            .and_then(|s| s.value_type.parse(&effective).ok())
+            .unwrap_or_else(|| serde_json::Value::String(effective.clone()));
+
+        match self.config.clone().with_dotted_set(&key, parsed) {
+            Ok(updated) => {
+                self.config = updated;
+                self.state.modified = true;
+                self.rebuild_tree();
+                self.state
+                    .set_status(format!("Overrode '{}' locally = {}", key, effective));
+            }
+            Err(e) => {
+                self.state
+                    .set_status(format!("Could not override '{}': {}", key, e));
+            }
+        }
+    }
+
+    /// Show where an inherited setting's value comes from (the ancestor `.meta`
+    /// path) in the status bar. A no-op hint when the selection is local/unset.
+    fn reveal_inherited_source(&mut self) {
+        let key = match self.selected_setting_key() {
+            Some(k) => k,
+            None => {
+                self.state.set_status("Select a setting to see its source");
+                return;
+            }
+        };
+        match Self::inherited_annotation(&self.config, &self.ancestors, &key) {
+            Some(note) => self.state.set_status(format!("{} {}", key, note)),
+            None => self
+                .state
+                .set_status(format!("'{}' is set locally (or unset)", key)),
+        }
     }
 
     /// Load the enclosing `.meta` chain above `meta_file` (outermost → nearest),
@@ -1637,6 +1727,20 @@ impl MenuApp for ConfigEditor {
             // Delete the selected script entry.
             self.delete_selected();
             Ok(true)
+        } else if matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char('o'), KeyModifiers::NONE)
+        ) {
+            // Override an inherited setting locally.
+            self.override_inherited_here();
+            Ok(true)
+        } else if matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char('O'), KeyModifiers::SHIFT)
+        ) {
+            // Reveal the source of an inherited setting.
+            self.reveal_inherited_source();
+            Ok(true)
         } else {
             // Not editing - use simple key handling
             let action = metarepo_core::tui::handle_key(key, self.state.editing);
@@ -2566,6 +2670,46 @@ mod tests {
         let sections = ConfigEditor::help_sections();
         assert!(!sections.is_empty());
         assert!(sections.iter().all(|s| !s.entries.is_empty()));
+    }
+
+    #[test]
+    fn override_inherited_here_copies_ancestor_value_locally() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("inner")).unwrap();
+        // Outer ancestor sets skill.dest; inner (edited) does not -> inherited.
+        std::fs::write(
+            root.join(".metarepo"),
+            r#"{"projects":{},"skill":{"dest":"~/outer"}}"#,
+        )
+        .unwrap();
+        let inner = root.join("inner").join(".meta");
+        std::fs::write(&inner, r#"{"projects":{}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(inner, catalog()).unwrap();
+        // Precondition: skill.dest is inherited, not set locally.
+        assert!(editor.config.get_dotted("skill.dest").is_none());
+
+        editor.select_by_test(|n| {
+            parse_setting_node_type(&n.node_type)
+                .map(|(_, k)| k == "skill.dest")
+                .unwrap_or(false)
+        });
+        editor.override_inherited_here();
+
+        // Now set locally to the previously-inherited value, and marked dirty.
+        assert_eq!(
+            editor.config.get_dotted("skill.dest"),
+            Some(serde_json::json!("~/outer"))
+        );
+        assert!(editor.state.modified);
+        // The annotation should now report local (no inherited note).
+        assert!(ConfigEditor::inherited_annotation(
+            &editor.config,
+            &editor.ancestors,
+            "skill.dest"
+        )
+        .is_none());
     }
 
     #[test]
