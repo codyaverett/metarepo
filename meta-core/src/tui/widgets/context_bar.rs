@@ -156,6 +156,14 @@ impl<'a> Widget for ContextBar<'a> {
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ));
             help_spans.push(Span::raw(":Quit "));
+
+            help_spans.push(Span::styled(
+                "?",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            help_spans.push(Span::raw(":Help "));
         }
 
         // Add modified indicator

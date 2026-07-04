@@ -26,7 +26,10 @@ pub use menu_app::{MenuApp, MenuAppState};
 pub use simple_keys::{handle_key, Action};
 
 // Shared exports
-pub use widgets::{Breadcrumb, ContextBar, HelpPanel, StatusBar, TreeNode, TreeState, TreeWidget};
+pub use widgets::{
+    Breadcrumb, ContextBar, HelpPanel, HelpSection, KeybindingHelp, StatusBar, TreeNode, TreeState,
+    TreeWidget,
+};
 
 use anyhow::Result;
 use crossterm::{

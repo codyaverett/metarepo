@@ -4,8 +4,8 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use metarepo_core::{
     tui::{
-        init_terminal, restore_terminal, Action, Breadcrumb, ContextBar, MenuApp, MenuAppState,
-        TreeNode, TreeWidget,
+        init_terminal, restore_terminal, Action, Breadcrumb, ContextBar, HelpSection,
+        KeybindingHelp, MenuApp, MenuAppState, TreeNode, TreeWidget,
     },
     ConfigSetting, ConfigValueType, MetaConfig,
 };
@@ -13,12 +13,33 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tui_textarea::{Input, TextArea};
+
+/// A `Rect` centered within `area`, sized to `percent_x` x `percent_y` of it.
+/// Used to place popup overlays (e.g. the help panel).
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(vertical[1])[1]
+}
 
 /// Encode a declared setting's dotted key and value type into a `TreeNode`
 /// `node_type` so `save` can route the edit back through the typed config API.
@@ -222,6 +243,8 @@ pub struct ConfigEditor {
     /// workspace inherits. Empty in a flat (non-nested) workspace. Used to
     /// annotate inherited-vs-local values in the tree.
     ancestors: Vec<(PathBuf, MetaConfig)>,
+    /// Whether the `?` keybinding help overlay is showing.
+    show_help: bool,
 }
 
 impl ConfigEditor {
@@ -267,7 +290,51 @@ impl ConfigEditor {
             tree_roots,
             textarea: None,
             ancestors,
+            show_help: false,
         })
+    }
+
+    /// The keybinding sections shown in the `?` help overlay. Kept in sync with
+    /// the key handling in [`handle_key`](Self::handle_key) and
+    /// [`metarepo_core::tui::handle_key`].
+    fn help_sections() -> Vec<HelpSection> {
+        vec![
+            HelpSection::new(
+                "Navigation",
+                vec![
+                    ("j / ↓", "Move down"),
+                    ("k / ↑", "Move up"),
+                    ("g / G", "Jump to top / bottom"),
+                    ("Ctrl+u / Ctrl+d", "Page up / down"),
+                ],
+            ),
+            HelpSection::new(
+                "Tree",
+                vec![
+                    ("l / → / Space", "Expand or edit leaf"),
+                    ("h / ←", "Collapse node or climb to parent"),
+                    ("Enter", "Toggle expand, or edit a value"),
+                ],
+            ),
+            HelpSection::new(
+                "Edit",
+                vec![
+                    ("e / Enter", "Edit the selected value"),
+                    ("a", "Add an entry in this context"),
+                    ("d", "Delete the selected entry"),
+                    ("Esc", "Cancel an in-progress edit"),
+                ],
+            ),
+            HelpSection::new(
+                "Workspace",
+                vec![
+                    ("/", "Search and jump to a node"),
+                    ("s / Ctrl+w", "Save to disk"),
+                    ("q / Esc", "Quit (guards unsaved changes)"),
+                    ("?", "Toggle this help"),
+                ],
+            ),
+        ]
     }
 
     /// Load the enclosing `.meta` chain above `meta_file` (outermost → nearest),
@@ -1303,6 +1370,31 @@ impl MenuApp for ConfigEditor {
         &mut self.state
     }
 
+    /// Draw the standard three-pane layout, then overlay the help popup when
+    /// `?` is active.
+    fn render(&mut self, frame: &mut Frame) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // Breadcrumb
+                Constraint::Min(1),    // Main content
+                Constraint::Length(2), // Context bar
+            ])
+            .split(frame.area());
+        self.render_breadcrumb(frame, chunks[0]);
+        self.render_content(frame, chunks[1]);
+        self.render_context_bar(frame, chunks[2]);
+
+        if self.show_help {
+            let area = centered_rect(64, 80, frame.area());
+            frame.render_widget(Clear, area);
+            frame.render_widget(
+                KeybindingHelp::new("Config editor keys", Self::help_sections()),
+                area,
+            );
+        }
+    }
+
     fn get_tree_roots(&self) -> &[TreeNode] {
         &self.tree_roots
     }
@@ -1408,6 +1500,24 @@ impl MenuApp for ConfigEditor {
 
     /// Override handle_key to intercept keys for textarea
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
+        // Help overlay: while open, any key dismisses it and is consumed.
+        if self.show_help {
+            self.show_help = false;
+            return Ok(true);
+        }
+        // Toggle help with '?' when not typing or in a sub-mode.
+        if self.textarea.is_none()
+            && !self.confirm_quit
+            && self.add_menu.is_none()
+            && matches!(
+                (key.code, key.modifiers),
+                (KeyCode::Char('?'), KeyModifiers::NONE)
+            )
+        {
+            self.show_help = true;
+            return Ok(true);
+        }
+
         // Quit confirmation is showing: resolve it first.
         if self.confirm_quit {
             match (key.code, key.modifiers) {
@@ -2423,6 +2533,39 @@ mod tests {
             .unwrap();
         assert!(!editor.confirm_quit);
         assert!(editor.state.should_quit);
+    }
+
+    #[test]
+    fn help_overlay_toggles_and_dismisses() {
+        use crossterm::event::KeyEvent;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path, vec![]).unwrap();
+        assert!(!editor.show_help);
+
+        // '?' opens the overlay.
+        editor
+            .handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE))
+            .unwrap();
+        assert!(editor.show_help);
+
+        // While open, any key (here 'j') just dismisses it and is consumed —
+        // the selection must not move.
+        let before = editor.state.tree_state.selected;
+        editor
+            .handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE))
+            .unwrap();
+        assert!(!editor.show_help);
+        assert_eq!(editor.state.tree_state.selected, before);
+    }
+
+    #[test]
+    fn help_sections_are_non_empty() {
+        let sections = ConfigEditor::help_sections();
+        assert!(!sections.is_empty());
+        assert!(sections.iter().all(|s| !s.entries.is_empty()));
     }
 
     #[test]

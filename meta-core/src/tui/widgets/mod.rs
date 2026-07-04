@@ -6,6 +6,6 @@ mod statusbar;
 mod tree;
 
 pub use context_bar::{Breadcrumb, ContextBar};
-pub use help::HelpPanel;
+pub use help::{HelpPanel, HelpSection, KeybindingHelp};
 pub use statusbar::StatusBar;
 pub use tree::{TreeNode, TreeState, TreeWidget};

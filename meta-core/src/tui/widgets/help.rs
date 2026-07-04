@@ -133,3 +133,93 @@ impl Widget for HelpPanel {
         Widget::render(paragraph, area, buf);
     }
 }
+
+/// A group of related keybindings shown under a heading in [`KeybindingHelp`].
+pub struct HelpSection {
+    /// Heading shown above the entries (e.g. "Navigation").
+    pub heading: String,
+    /// `(keys, description)` rows, e.g. `("j / ↓", "Move down")`.
+    pub entries: Vec<(String, String)>,
+}
+
+impl HelpSection {
+    pub fn new(heading: impl Into<String>, entries: Vec<(&str, &str)>) -> Self {
+        Self {
+            heading: heading.into(),
+            entries: entries
+                .into_iter()
+                .map(|(k, d)| (k.to_string(), d.to_string()))
+                .collect(),
+        }
+    }
+}
+
+/// A data-driven keybinding help overlay. Unlike [`HelpPanel`] (which is tied to
+/// the modal `Mode` enum), this renders whatever sections the caller supplies,
+/// so each TUI surface can show its own real keymap. Meant to be drawn over the
+/// UI in a centered popup (clear the area first).
+pub struct KeybindingHelp {
+    title: String,
+    sections: Vec<HelpSection>,
+}
+
+impl KeybindingHelp {
+    pub fn new(title: impl Into<String>, sections: Vec<HelpSection>) -> Self {
+        Self {
+            title: title.into(),
+            sections,
+        }
+    }
+}
+
+impl Widget for KeybindingHelp {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        // Widest key column across all sections, for aligned descriptions.
+        let key_width = self
+            .sections
+            .iter()
+            .flat_map(|s| s.entries.iter())
+            .map(|(k, _)| k.chars().count())
+            .max()
+            .unwrap_or(0);
+
+        let mut lines: Vec<Line> = vec![
+            Line::from(vec![
+                Span::raw("Press "),
+                Span::styled("?", Style::default().fg(Color::Cyan)),
+                Span::raw(" or "),
+                Span::styled("Esc", Style::default().fg(Color::Cyan)),
+                Span::raw(" to close"),
+            ]),
+            Line::from(""),
+        ];
+
+        for (i, section) in self.sections.iter().enumerate() {
+            if i > 0 {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(Span::styled(
+                section.heading.clone(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for (keys, desc) in &section.entries {
+                let pad = " ".repeat(key_width.saturating_sub(keys.chars().count()));
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(keys.clone(), Style::default().fg(Color::Cyan)),
+                    Span::raw(format!("{pad}   ")),
+                    Span::raw(desc.clone()),
+                ]));
+            }
+        }
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(format!(" {} ", self.title));
+
+        Widget::render(Paragraph::new(lines).block(block), area, buf);
+    }
+}
