@@ -413,7 +413,7 @@ impl ConfigEditor {
             HelpSection::new(
                 "Edit",
                 vec![
-                    ("e / Enter", "Edit the selected value"),
+                    ("e / Enter", "Edit the value (bools toggle in place)"),
                     ("a", "Add an entry in this context"),
                     ("d", "Delete the selected entry"),
                     ("u", "Undo the last edit"),
@@ -515,6 +515,57 @@ impl ConfigEditor {
                     .set_status(format!("Could not override '{}': {}", key, e));
             }
         }
+    }
+
+    /// If the selected node is a bool setting, flip it in place (true ⇄ false)
+    /// and commit, instead of opening a text buffer. Returns true when it
+    /// handled the node so the caller skips the normal text editor. Empty/unset
+    /// bools toggle to true first.
+    fn toggle_bool_setting(&mut self) -> bool {
+        let selected = self.state.tree_state.selected;
+        let (node_type, current) = match self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .nth(selected)
+            .map(|n| (n.node_type.clone(), n.value.clone().unwrap_or_default()))
+        {
+            Some(v) => v,
+            None => return false,
+        };
+
+        let key = match parse_setting_node_type(&node_type) {
+            Some((ConfigValueType::Bool, key)) => key.to_string(),
+            _ => return false,
+        };
+
+        let new_value = if current.trim() == "true" {
+            "false"
+        } else {
+            "true"
+        };
+
+        // Snapshot for undo, mark dirty, and commit the flipped value the same
+        // way a text edit would (edited_settings drives the write on save).
+        self.snapshot_for_undo();
+        self.edited_settings.insert(key.clone());
+        self.dirty.insert(node_type);
+
+        let visible_ptrs: Vec<_> = self
+            .tree_roots
+            .iter_mut()
+            .flat_map(|r| r.flatten_mut())
+            .collect();
+        if let Some(&node_ptr) = visible_ptrs.get(selected) {
+            unsafe {
+                (*node_ptr).value = Some(new_value.to_string());
+                (*node_ptr).dirty = true;
+            }
+        }
+        self.state.modified = true;
+        self.state
+            .set_status(format!("Toggled '{}' = {}", key, new_value));
+        true
     }
 
     /// Show where an inherited setting's value comes from (the ancestor `.meta`
@@ -1603,6 +1654,11 @@ impl MenuApp for ConfigEditor {
     }
 
     fn start_editing(&mut self) {
+        // Bool settings toggle in place instead of opening a text buffer.
+        if self.toggle_bool_setting() {
+            return;
+        }
+
         let visible: Vec<_> = self
             .tree_roots
             .iter()
@@ -2839,6 +2895,41 @@ mod tests {
         assert!(editor.undo_snapshot.is_none());
         // Second undo is a no-op (does not panic).
         editor.undo();
+    }
+
+    #[test]
+    fn bool_setting_toggles_in_place_without_text_editor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        // default_bare is a core bool setting rendered under Settings > core.
+        let mut editor = ConfigEditor::new(path, vec![]).unwrap();
+        editor.select_by_test(|n| {
+            parse_setting_node_type(&n.node_type)
+                .map(|(vt, k)| vt == ConfigValueType::Bool && k == "default_bare")
+                .unwrap_or(false)
+        });
+
+        // Editing a bool toggles it and does NOT open a text buffer.
+        editor.start_editing();
+        assert!(editor.textarea.is_none());
+        assert!(!editor.state.editing);
+        assert!(editor.state.modified);
+        assert!(editor.dirty.contains("setting:bool:default_bare"));
+
+        let val = |e: &ConfigEditor| {
+            e.tree_roots
+                .iter()
+                .flat_map(|r| r.flatten_all())
+                .find(|n| n.node_type == "setting:bool:default_bare")
+                .and_then(|n| n.value.clone())
+                .unwrap_or_default()
+        };
+        // Unset -> true on first toggle, then flips back to false.
+        assert_eq!(val(&editor), "true");
+        editor.start_editing();
+        assert_eq!(val(&editor), "false");
     }
 
     #[test]
