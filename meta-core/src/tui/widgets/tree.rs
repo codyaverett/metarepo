@@ -25,6 +25,9 @@ pub struct TreeNode {
     pub value: Option<String>,
     /// Node type identifier (for rendering and behavior)
     pub node_type: String,
+    /// Optional dim annotation shown after the value (e.g. the cascade source
+    /// of an inherited setting). Purely informational — never edited or saved.
+    pub annotation: Option<String>,
 }
 
 impl TreeNode {
@@ -38,6 +41,7 @@ impl TreeNode {
             depth: 0,
             value: None,
             node_type: node_type.into(),
+            annotation: None,
         }
     }
 
@@ -56,6 +60,7 @@ impl TreeNode {
             depth: 0,
             value: None,
             node_type: node_type.into(),
+            annotation: None,
         }
     }
 
@@ -73,7 +78,14 @@ impl TreeNode {
             depth: 0,
             value: Some(value.into()),
             node_type: node_type.into(),
+            annotation: None,
         }
+    }
+
+    /// Attach a dim informational annotation shown after the value.
+    pub fn with_annotation(mut self, annotation: impl Into<String>) -> Self {
+        self.annotation = Some(annotation.into());
+        self
     }
 
     /// Toggle expansion state
@@ -337,6 +349,16 @@ impl<'a> TreeWidget<'a> {
                     } else {
                         Color::Gray
                     }),
+                ));
+            }
+
+            // Dim informational annotation (e.g. cascade source) after value.
+            if let Some(ref note) = node.annotation {
+                spans.push(Span::styled(
+                    format!("  {}", note),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
                 ));
             }
         } else {

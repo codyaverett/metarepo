@@ -218,6 +218,10 @@ pub struct ConfigEditor {
     tree_roots: Vec<TreeNode>,
     /// Text area for editing values
     textarea: Option<TextArea<'static>>,
+    /// Enclosing `.meta` configs (outermost → nearest-1) whose settings this
+    /// workspace inherits. Empty in a flat (non-nested) workspace. Used to
+    /// annotate inherited-vs-local values in the tree.
+    ancestors: Vec<(PathBuf, MetaConfig)>,
 }
 
 impl ConfigEditor {
@@ -242,7 +246,8 @@ impl ConfigEditor {
     /// [`metarepo_core::RuntimeConfig::settings_catalog`].
     pub fn new(meta_file: PathBuf, settings: Vec<ConfigSetting>) -> Result<Self> {
         let config = MetaConfig::load_from_file(&meta_file)?;
-        let tree_roots = Self::build_tree(&config, &settings);
+        let ancestors = Self::load_ancestors(&meta_file);
+        let tree_roots = Self::build_tree(&config, &settings, &ancestors);
 
         Ok(Self {
             meta_file,
@@ -261,11 +266,84 @@ impl ConfigEditor {
             state: MenuAppState::new(),
             tree_roots,
             textarea: None,
+            ancestors,
         })
     }
 
+    /// Load the enclosing `.meta` chain above `meta_file` (outermost → nearest),
+    /// dropping the nearest entry (the file being edited) so only inherited
+    /// ancestors remain. Best-effort: discovery or parse failures yield an empty
+    /// chain, which simply disables inheritance annotations.
+    fn load_ancestors(meta_file: &std::path::Path) -> Vec<(PathBuf, MetaConfig)> {
+        let start = match meta_file.parent() {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let discovered = match MetaConfig::discover_chain_from(start) {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        };
+        discovered
+            .into_iter()
+            .filter(|d| d.path != meta_file)
+            .filter_map(|d| {
+                MetaConfig::load_from_file(&d.path)
+                    .ok()
+                    .map(|c| (d.path, c))
+            })
+            .collect()
+    }
+
+    /// Cascade annotation for a dotted `key`: `None` when the key is set in the
+    /// nearest (live) config or unset everywhere; `Some("(inherited from …)")`
+    /// when only an ancestor sets it. Recomputed on rebuild so a fresh local
+    /// edit correctly drops the inherited note.
+    fn inherited_annotation(
+        config: &MetaConfig,
+        ancestors: &[(PathBuf, MetaConfig)],
+        key: &str,
+    ) -> Option<String> {
+        if config.get_dotted(key).is_some() {
+            return None; // local override wins
+        }
+        for (path, cfg) in ancestors.iter().rev() {
+            if cfg.get_dotted(key).is_some() {
+                return Some(format!("(inherited from {})", path.display()));
+            }
+        }
+        None
+    }
+
+    /// Effective display value for a dotted `key`: the nearest config that sets
+    /// it wins, then ancestors nearest-first, mirroring the cascade used by
+    /// `meta config get`/`list`. Returns `None` when unset across the chain so
+    /// the caller can fall back to the declared default.
+    fn effective_value(
+        config: &MetaConfig,
+        ancestors: &[(PathBuf, MetaConfig)],
+        key: &str,
+    ) -> Option<String> {
+        let fmt = |v: serde_json::Value| match v {
+            serde_json::Value::String(s) => s,
+            other => other.to_string(),
+        };
+        if let Some(v) = config.get_dotted(key) {
+            return Some(fmt(v));
+        }
+        for (_, cfg) in ancestors.iter().rev() {
+            if let Some(v) = cfg.get_dotted(key) {
+                return Some(fmt(v));
+            }
+        }
+        None
+    }
+
     /// Build tree representation from config
-    fn build_tree(config: &MetaConfig, settings: &[ConfigSetting]) -> Vec<TreeNode> {
+    fn build_tree(
+        config: &MetaConfig,
+        settings: &[ConfigSetting],
+        ancestors: &[(PathBuf, MetaConfig)],
+    ) -> Vec<TreeNode> {
         let mut roots = Vec::new();
 
         // Projects section
@@ -427,13 +505,10 @@ impl ConfigEditor {
             ns_node.expanded = true;
 
             for setting in settings.iter().filter(|s| s.namespace() == ns) {
-                // Effective value: current config value, else declared default,
-                // else empty. Display the short key (after the namespace).
-                let current = config.get_dotted(&setting.key).map(|v| match v {
-                    serde_json::Value::String(s) => s,
-                    other => other.to_string(),
-                });
-                let display = current
+                // Effective value across the cascade (nearest wins, then
+                // ancestors), else the declared default, else empty. Display the
+                // short key (after the namespace).
+                let display = Self::effective_value(config, ancestors, &setting.key)
                     .or_else(|| setting.default.clone())
                     .unwrap_or_default();
                 let short = setting
@@ -448,6 +523,9 @@ impl ConfigEditor {
                     setting_node_type(&setting.key, setting.value_type),
                 );
                 node.depth = 2;
+                if let Some(note) = Self::inherited_annotation(config, ancestors, &setting.key) {
+                    node.annotation = Some(note);
+                }
                 ns_node.add_child(node);
             }
 
@@ -460,25 +538,24 @@ impl ConfigEditor {
         core_node.expandable = true;
         core_node.expanded = true;
         {
-            let bare = config
-                .default_bare
-                .map(|b| b.to_string())
-                .unwrap_or_default();
+            let bare = Self::effective_value(config, ancestors, "default_bare").unwrap_or_default();
             let mut bare_node = TreeNode::with_value(
                 "default_bare",
                 bare,
                 setting_node_type("default_bare", ConfigValueType::Bool),
             );
             bare_node.depth = 2;
+            bare_node.annotation = Self::inherited_annotation(config, ancestors, "default_bare");
             core_node.add_child(bare_node);
 
-            let wt = config.worktree_init.clone().unwrap_or_default();
+            let wt = Self::effective_value(config, ancestors, "worktree_init").unwrap_or_default();
             let mut wt_node = TreeNode::with_value(
                 "worktree_init",
                 wt,
                 setting_node_type("worktree_init", ConfigValueType::String),
             );
             wt_node.depth = 2;
+            wt_node.annotation = Self::inherited_annotation(config, ancestors, "worktree_init");
             core_node.add_child(wt_node);
         }
         settings_node.add_child(core_node);
@@ -692,7 +769,7 @@ impl ConfigEditor {
             capture(r, "", &mut expanded);
         }
 
-        self.tree_roots = Self::build_tree(&self.config, &self.settings);
+        self.tree_roots = Self::build_tree(&self.config, &self.settings, &self.ancestors);
 
         fn apply(node: &mut TreeNode, prefix: &str, set: &HashSet<String>) {
             let path = format!("{prefix}/{}", node.label);
@@ -1717,7 +1794,7 @@ impl MenuApp for ConfigEditor {
                 .flat_map(|r| r.flatten(true))
                 .collect();
             let detail_content = if let Some(node) = visible.get(self.state.tree_state.selected) {
-                vec![
+                let mut lines = vec![
                     Line::from(vec![
                         Span::styled("Selected: ", Style::default().fg(Color::Gray)),
                         Span::styled(&node.label, Style::default().add_modifier(Modifier::BOLD)),
@@ -1730,12 +1807,21 @@ impl MenuApp for ConfigEditor {
                     Line::from(""),
                     Line::from(Span::styled("Value:", Style::default().fg(Color::Gray))),
                     Line::from(node.value.as_deref().unwrap_or("(no value)")),
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "Press Enter to edit",
-                        Style::default().fg(Color::DarkGray),
-                    )),
-                ]
+                ];
+                // Cascade source, when the value is inherited from an outer .meta.
+                if let Some(note) = &node.annotation {
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("Source: ", Style::default().fg(Color::Gray)),
+                        Span::styled(note, Style::default().fg(Color::DarkGray)),
+                    ]));
+                }
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Press Enter to edit",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                lines
             } else {
                 vec![Line::from("No item selected")]
             };
@@ -1880,9 +1966,60 @@ mod tests {
     }
 
     #[test]
+    fn inherited_annotation_reflects_cascade_source() {
+        use std::path::PathBuf;
+        let outer: MetaConfig =
+            serde_json::from_str(r#"{"projects":{},"skill":{"dest":"~/outer"}}"#).unwrap();
+        let ancestors = vec![(PathBuf::from("/ws/.meta"), outer)];
+
+        // Set locally -> no annotation.
+        let local: MetaConfig =
+            serde_json::from_str(r#"{"projects":{},"skill":{"dest":"~/inner"}}"#).unwrap();
+        assert!(ConfigEditor::inherited_annotation(&local, &ancestors, "skill.dest").is_none());
+
+        // Unset locally but set in an ancestor -> inherited annotation naming the file.
+        let empty: MetaConfig = serde_json::from_str(r#"{"projects":{}}"#).unwrap();
+        let note = ConfigEditor::inherited_annotation(&empty, &ancestors, "skill.dest").unwrap();
+        assert!(note.contains("inherited from"));
+        assert!(note.contains("/ws/.meta"));
+
+        // Unset everywhere -> no annotation.
+        assert!(ConfigEditor::inherited_annotation(&empty, &ancestors, "skill.dest").is_some());
+        assert!(
+            ConfigEditor::inherited_annotation(&empty, &ancestors, "skill.search-limit").is_none()
+        );
+    }
+
+    #[test]
+    fn build_tree_annotates_inherited_settings() {
+        use std::path::PathBuf;
+        let outer: MetaConfig =
+            serde_json::from_str(r#"{"projects":{},"skill":{"dest":"~/outer"}}"#).unwrap();
+        let ancestors = vec![(PathBuf::from("/ws/.meta"), outer)];
+        // Nearest config does not set skill.dest, so it is inherited.
+        let cfg: MetaConfig = serde_json::from_str(r#"{"projects":{}}"#).unwrap();
+
+        let roots = ConfigEditor::build_tree(&cfg, &catalog(), &ancestors);
+        let skill = roots
+            .iter()
+            .find(|n| n.label == "Settings")
+            .unwrap()
+            .children
+            .iter()
+            .find(|c| c.label == "skill")
+            .unwrap();
+        let dest = skill.children.iter().find(|c| c.label == "dest").unwrap();
+        assert_eq!(dest.value.as_deref(), Some("~/outer"));
+        assert!(dest
+            .annotation
+            .as_deref()
+            .is_some_and(|a| a.contains("inherited from")));
+    }
+
+    #[test]
     fn build_tree_renders_catalog_and_core() {
         let cfg = MetaConfig::default();
-        let roots = ConfigEditor::build_tree(&cfg, &catalog());
+        let roots = ConfigEditor::build_tree(&cfg, &catalog(), &[]);
         let settings = roots
             .iter()
             .find(|n| n.label == "Settings")
