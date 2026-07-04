@@ -15,6 +15,7 @@ pub mod rules;
 pub mod run;
 pub mod shared;
 pub mod skill;
+pub mod status;
 pub mod worktree;
 
 // Re-export plugin structs for convenience
