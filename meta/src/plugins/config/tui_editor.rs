@@ -245,6 +245,28 @@ pub struct ConfigEditor {
     ancestors: Vec<(PathBuf, MetaConfig)>,
     /// Whether the `?` keybinding help overlay is showing.
     show_help: bool,
+    /// `node_type`s of nodes with an unsaved edit this session, so the tree can
+    /// mark them. Persists across rebuilds; cleared on save.
+    dirty: HashSet<String>,
+    /// Single-level undo: a snapshot of the mutable editor state captured before
+    /// the last value edit or override. `None` when there is nothing to undo.
+    undo_snapshot: Option<EditorSnapshot>,
+}
+
+/// A snapshot of the editor's mutable state for single-level undo.
+#[derive(Clone)]
+struct EditorSnapshot {
+    config: MetaConfig,
+    tree_roots: Vec<TreeNode>,
+    edited_settings: HashSet<String>,
+    edited_scripts: HashSet<String>,
+    edited_urls: HashSet<String>,
+    edited_env: HashSet<String>,
+    edited_aliases: HashSet<String>,
+    edited_list: HashSet<String>,
+    dirty: HashSet<String>,
+    modified: bool,
+    selected: usize,
 }
 
 impl ConfigEditor {
@@ -291,7 +313,79 @@ impl ConfigEditor {
             textarea: None,
             ancestors,
             show_help: false,
+            dirty: HashSet::new(),
+            undo_snapshot: None,
         })
+    }
+
+    /// Capture the current mutable state for single-level undo, overwriting any
+    /// prior snapshot. Called before a value edit or override commits.
+    fn snapshot_for_undo(&mut self) {
+        self.undo_snapshot = Some(EditorSnapshot {
+            config: self.config.clone(),
+            tree_roots: self.tree_roots.clone(),
+            edited_settings: self.edited_settings.clone(),
+            edited_scripts: self.edited_scripts.clone(),
+            edited_urls: self.edited_urls.clone(),
+            edited_env: self.edited_env.clone(),
+            edited_aliases: self.edited_aliases.clone(),
+            edited_list: self.edited_list.clone(),
+            dirty: self.dirty.clone(),
+            modified: self.state.modified,
+            selected: self.state.tree_state.selected,
+        });
+    }
+
+    /// Restore the last undo snapshot, if any. Single-level: the slot is cleared
+    /// afterward so a second undo is a no-op until the next edit.
+    fn undo(&mut self) {
+        match self.undo_snapshot.take() {
+            Some(s) => {
+                self.config = s.config;
+                self.tree_roots = s.tree_roots;
+                self.edited_settings = s.edited_settings;
+                self.edited_scripts = s.edited_scripts;
+                self.edited_urls = s.edited_urls;
+                self.edited_env = s.edited_env;
+                self.edited_aliases = s.edited_aliases;
+                self.edited_list = s.edited_list;
+                self.dirty = s.dirty;
+                self.state.modified = s.modified;
+                self.state.tree_state.selected = s.selected;
+                self.sync_tree_scroll();
+                self.state.set_status("Undid last edit");
+            }
+            None => self.state.set_status("Nothing to undo"),
+        }
+    }
+
+    /// Set each editable node's `dirty` flag from the tracked `dirty` set, so the
+    /// tree shows an unsaved-edit marker. Called after (re)building the tree.
+    fn mark_dirty_nodes(&mut self) {
+        fn walk(node: &mut TreeNode, dirty: &HashSet<String>) {
+            node.dirty = dirty.contains(&node.node_type);
+            for c in &mut node.children {
+                walk(c, dirty);
+            }
+        }
+        let dirty = self.dirty.clone();
+        for r in &mut self.tree_roots {
+            walk(r, &dirty);
+        }
+    }
+
+    /// Clear all unsaved-edit markers (after a successful save).
+    fn clear_dirty(&mut self) {
+        self.dirty.clear();
+        fn walk(node: &mut TreeNode) {
+            node.dirty = false;
+            for c in &mut node.children {
+                walk(c);
+            }
+        }
+        for r in &mut self.tree_roots {
+            walk(r);
+        }
     }
 
     /// The keybinding sections shown in the `?` help overlay. Kept in sync with
@@ -322,6 +416,7 @@ impl ConfigEditor {
                     ("e / Enter", "Edit the selected value"),
                     ("a", "Add an entry in this context"),
                     ("d", "Delete the selected entry"),
+                    ("u", "Undo the last edit"),
                     ("Esc", "Cancel an in-progress edit"),
                 ],
             ),
@@ -393,6 +488,19 @@ impl ConfigEditor {
             .find(|s| s.key == key)
             .and_then(|s| s.value_type.parse(&effective).ok())
             .unwrap_or_else(|| serde_json::Value::String(effective.clone()));
+
+        // Snapshot before mutating so this override is undoable, and mark the
+        // selected node dirty so the marker survives the rebuild below.
+        self.snapshot_for_undo();
+        if let Some(nt) = self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .nth(self.state.tree_state.selected)
+            .map(|n| n.node_type.clone())
+        {
+            self.dirty.insert(nt);
+        }
 
         match self.config.clone().with_dotted_set(&key, parsed) {
             Ok(updated) => {
@@ -927,6 +1035,7 @@ impl ConfigEditor {
         }
 
         self.tree_roots = Self::build_tree(&self.config, &self.settings, &self.ancestors);
+        self.mark_dirty_nodes();
 
         fn apply(node: &mut TreeNode, prefix: &str, set: &HashSet<String>) {
             let path = format!("{prefix}/{}", node.label);
@@ -1557,6 +1666,13 @@ impl MenuApp for ConfigEditor {
             }
         }
 
+        // Value is valid and about to commit: snapshot for single-level undo and
+        // record the node as dirty for the unsaved-edit marker.
+        self.snapshot_for_undo();
+        if let Some(nt) = &node_type {
+            self.dirty.insert(nt.clone());
+        }
+
         // Commit the new value to the node.
         let visible_ptrs: Vec<_> = self
             .tree_roots
@@ -1566,6 +1682,7 @@ impl MenuApp for ConfigEditor {
         if let Some(&node_ptr) = visible_ptrs.get(self.state.tree_state.selected) {
             unsafe {
                 (*node_ptr).value = Some(new_value);
+                (*node_ptr).dirty = true;
             }
             self.state.modified = true;
             self.state
@@ -1741,6 +1858,13 @@ impl MenuApp for ConfigEditor {
             // Reveal the source of an inherited setting.
             self.reveal_inherited_source();
             Ok(true)
+        } else if matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char('u'), KeyModifiers::NONE)
+        ) {
+            // Undo the last value edit or override.
+            self.undo();
+            Ok(true)
         } else {
             // Not editing - use simple key handling
             let action = metarepo_core::tui::handle_key(key, self.state.editing);
@@ -1896,6 +2020,8 @@ impl MenuApp for ConfigEditor {
                 Action::Save => {
                     self.save()?;
                     self.state.modified = false;
+                    self.clear_dirty();
+                    self.undo_snapshot = None;
                     self.state.set_status("Saved!");
                 }
                 Action::Quit => {
@@ -2670,6 +2796,49 @@ mod tests {
         let sections = ConfigEditor::help_sections();
         assert!(!sections.is_empty());
         assert!(sections.iter().all(|s| !s.entries.is_empty()));
+    }
+
+    #[test]
+    fn edit_marks_node_dirty_and_undo_reverts_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        let mut editor = ConfigEditor::new(path, catalog()).unwrap();
+        editor.select_by_test(|n| {
+            parse_setting_node_type(&n.node_type)
+                .map(|(_, k)| k == "skill.search-limit")
+                .unwrap_or(false)
+        });
+
+        // Drive the real value-edit path: open the editor buffer, replace it, save.
+        editor.textarea = Some(TextArea::new(vec!["50".to_string()]));
+        editor.state.editing = true;
+        editor.save_edit();
+
+        assert!(editor.state.modified);
+        assert!(editor.dirty.contains("setting:int:skill.search-limit"));
+        assert!(editor.undo_snapshot.is_some());
+        // The node carries the dirty marker.
+        let dirty_node = editor
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten_all())
+            .find(|n| {
+                parse_setting_node_type(&n.node_type)
+                    .map(|(_, k)| k == "skill.search-limit")
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        assert!(dirty_node.dirty);
+
+        // Undo reverts the dirty set and the modified flag, and empties the slot.
+        editor.undo();
+        assert!(!editor.dirty.contains("setting:int:skill.search-limit"));
+        assert!(!editor.state.modified);
+        assert!(editor.undo_snapshot.is_none());
+        // Second undo is a no-op (does not panic).
+        editor.undo();
     }
 
     #[test]

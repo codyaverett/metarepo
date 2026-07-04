@@ -28,6 +28,9 @@ pub struct TreeNode {
     /// Optional dim annotation shown after the value (e.g. the cascade source
     /// of an inherited setting). Purely informational — never edited or saved.
     pub annotation: Option<String>,
+    /// Whether this node has an unsaved edit this session. Rendered as a marker
+    /// so users can see what changed before saving.
+    pub dirty: bool,
 }
 
 impl TreeNode {
@@ -42,6 +45,7 @@ impl TreeNode {
             value: None,
             node_type: node_type.into(),
             annotation: None,
+            dirty: false,
         }
     }
 
@@ -61,6 +65,7 @@ impl TreeNode {
             value: None,
             node_type: node_type.into(),
             annotation: None,
+            dirty: false,
         }
     }
 
@@ -79,6 +84,7 @@ impl TreeNode {
             value: Some(value.into()),
             node_type: node_type.into(),
             annotation: None,
+            dirty: false,
         }
     }
 
@@ -337,6 +343,15 @@ impl<'a> TreeWidget<'a> {
                 }),
             ));
             spans.push(Span::styled("] ", Style::default().fg(Color::DarkGray)));
+            // Unsaved-edit marker before the label.
+            if node.dirty {
+                spans.push(Span::styled(
+                    "*",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
             spans.push(Span::styled(&node.label, Style::default().fg(Color::White)));
 
             // Value display
