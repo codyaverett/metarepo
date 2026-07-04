@@ -242,6 +242,10 @@ pub trait MenuApp {
                 self.state_mut().set_status("Search not yet implemented");
             }
 
+            // Surface-specific actions: apps that support them override handle_key
+            // (e.g. the config editor). The generic menu app has no handler.
+            Action::Add | Action::Delete | Action::Undo | Action::Help => {}
+
             // Delegated to editing mode
             Action::InsertChar(_) | Action::Backspace => {
                 // These are handled by TextArea in the app implementation

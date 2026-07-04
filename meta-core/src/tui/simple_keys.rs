@@ -24,13 +24,21 @@ pub enum Action {
     ConfirmEdit,
     InsertChar(char),
     Backspace,
+    /// Add an entry in the current context.
+    Add,
+    /// Delete the selected entry.
+    Delete,
+    /// Undo the last edit.
+    Undo,
 
     // File operations
     Save,
     Quit,
 
-    // Future enhancements
+    // Enhancements
     Search,
+    /// Toggle the keybinding help overlay.
+    Help,
 
     // No-op
     None,
@@ -98,6 +106,11 @@ fn handle_browsing_keys(key: KeyEvent) -> Action {
         // Start editing (only for editable items)
         (KeyCode::Char('e'), KeyModifiers::NONE) => Action::StartEdit,
 
+        // Tree entry edits
+        (KeyCode::Char('a'), KeyModifiers::NONE) => Action::Add,
+        (KeyCode::Char('d'), KeyModifiers::NONE) => Action::Delete,
+        (KeyCode::Char('u'), KeyModifiers::NONE) => Action::Undo,
+
         // File operations
         (KeyCode::Char('s'), KeyModifiers::NONE) | (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
             Action::Save
@@ -107,9 +120,51 @@ fn handle_browsing_keys(key: KeyEvent) -> Action {
         // Force quit (Ctrl+C)
         (KeyCode::Char('c'), KeyModifiers::CONTROL) => Action::Quit,
 
-        // Search (future)
+        // Search
         (KeyCode::Char('/'), KeyModifiers::NONE) => Action::Search,
 
+        // Help overlay ('?' usually arrives with SHIFT, so ignore modifiers)
+        (KeyCode::Char('?'), _) => Action::Help,
+
         _ => Action::None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn browse(c: char) -> Action {
+        handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE), false)
+    }
+
+    #[test]
+    fn browsing_maps_tree_edit_keys() {
+        assert_eq!(browse('a'), Action::Add);
+        assert_eq!(browse('d'), Action::Delete);
+        assert_eq!(browse('u'), Action::Undo);
+        assert_eq!(browse('e'), Action::StartEdit);
+        assert_eq!(browse('/'), Action::Search);
+    }
+
+    #[test]
+    fn help_ignores_shift_modifier() {
+        // '?' typically arrives with SHIFT held.
+        assert_eq!(
+            handle_key(
+                KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT),
+                false
+            ),
+            Action::Help
+        );
+    }
+
+    #[test]
+    fn editing_keys_do_not_trigger_browse_actions() {
+        // In editing mode, 'a'/'d'/'u' are text input, not tree actions.
+        assert_eq!(
+            handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), true),
+            Action::InsertChar('a')
+        );
     }
 }

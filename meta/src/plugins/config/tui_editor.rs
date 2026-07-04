@@ -1764,20 +1764,9 @@ impl MenuApp for ConfigEditor {
     /// Override handle_key to intercept keys for textarea
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
         // Help overlay: while open, any key dismisses it and is consumed.
+        // (Opening is routed through Action::Help in the shared keymap below.)
         if self.show_help {
             self.show_help = false;
-            return Ok(true);
-        }
-        // Toggle help with '?' when not typing or in a sub-mode.
-        if self.textarea.is_none()
-            && !self.confirm_quit
-            && self.add_menu.is_none()
-            && matches!(
-                (key.code, key.modifiers),
-                (KeyCode::Char('?'), KeyModifiers::NONE)
-            )
-        {
-            self.show_help = true;
             return Ok(true);
         }
 
@@ -1888,41 +1877,20 @@ impl MenuApp for ConfigEditor {
             Ok(!self.state.should_quit)
         } else if matches!(
             (key.code, key.modifiers),
-            (KeyCode::Char('a'), KeyModifiers::NONE)
-        ) {
-            // Add a new script in the selected context.
-            self.start_add();
-            Ok(true)
-        } else if matches!(
-            (key.code, key.modifiers),
-            (KeyCode::Char('d'), KeyModifiers::NONE)
-        ) {
-            // Delete the selected script entry.
-            self.delete_selected();
-            Ok(true)
-        } else if matches!(
-            (key.code, key.modifiers),
             (KeyCode::Char('o'), KeyModifiers::NONE)
         ) {
-            // Override an inherited setting locally.
+            // Override an inherited setting locally (cascade-specific, kept local).
             self.override_inherited_here();
             Ok(true)
         } else if matches!(
             (key.code, key.modifiers),
             (KeyCode::Char('O'), KeyModifiers::SHIFT)
         ) {
-            // Reveal the source of an inherited setting.
+            // Reveal the source of an inherited setting (cascade-specific).
             self.reveal_inherited_source();
             Ok(true)
-        } else if matches!(
-            (key.code, key.modifiers),
-            (KeyCode::Char('u'), KeyModifiers::NONE)
-        ) {
-            // Undo the last value edit or override.
-            self.undo();
-            Ok(true)
         } else {
-            // Not editing - use simple key handling
+            // Not editing - use the shared keymap for the common actions.
             let action = metarepo_core::tui::handle_key(key, self.state.editing);
 
             match action {
@@ -2094,6 +2062,19 @@ impl MenuApp for ConfigEditor {
 
                 Action::Search => {
                     self.start_search();
+                }
+
+                Action::Add => {
+                    self.start_add();
+                }
+                Action::Delete => {
+                    self.delete_selected();
+                }
+                Action::Undo => {
+                    self.undo();
+                }
+                Action::Help => {
+                    self.show_help = true;
                 }
 
                 // These are handled by TextArea
