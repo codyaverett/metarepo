@@ -508,12 +508,26 @@ pub fn add_worktrees(
 
         // Determine the strategy based on flags and branch existence
         if create_branch {
-            // Explicit branch creation requested with -b flag
+            // Explicit branch creation requested with -b flag.
             cmd.arg("-b").arg(branch);
             cmd.arg(&worktree_path);
             if let Some(start) = starting_point {
+                // An explicit --from always wins.
                 cmd.arg(start);
+            } else if let Ok(BranchStatus::Remote(remote_ref)) =
+                check_branch_exists(&git_dir, branch)
+            {
+                // No explicit start point, but a remote branch of this name
+                // exists: base the new branch on it (and track it) rather than
+                // on local HEAD, which may be a different or stale branch.
+                println!(
+                    "  {} Basing new branch on remote: {}",
+                    "ℹ".cyan(),
+                    remote_ref.bright_white()
+                );
+                cmd.arg(&remote_ref);
             }
+            // Otherwise git bases the new branch on HEAD (the default).
         } else {
             // Smart detection: check if branch exists
             match check_branch_exists(&git_dir, branch) {

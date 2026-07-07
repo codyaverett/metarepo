@@ -6,7 +6,9 @@
 //   - Some(unknown project) is rejected with a clear error
 //   - None iterates over the full workspace
 
-use metarepo::plugins::worktree::{list_all_worktrees, prune_worktrees, repair_worktrees};
+use metarepo::plugins::worktree::{
+    add_worktrees, list_all_worktrees, prune_worktrees, repair_worktrees,
+};
 use metarepo_core::{MetaConfig, ProjectEntry};
 use std::path::Path;
 use std::process::Command;
@@ -218,6 +220,123 @@ fn list_from_subdirectory_scopes_to_that_subtree() {
         !stdout.contains("app"),
         "must NOT list the out-of-scope project 'app'; got:\n{stdout}"
     );
+}
+
+/// When a worktree is created with `-b` (force new branch) and a remote branch
+/// of that name already exists, the new branch must be based on the remote
+/// branch (and track it), not on local HEAD. Regression test for the
+/// remote-source behavior.
+#[test]
+fn create_branch_bases_on_remote_when_it_exists() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let ws = tmp.path();
+
+    // Build a bare remote with main (commit "one") and feature (commit "two").
+    let remote = ws.join("remote.git");
+    run_git_at(ws, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    let seed = ws.join("seed");
+    run_git_at(
+        ws,
+        &[
+            "clone",
+            "-q",
+            remote.to_str().unwrap(),
+            seed.to_str().unwrap(),
+        ],
+    );
+    std::fs::write(seed.join("a.txt"), "one").unwrap();
+    run_git(&seed, &["add", "."]);
+    run_git(&seed, &["commit", "-qm", "one"]);
+    run_git(&seed, &["branch", "-M", "main"]);
+    run_git(&seed, &["push", "-q", "-u", "origin", "main"]);
+    run_git(&seed, &["checkout", "-q", "-b", "feature"]);
+    std::fs::write(seed.join("a.txt"), "two").unwrap();
+    run_git(&seed, &["commit", "-qam", "two"]);
+    run_git(&seed, &["push", "-q", "-u", "origin", "feature"]);
+
+    // Project clone that has origin/feature as a remote-tracking ref but no
+    // local feature branch.
+    let app = ws.join("app");
+    run_git_at(
+        ws,
+        &[
+            "clone",
+            "-q",
+            remote.to_str().unwrap(),
+            app.to_str().unwrap(),
+        ],
+    );
+    run_git(&app, &["checkout", "-q", "main"]);
+
+    let mut config = MetaConfig::default();
+    config.projects.insert(
+        "app".to_string(),
+        ProjectEntry::Url("https://example.com/app.git".to_string()),
+    );
+    config.save_to_file(ws.join(".meta")).unwrap();
+
+    // Force a new branch with -b (create_branch=true) and no explicit start.
+    add_worktrees(
+        "feature",
+        &["app".to_string()],
+        ws,
+        None,
+        true, // create_branch (-b)
+        None, // starting_point
+        true, // no_hooks
+        false,
+        Some("app"),
+        &config,
+    )
+    .expect("add_worktrees must succeed");
+
+    // The worktree must sit on the remote tip ("two") and track origin/feature,
+    // not on local HEAD ("one") with no upstream.
+    let wt = app.join(".worktrees").join("feature");
+    let head_subject = git_stdout(&wt, &["log", "--oneline", "-1"]);
+    assert!(
+        head_subject.contains("two"),
+        "worktree should be based on the remote branch tip 'two', got: {head_subject}"
+    );
+    let upstream = git_stdout(
+        &wt,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    );
+    assert_eq!(
+        upstream.trim(),
+        "origin/feature",
+        "worktree branch should track origin/feature"
+    );
+}
+
+/// Run git in `dir` and return trimmed stdout (empty on failure).
+fn git_stdout(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("git spawn");
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Run git with `dir` as the working directory (not `-C`), for clone/init that
+/// take an explicit target path.
+fn run_git_at(dir: &Path, args: &[&str]) {
+    let status = Command::new("git")
+        .current_dir(dir)
+        .args(["-c", "commit.gpgsign=false"])
+        .args(["-c", "user.name=Test"])
+        .args(["-c", "user.email=test@example.com"])
+        .args(args)
+        .status()
+        .unwrap_or_else(|e| panic!("git {:?} failed to spawn: {}", args, e));
+    assert!(status.success(), "git {:?} failed", args);
 }
 
 fn git_available() -> bool {

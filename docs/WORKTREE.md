@@ -92,6 +92,28 @@ Output:
   Summary: 1 worktrees created, 0 failed
 ```
 
+### Source branch resolution
+
+When you add a worktree, the branch it is based on is resolved automatically:
+
+1. **Local branch exists** — it is checked out into the worktree.
+2. **Only a remote branch exists** (e.g. `origin/<branch>`) — a local branch is
+   created from the remote ref and set to track it.
+3. **Neither exists** — a new branch is created from `--from`/`-f` (or a
+   positional starting point, or the prompt, falling back to `HEAD`).
+
+Forcing a new branch with `--create-branch`/`-b` follows the same preference: if
+a remote branch of that name exists it is used as the source (and tracked)
+unless `--from` explicitly overrides it. This keeps a `-b` worktree aligned with
+the remote branch instead of whatever local `HEAD` happens to be, so the new
+branch starts from the up-to-date remote tip with its upstream already set.
+
+```bash
+# origin/feature exists but no local feature branch:
+meta worktree add feature -b        # branches from origin/feature, tracks it
+meta worktree add feature -b --from main   # explicit --from wins: branches from main
+```
+
 ### Skipping Post-Create Commands
 
 You can skip the post-create command using the `--no-hooks` flag:

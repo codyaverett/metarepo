@@ -73,7 +73,9 @@ impl WorktreePlugin {
                          Branch handling is automatic: an existing local branch is checked\n\
                          out, a remote-only branch becomes a local tracking branch, and an\n\
                          unknown branch is created from --from/-f (or a positional starting\n\
-                         point, or HEAD). Pass --create-branch/-b to force a brand-new branch.\n\
+                         point, or HEAD). Pass --create-branch/-b to force a brand-new branch;\n\
+                         when a remote branch of that name exists it is used as the source\n\
+                         (and tracked) unless --from overrides it.\n\
                          \n\
                          Without --project/-p, --projects, or --all/-a it targets the current\n\
                          project, or prompts you to choose when run outside one. The worktree\n\
