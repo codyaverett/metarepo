@@ -91,8 +91,9 @@ applies a path-policy check (#12) before spawning a plugin:
   - `~/.config/metarepo/plugins/`
   - `~/.cargo/bin/` (where `cargo install metarepo-plugin-*` lands)
   - `<workspace>/.metarepo/plugins/`
-- The escape hatch `METAREPO_PLUGIN_ALLOW_ANY_PATH=1` skips the location check
-  but never the `..` check. Use only for local plugin development.
+- The location check (never the `..` check) can be bypassed for local plugin
+  development via `--allow-any-path`, `METAREPO_PLUGIN_ALLOW_ANY_PATH=1`, or
+  `plugin-allow-any-path: true` in `.meta` (precedence flag > env > config).
 
 ## Requests
 

@@ -36,14 +36,22 @@ declared by its spec in `.metarepo`:
 
 On mismatch the plugin **fails to load**: its commands are not registered and a
 clear, actionable error is printed. The rest of the CLI keeps working so the
-user can fix the pin or reinstall. Pass `--allow-version-mismatch` (or set
-`METAREPO_ALLOW_VERSION_MISMATCH=1`) to downgrade the error to a warning and
-load the plugin anyway.
+user can fix the pin or reinstall. The downgrade-to-warning override can be set
+three ways, resolved with precedence **flag > env > config > default(off)**:
+
+- `--allow-version-mismatch` (global CLI flag)
+- `METAREPO_ALLOW_VERSION_MISMATCH=1` (environment; empty or `0` counts as off)
+- `allow-version-mismatch: true` in `.meta` (per-workspace config)
+
+Each layer can only *enable* the relaxation — a config `false` does not force-off
+an env or flag that turned it on — so the secure default stays off unless
+something explicitly opts in. `meta config list` shows the current value and
+notes when the env var is overriding it.
 
 Because plugins are loaded *before* the command line is parsed (their commands
-have to exist for `--help` and routing), the override is detected by scanning
-the raw arguments and the environment variable, in addition to being registered
-as a global flag so it parses cleanly.
+have to exist for `--help` and routing), the flag and env overrides are detected
+by scanning the raw arguments and the environment, and the config value is read
+from the already-loaded workspace config.
 
 ### 2. Checksum integrity (opt-in)
 

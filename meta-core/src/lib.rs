@@ -387,6 +387,25 @@ pub struct MetaConfig {
     pub default_bare: Option<bool>, // Global default for bare repository clones
     #[serde(rename = "plugins-integrity", default)]
     pub plugins_integrity: Option<String>, // "off" (default) | "required"
+    /// Downgrade plugin pinned-version enforcement from error to warning.
+    /// Relaxes a security default, so it defaults to off. Resolved with
+    /// precedence flag > env (METAREPO_ALLOW_VERSION_MISMATCH) > config > false.
+    #[serde(
+        rename = "allow-version-mismatch",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub allow_version_mismatch: Option<bool>,
+    /// Disable the plugin-path allowlist, letting plugins load from any
+    /// directory. Relaxes a security default, so it defaults to off. Resolved
+    /// with precedence flag > env (METAREPO_PLUGIN_ALLOW_ANY_PATH) > config >
+    /// false.
+    #[serde(
+        rename = "plugin-allow-any-path",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub plugin_allow_any_path: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<SkillSettings>, // `meta skill` configuration
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -504,6 +523,8 @@ impl Default for MetaConfig {
             worktree_init: None,
             default_bare: None,
             plugins_integrity: None,
+            allow_version_mismatch: None,
+            plugin_allow_any_path: None,
             skill: None,
             mcp: None,
             help_descriptions: None,
@@ -1112,6 +1133,23 @@ mod tests {
             updated.skill.as_ref().and_then(|s| s.dest.as_deref()),
             Some("~/.claude/skills")
         );
+    }
+
+    #[test]
+    fn security_toggles_round_trip_via_dotted_keys() {
+        // Absent on a default config (skipped when serializing).
+        let cfg = MetaConfig::default();
+        assert!(cfg.get_dotted("allow-version-mismatch").is_none());
+        assert!(cfg.get_dotted("plugin-allow-any-path").is_none());
+
+        let updated = cfg
+            .with_dotted_set("plugin-allow-any-path", serde_json::json!(true))
+            .unwrap();
+        assert_eq!(
+            updated.get_dotted("plugin-allow-any-path"),
+            Some(serde_json::json!(true))
+        );
+        assert_eq!(updated.plugin_allow_any_path, Some(true));
     }
 
     #[test]

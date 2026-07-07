@@ -109,6 +109,12 @@ pub struct ConfigSetting {
     pub default: Option<String>,
     /// Declared value type, used for validation and display.
     pub value_type: ConfigValueType,
+    /// Environment variable that also controls this setting, if any. When set
+    /// and currently present in the environment, `meta config list` notes that
+    /// the env var overrides the configured value. Omitted for settings with no
+    /// env equivalent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_var: Option<String>,
 }
 
 impl ConfigSetting {
@@ -123,12 +129,21 @@ impl ConfigSetting {
             description: description.into(),
             default: None,
             value_type,
+            env_var: None,
         }
     }
 
     /// Attach a default value shown when the setting is unset.
     pub fn with_default(mut self, default: impl Into<String>) -> Self {
         self.default = Some(default.into());
+        self
+    }
+
+    /// Attach the name of an environment variable that also controls this
+    /// setting, so `meta config list` can flag when it is currently overriding
+    /// the configured value.
+    pub fn with_env(mut self, env_var: impl Into<String>) -> Self {
+        self.env_var = Some(env_var.into());
         self
     }
 

@@ -65,7 +65,8 @@ impl PluginRegistry {
             .as_ref()
             .map(|m| m.keys().cloned().collect())
             .unwrap_or_default();
-        let discovered = PluginLoader::discover_plugins(&configured);
+        let allow_any_path = crate::plugins::plugin_loader::plugin_allow_any_path(Some(config));
+        let discovered = PluginLoader::discover_plugins(&configured, allow_any_path);
         for plugin in discovered {
             tracing::debug!("Discovered plugin: {}", plugin.name());
             self.register(plugin);

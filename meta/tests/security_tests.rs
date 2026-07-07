@@ -531,8 +531,10 @@ mod plugin_safety {
     /// rather than causing undefined behavior.
     #[test]
     fn plugin_load_nonexistent_path_fails() {
-        let result =
-            metarepo::plugins::ExternalPlugin::load(Path::new("/nonexistent/path/to/plugin"));
+        let result = metarepo::plugins::ExternalPlugin::load(
+            Path::new("/nonexistent/path/to/plugin"),
+            false,
+        );
         assert!(
             result.is_err(),
             "Loading a non-existent plugin path should fail"
@@ -544,7 +546,7 @@ mod plugin_safety {
     /// validation fails before spawn.
     #[test]
     fn plugin_load_rejects_path_outside_allowed_roots() {
-        let result = metarepo::plugins::ExternalPlugin::load(Path::new("/bin/echo"));
+        let result = metarepo::plugins::ExternalPlugin::load(Path::new("/bin/echo"), false);
         let err = match result {
             Ok(_) => panic!("/bin/echo must be rejected by path validation"),
             Err(e) => e,
@@ -560,7 +562,8 @@ mod plugin_safety {
     /// Fixed by #12: plugin paths containing `..` are rejected outright.
     #[test]
     fn plugin_load_rejects_traversal_paths() {
-        let result = metarepo::plugins::ExternalPlugin::load(Path::new("../../../usr/bin/true"));
+        let result =
+            metarepo::plugins::ExternalPlugin::load(Path::new("../../../usr/bin/true"), false);
         let err = match result {
             Ok(_) => panic!("traversal path must be rejected"),
             Err(e) => e,
@@ -568,6 +571,40 @@ mod plugin_safety {
         assert!(
             err.to_string().contains("'..'"),
             "Expected traversal rejection, got: {}",
+            err
+        );
+    }
+
+    /// allow_any_path=true bypasses the allowlist for an existing out-of-root
+    /// path (opt-in for local plugin development).
+    #[test]
+    fn validate_plugin_path_bypass_allows_out_of_root() {
+        // /bin/echo exists but is not under a plugin root: rejected by default,
+        // accepted when the bypass is on.
+        assert!(metarepo::plugins::ExternalPlugin::validate_plugin_path(
+            Path::new("/bin/echo"),
+            false
+        )
+        .is_err());
+        assert!(metarepo::plugins::ExternalPlugin::validate_plugin_path(
+            Path::new("/bin/echo"),
+            true
+        )
+        .is_ok());
+    }
+
+    /// The `..`-traversal rejection is unconditional: even with the allowlist
+    /// bypass on, a traversal path is still refused.
+    #[test]
+    fn validate_plugin_path_bypass_still_rejects_traversal() {
+        let err = metarepo::plugins::ExternalPlugin::validate_plugin_path(
+            Path::new("../../../usr/bin/true"),
+            true,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("'..'"),
+            "traversal must be rejected even with allow_any_path, got: {}",
             err
         );
     }

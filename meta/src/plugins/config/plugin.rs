@@ -223,13 +223,27 @@ impl ConfigPlugin {
                 _ => String::new(),
             };
 
+            // Flag an env var that is currently overriding the configured value,
+            // so the effective behavior is auditable from `config list`.
+            let env_note = match &setting.env_var {
+                Some(name) if std::env::var_os(name).is_some() => {
+                    format!("  {}", format!("(overridden by env {})", name).yellow())
+                }
+                _ => String::new(),
+            };
+
             println!(
                 "  {} [{}]",
                 setting.key.cyan(),
                 setting.value_type.label().bright_black()
             );
             println!("      {}", setting.description);
-            println!("      current: {}{}", value_display.green(), source);
+            println!(
+                "      current: {}{}{}",
+                value_display.green(),
+                source,
+                env_note
+            );
         }
 
         Ok(())

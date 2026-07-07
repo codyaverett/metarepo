@@ -2,7 +2,8 @@ use anyhow::{anyhow, Context, Result};
 use clap::ArgMatches;
 use colored::Colorize;
 use metarepo_core::{
-    arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, PluginManifest, RuntimeConfig,
+    arg, command, plugin, BasePlugin, ConfigSetting, ConfigValueType, MetaConfig, MetaPlugin,
+    PluginManifest, RuntimeConfig,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -371,9 +372,12 @@ fn print_plugin_status(name: &str, spec: &PluginSpec) {
         return;
     }
 
-    // Installed: try to probe the reported version for a mismatch check.
+    // Installed: try to probe the reported version for a mismatch check. This is
+    // a display path over a binary already in the plugin dir; resolve the
+    // allowlist bypass from flag/env only (no workspace config in scope).
     let declared = spec.declared_version();
-    match ExternalPlugin::probe(&path) {
+    let allow_any_path = crate::plugins::plugin_loader::plugin_allow_any_path(None);
+    match ExternalPlugin::probe(&path, allow_any_path) {
         Ok((_, installed)) => {
             if let Some(declared) = declared {
                 // Match the loader's semver enforcement, not exact equality, so
@@ -671,6 +675,25 @@ impl MetaPlugin for PluginManagerPlugin {
 
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         Self::create_plugin().handle_command(matches, config)
+    }
+
+    fn settings(&self) -> Vec<ConfigSetting> {
+        vec![
+            ConfigSetting::new(
+                "allow-version-mismatch",
+                "Load external plugins even when their version does not satisfy the pin in .meta. Relaxes a security default; precedence: flag --allow-version-mismatch > env METAREPO_ALLOW_VERSION_MISMATCH > this config > false.",
+                ConfigValueType::Bool,
+            )
+            .with_default("false")
+            .with_env("METAREPO_ALLOW_VERSION_MISMATCH"),
+            ConfigSetting::new(
+                "plugin-allow-any-path",
+                "Load external plugins from any directory, bypassing the plugin-path allowlist. Relaxes a security default; precedence: flag --allow-any-path > env METAREPO_PLUGIN_ALLOW_ANY_PATH > this config > false.",
+                ConfigValueType::Bool,
+            )
+            .with_default("false")
+            .with_env("METAREPO_PLUGIN_ALLOW_ANY_PATH"),
+        ]
     }
 }
 

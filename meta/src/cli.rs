@@ -167,6 +167,13 @@ impl MetarepoCli {
                     .global(true)
             )
             .arg(
+                Arg::new("allow-any-path")
+                    .long("allow-any-path")
+                    .action(clap::ArgAction::SetTrue)
+                    .help("Load external plugins from any directory, bypassing the plugin-path allowlist")
+                    .global(true)
+            )
+            .arg(
                 Arg::new("workspace")
                     .long("workspace")
                     .short('w')

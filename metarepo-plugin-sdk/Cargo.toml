@@ -13,7 +13,7 @@ categories = ["development-tools", "command-line-utilities"]
 readme = "README.md"
 
 [dependencies]
-metarepo-core = { version = "0.56.0", path = "../meta-core" }
+metarepo-core = { version = "0.57.0", path = "../meta-core" }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 

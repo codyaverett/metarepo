@@ -38,9 +38,11 @@ impl ExternalPlugin {
     ///   - `<workspace>/.metarepo/plugins` (per-repo plugins, if used)
     ///   - `<workspace>/.meta-modules` (plugins staged from enabled meta modules)
     ///
-    /// The `METAREPO_PLUGIN_ALLOW_ANY_PATH=1` env var lets developers opt out
-    /// of the restriction for local plugin development.
-    pub fn validate_plugin_path(path: &Path) -> Result<()> {
+    /// `allow_any_path` (resolved by [`plugin_allow_any_path`] from flag > env >
+    /// config) lets developers opt out of the allowlist for local plugin
+    /// development. The `..`-traversal rejection below is unconditional and
+    /// applies even when the allowlist is bypassed.
+    pub fn validate_plugin_path(path: &Path, allow_any_path: bool) -> Result<()> {
         if path
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
@@ -51,7 +53,7 @@ impl ExternalPlugin {
             ));
         }
 
-        if std::env::var_os("METAREPO_PLUGIN_ALLOW_ANY_PATH").is_some() {
+        if allow_any_path {
             return Ok(());
         }
 
@@ -79,7 +81,7 @@ impl ExternalPlugin {
         }
 
         Err(anyhow::anyhow!(
-            "Plugin path {:?} is not in an allowed plugins directory. Allowed roots: {:?}. Set METAREPO_PLUGIN_ALLOW_ANY_PATH=1 to override.",
+            "Plugin path {:?} is not in an allowed plugins directory. Allowed roots: {:?}. To override, pass --allow-any-path, set METAREPO_PLUGIN_ALLOW_ANY_PATH=1, or set plugin-allow-any-path: true in .meta.",
             path,
             allowed
         ))
@@ -88,8 +90,8 @@ impl ExternalPlugin {
     /// its reported `(name, version)`. Used by `meta plugin list` to report
     /// installed-vs-declared status without registering the plugin's commands.
     /// Applies the same path policy as `load`.
-    pub fn probe(path: &Path) -> Result<(String, String)> {
-        Self::validate_plugin_path(path)?;
+    pub fn probe(path: &Path, allow_any_path: bool) -> Result<(String, String)> {
+        Self::validate_plugin_path(path, allow_any_path)?;
         let mut child = Command::new(path)
             .env("METAREPO_PLUGIN_MODE", "1")
             .stdin(Stdio::piped())
@@ -110,8 +112,8 @@ impl ExternalPlugin {
         }
     }
 
-    pub fn load(path: &Path) -> Result<Box<dyn MetaPlugin>> {
-        Self::validate_plugin_path(path)?;
+    pub fn load(path: &Path, allow_any_path: bool) -> Result<Box<dyn MetaPlugin>> {
+        Self::validate_plugin_path(path, allow_any_path)?;
         // Start the plugin process
         let mut child = Command::new(path)
             .env("METAREPO_PLUGIN_MODE", "1")
@@ -352,13 +354,13 @@ impl PluginLoader {
     /// Load an external plugin from a file path. A `plugin.manifest.*` file
     /// loads as a manifest plugin (argv dispatch); any other path is treated as
     /// a protocol plugin (JSON over stdio).
-    pub fn load_from_path(path: &Path) -> Result<Box<dyn MetaPlugin>> {
+    pub fn load_from_path(path: &Path, allow_any_path: bool) -> Result<Box<dyn MetaPlugin>> {
         if !path.exists() {
             return Err(anyhow::anyhow!("Plugin path does not exist: {:?}", path));
         }
 
         if PluginManifest::is_manifest_path(path) {
-            return Self::load_manifest_plugin(path);
+            return Self::load_manifest_plugin(path, allow_any_path);
         }
 
         // Check if it's an executable
@@ -372,15 +374,18 @@ impl PluginLoader {
             }
         }
 
-        ExternalPlugin::load(path)
+        ExternalPlugin::load(path, allow_any_path)
     }
 
     /// Load a manifest plugin from its `plugin.manifest.*` file. The referenced
     /// binary must satisfy the same path policy as a protocol plugin.
-    fn load_manifest_plugin(manifest_path: &Path) -> Result<Box<dyn MetaPlugin>> {
+    fn load_manifest_plugin(
+        manifest_path: &Path,
+        allow_any_path: bool,
+    ) -> Result<Box<dyn MetaPlugin>> {
         let manifest = PluginManifest::from_file_auto(manifest_path)?;
         let binary = manifest.resolve_binary(manifest_path)?;
-        ExternalPlugin::validate_plugin_path(&binary)
+        ExternalPlugin::validate_plugin_path(&binary, allow_any_path)
             .context("manifest plugin binary failed the path policy check")?;
         if !binary.exists() {
             return Err(anyhow::anyhow!(
@@ -407,7 +412,8 @@ impl PluginLoader {
         // Integrity (checksum) enforcement is per-workspace opt-in; version
         // enforcement is always on. Load the lockfile once when required.
         let integrity = config.integrity_required();
-        let allow_mismatch = version_mismatch_allowed();
+        let allow_mismatch = version_mismatch_allowed(Some(config));
+        let allow_any_path = plugin_allow_any_path(Some(config));
         let lockfile = if integrity {
             let path = Lockfile::locate();
             match path {
@@ -422,7 +428,14 @@ impl PluginLoader {
         };
 
         for (name, spec) in plugin_specs {
-            match Self::load_plugin_spec(name, spec, integrity, allow_mismatch, &lockfile) {
+            match Self::load_plugin_spec(
+                name,
+                spec,
+                integrity,
+                allow_mismatch,
+                allow_any_path,
+                &lockfile,
+            ) {
                 Ok(plugin) => plugins.push(plugin),
                 Err(e) => eprintln!("Failed to load plugin '{}': {}", name, e),
             }
@@ -431,11 +444,13 @@ impl PluginLoader {
         plugins
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn load_plugin_spec(
         name: &str,
         spec: &str,
         integrity: bool,
         allow_mismatch: bool,
+        allow_any_path: bool,
         lockfile: &Lockfile,
     ) -> Result<Box<dyn MetaPlugin>> {
         // Verify the on-disk bytes BEFORE spawning, so a tampered binary is never
@@ -449,17 +464,17 @@ impl PluginLoader {
         let plugin = if let Some(stripped) = spec.strip_prefix("file:") {
             // Local file path (may point at a binary or a plugin.manifest.*).
             let path = expand_tilde(stripped);
-            Self::load_from_path(&path)?
+            Self::load_from_path(&path, allow_any_path)?
         } else if spec.starts_with("git+") {
             // git+ plugins are built and copied into the plugin dir at install
             // time under the conventional name; load that binary.
             let binary = crate::plugins::plugin_manager::install::with_executable_ext(
                 Self::plugin_dir()?.join(format!("metarepo-plugin-{}", name)),
             );
-            Self::load_from_path(&binary)?
+            Self::load_from_path(&binary, allow_any_path)?
         } else {
             // Assume it's a crates.io plugin installed via cargo install.
-            Self::load_from_installed(name)?
+            Self::load_from_installed(name, allow_any_path)?
         };
 
         // Enforce the declared version against what the plugin reports.
@@ -558,7 +573,7 @@ impl PluginLoader {
             .join("plugins"))
     }
 
-    fn load_from_installed(name: &str) -> Result<Box<dyn MetaPlugin>> {
+    fn load_from_installed(name: &str, allow_any_path: bool) -> Result<Box<dyn MetaPlugin>> {
         // Check common installation locations
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
@@ -570,7 +585,7 @@ impl PluginLoader {
         );
 
         if plugin_binary.exists() {
-            Self::load_from_path(&plugin_binary)
+            Self::load_from_path(&plugin_binary, allow_any_path)
         } else {
             Err(anyhow::anyhow!(
                 "Plugin '{}' not found. Install with: cargo install metarepo-plugin-{}",
@@ -591,7 +606,10 @@ impl PluginLoader {
     /// discovery must not load them again: doing so would bypass enforcement (a
     /// tampered binary refused there could slip in here) and needlessly spawn
     /// the binary.
-    pub fn discover_plugins(skip: &std::collections::HashSet<String>) -> Vec<Box<dyn MetaPlugin>> {
+    pub fn discover_plugins(
+        skip: &std::collections::HashSet<String>,
+        allow_any_path: bool,
+    ) -> Vec<Box<dyn MetaPlugin>> {
         let mut plugins = Vec::new();
 
         let Ok(plugin_dir) = Self::plugin_dir() else {
@@ -616,7 +634,7 @@ impl PluginLoader {
                     continue;
                 }
                 if let Some(manifest) = PluginManifest::find_in_dir(&path) {
-                    if let Ok(plugin) = Self::load_from_path(&manifest) {
+                    if let Ok(plugin) = Self::load_from_path(&manifest, allow_any_path) {
                         if !skip.contains(plugin.name()) {
                             plugins.push(plugin);
                         }
@@ -632,14 +650,14 @@ impl PluginLoader {
                 {
                     continue;
                 }
-                if let Ok(plugin) = Self::load_from_path(&path) {
+                if let Ok(plugin) = Self::load_from_path(&path, allow_any_path) {
                     if !skip.contains(plugin.name()) {
                         plugins.push(plugin);
                     }
                 }
             } else if PluginManifest::is_manifest_path(&path) {
                 // A manifest sitting directly in the plugins dir.
-                if let Ok(plugin) = Self::load_from_path(&path) {
+                if let Ok(plugin) = Self::load_from_path(&path, allow_any_path) {
                     if !skip.contains(plugin.name()) {
                         plugins.push(plugin);
                     }
@@ -651,14 +669,63 @@ impl PluginLoader {
     }
 }
 
+/// True if a `--<flag>` appears in the raw process arguments. Plugins load
+/// before the CLI parses arguments, so global flags are detected by scanning
+/// `std::env::args()` directly (as the resolvers below do).
+fn cli_flag_present(flag: &str) -> bool {
+    let needle = format!("--{flag}");
+    std::env::args().any(|a| a == needle)
+}
+
+/// Combine the flag / env / config layers of a security toggle with precedence
+/// flag > env > config > default(false). Each layer can only *enable* the
+/// relaxation (a config `false` cannot force-off an env or flag that turned it
+/// on), preserving the default-off posture while letting any layer opt in. Pure
+/// over its inputs so the precedence table is unit-testable without touching the
+/// process environment.
+fn resolve_toggle(flag: bool, env: bool, config: Option<bool>) -> bool {
+    flag || env || config.unwrap_or(false)
+}
+
+/// Truthiness for the `METAREPO_ALLOW_VERSION_MISMATCH` env var: set and not
+/// empty and not `"0"`. Absent, empty, or `"0"` is false.
+fn version_env_truthy(raw: Option<&str>) -> bool {
+    raw.map(|v| !v.is_empty() && v != "0").unwrap_or(false)
+}
+
 /// Whether a pinned-version mismatch should be downgraded to a warning instead
-/// of refusing to load. Plugins are loaded before the CLI parses arguments, so
-/// the override is detected from the raw args and the environment.
-fn version_mismatch_allowed() -> bool {
-    let env_set = std::env::var("METAREPO_ALLOW_VERSION_MISMATCH")
-        .map(|v| !v.is_empty() && v != "0")
-        .unwrap_or(false);
-    env_set || std::env::args().any(|a| a == "--allow-version-mismatch")
+/// of refusing to load.
+///
+/// Resolved with precedence flag > env > config > default(false). Each layer can
+/// only *enable* the relaxation (a config `false` cannot force-off an env or
+/// flag that turned it on), which keeps the default-off security posture while
+/// letting any layer opt in.
+pub(crate) fn version_mismatch_allowed(config: Option<&MetaConfig>) -> bool {
+    let env = version_env_truthy(
+        std::env::var("METAREPO_ALLOW_VERSION_MISMATCH")
+            .ok()
+            .as_deref(),
+    );
+    resolve_toggle(
+        cli_flag_present("allow-version-mismatch"),
+        env,
+        config.and_then(|c| c.allow_version_mismatch),
+    )
+}
+
+/// Whether the plugin-path allowlist should be bypassed (plugins may load from
+/// any directory).
+///
+/// Resolved with precedence flag > env > config > default(false), same as
+/// [`version_mismatch_allowed`]. The env layer is presence-only
+/// (`METAREPO_PLUGIN_ALLOW_ANY_PATH` set to anything, including empty), matching
+/// the original behavior.
+pub(crate) fn plugin_allow_any_path(config: Option<&MetaConfig>) -> bool {
+    resolve_toggle(
+        cli_flag_present("allow-any-path"),
+        std::env::var_os("METAREPO_PLUGIN_ALLOW_ANY_PATH").is_some(),
+        config.and_then(|c| c.plugin_allow_any_path),
+    )
 }
 
 /// Expand a leading `~/` to the user's home directory.
@@ -669,4 +736,32 @@ fn expand_tilde(path: &str) -> PathBuf {
         }
     }
     PathBuf::from(path)
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    use super::{resolve_toggle, version_env_truthy};
+
+    #[test]
+    fn resolve_toggle_precedence_table() {
+        // Any enabled layer turns it on; nothing enabled stays off.
+        assert!(!resolve_toggle(false, false, None));
+        assert!(!resolve_toggle(false, false, Some(false)));
+        assert!(resolve_toggle(false, false, Some(true))); // config alone
+        assert!(resolve_toggle(false, true, None)); // env alone
+        assert!(resolve_toggle(true, false, None)); // flag alone
+                                                    // A config `false` cannot force-off an env/flag enable (relax-only).
+        assert!(resolve_toggle(false, true, Some(false)));
+        assert!(resolve_toggle(true, false, Some(false)));
+    }
+
+    #[test]
+    fn version_env_truthiness_matches_legacy_rules() {
+        assert!(!version_env_truthy(None));
+        assert!(!version_env_truthy(Some("")));
+        assert!(!version_env_truthy(Some("0")));
+        assert!(version_env_truthy(Some("1")));
+        assert!(version_env_truthy(Some("true")));
+        assert!(version_env_truthy(Some("anything")));
+    }
 }

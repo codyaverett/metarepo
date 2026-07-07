@@ -94,6 +94,8 @@ fn create_default_config() -> MetaConfig {
         worktree_init: None,
         default_bare: None,
         plugins_integrity: None,
+        allow_version_mismatch: None,
+        plugin_allow_any_path: None,
         skill: None,
         mcp: None,
         help_descriptions: None,

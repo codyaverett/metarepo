@@ -175,7 +175,10 @@ fn resolved_version(spec: &PluginSpec, resolved: &Path, target: &Path) -> String
             return m.plugin.version;
         }
     }
-    if let Ok((_, version)) = ExternalPlugin::probe(target) {
+    // The freshly installed binary lives in an allowed plugin dir; resolve the
+    // allowlist bypass from flag/env only (no workspace config in scope here).
+    let allow_any_path = crate::plugins::plugin_loader::plugin_allow_any_path(None);
+    if let Ok((_, version)) = ExternalPlugin::probe(target, allow_any_path) {
         return version;
     }
     spec.declared_version()

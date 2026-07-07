@@ -373,8 +373,12 @@ Metarepo will only spawn a plugin binary whose path passes these checks:
   - `~/.config/metarepo/plugins/`
   - `~/.cargo/bin/` (where `cargo install metarepo-plugin-*` lands)
   - `<workspace>/.metarepo/plugins/`
-- `METAREPO_PLUGIN_ALLOW_ANY_PATH=1` skips the **location** check (never the
-  `..` check). Use it only for local development.
+- The **location** check (never the `..` check) can be bypassed for local
+  development, resolved with precedence **flag > env > config > default(off)**:
+  `--allow-any-path`, `METAREPO_PLUGIN_ALLOW_ANY_PATH=1`, or
+  `plugin-allow-any-path: true` in `.meta`. Each layer can only enable the
+  bypass; the `..`-traversal rejection always applies. `meta config list` shows
+  the effective value and flags an active env override.
 
 The `config` snapshot handed to plugins is sanitized first: dangerous env vars
 and traversal-prone project keys are stripped before serialization.
@@ -458,7 +462,7 @@ Users install with `cargo install metarepo-plugin-yourname` (lands in
 
 | Symptom | Likely cause |
 | --- | --- |
-| `Plugin path ... is not in an allowed plugins directory` | Binary is outside the allowed roots. Move it, or set `METAREPO_PLUGIN_ALLOW_ANY_PATH=1` for dev. |
+| `Plugin path ... is not in an allowed plugins directory` | Binary is outside the allowed roots. Move it, or bypass for dev with `--allow-any-path`, `METAREPO_PLUGIN_ALLOW_ANY_PATH=1`, or `plugin-allow-any-path: true` in `.meta`. |
 | `Plugin path must not contain '..' segments` | Resolve the path; the traversal guard never relaxes. |
 | `Plugin does not declare a protocol_version` / `failed protocol check` | Plugin predates v1 or speaks a different major. Rebuild against the current SDK. |
 | Host hangs after spawning | Plugin isn't flushing stdout after each response. |
