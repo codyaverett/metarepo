@@ -7,6 +7,7 @@ use std::process::{Command, Stdio};
 
 pub use self::plugin::WorktreePlugin;
 
+mod manager;
 mod plugin;
 
 #[derive(Debug, Clone)]
@@ -162,7 +163,7 @@ pub fn list_worktrees(repo_path: &Path) -> Result<Vec<WorktreeInfo>> {
 }
 
 /// Strip the `refs/heads/` prefix from a branch ref, if present.
-fn short_branch_name(branch_ref: &str) -> &str {
+pub(crate) fn short_branch_name(branch_ref: &str) -> &str {
     branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref)
 }
 
@@ -243,7 +244,7 @@ fn branch_has_no_diff(project_path: &Path, branch_ref: &str, base_ref: &str) -> 
 }
 
 /// True if the worktree at `wt_path` has uncommitted or untracked changes.
-fn worktree_is_dirty(wt_path: &Path) -> bool {
+pub(crate) fn worktree_is_dirty(wt_path: &Path) -> bool {
     Command::new("git")
         .arg("-C")
         .arg(wt_path)
@@ -252,6 +253,108 @@ fn worktree_is_dirty(wt_path: &Path) -> bool {
         .output()
         .map(|o| !o.stdout.is_empty())
         .unwrap_or(false)
+}
+
+/// Gather the non-primary worktrees for each project under `base_path`,
+/// preserving input order. Skips projects whose directory is missing or is not a
+/// git repository. The primary (main) working tree is excluded so the result is
+/// exactly the extra worktrees a user can manage. Used by the interactive
+/// worktree manager ([`manager`]).
+pub(crate) fn gather_project_worktrees(
+    base_path: &Path,
+    projects: &[String],
+) -> Vec<ProjectWorktrees> {
+    let mut out = Vec::new();
+    for project_name in projects {
+        let project_path = base_path.join(project_name);
+        if !project_path.exists() || !project_path.join(".git").exists() {
+            continue;
+        }
+        // Compare canonical paths: git reports resolved paths (e.g. /private/var
+        // on macOS) while project_path may still contain a symlink component.
+        let primary = std::fs::canonicalize(&project_path).unwrap_or_else(|_| project_path.clone());
+        let worktrees = match list_worktrees(&project_path) {
+            Ok(list) => list
+                .into_iter()
+                .filter(|wt| {
+                    let p = std::fs::canonicalize(&wt.path).unwrap_or_else(|_| wt.path.clone());
+                    !wt.is_bare && p != primary
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        out.push(ProjectWorktrees {
+            project_name: project_name.clone(),
+            project_path,
+            worktrees,
+        });
+    }
+    out
+}
+
+/// Remove a single worktree via `git worktree remove`, capturing output so it is
+/// safe to call while a TUI holds the terminal in raw mode. Passing `force` maps
+/// to `-f`, allowing removal of a dirty worktree (discarding its changes).
+/// Returns the first line of git's stderr on failure.
+pub(crate) fn remove_worktree_quiet(
+    project_path: &Path,
+    wt_path: &Path,
+    force: bool,
+) -> Result<(), String> {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(project_path)
+        .arg("worktree")
+        .arg("remove");
+    if force {
+        cmd.arg("--force");
+    }
+    cmd.arg(wt_path);
+    run_git_quiet(cmd).map(|_| ())
+}
+
+/// Prune stale worktree references for one project via `git worktree prune`,
+/// capturing output so it is safe to call under raw mode. Returns the number of
+/// entries pruned (parsed from `--verbose` output).
+pub(crate) fn prune_project_quiet(project_path: &Path) -> Result<usize, String> {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(project_path)
+        .arg("worktree")
+        .arg("prune")
+        .arg("--verbose");
+    let combined = run_git_quiet(cmd)?;
+    Ok(combined
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| l.starts_with("Removing "))
+        .count())
+}
+
+/// Run a prepared git `Command` with captured stdio. On success returns the
+/// combined stdout+stderr; on failure returns the first non-empty stderr line
+/// (or a status message). Shared by the quiet worktree helpers.
+fn run_git_quiet(mut cmd: Command) -> Result<String, String> {
+    let output = cmd
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("could not run git: {e}"))?;
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if output.status.success() {
+        Ok(combined)
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let msg = err.trim();
+        Err(if msg.is_empty() {
+            format!("git exited with {}", output.status)
+        } else {
+            msg.lines().next().unwrap_or(msg).to_string()
+        })
+    }
 }
 
 /// Relative date of the last commit on `branch_ref` (e.g. "3 weeks ago").
@@ -1416,5 +1519,121 @@ fn prompt_for_starting_point() -> Result<String> {
             println!("  {} Invalid choice, using HEAD", "⚠".yellow());
             Ok("HEAD".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod worktree_ops_tests {
+    use super::*;
+    use std::process::Command;
+    use tempfile::tempdir;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let ok = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {:?} failed", args);
+    }
+
+    /// Create a repo at `<base>/<name>` with one commit on `main`.
+    fn init_repo(base: &Path, name: &str) -> PathBuf {
+        let repo = base.join(name);
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "hi").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-qm", "init"]);
+        repo
+    }
+
+    #[test]
+    fn gather_excludes_primary_and_lists_extra_worktrees() {
+        let tmp = tempdir().unwrap();
+        let repo = init_repo(tmp.path(), "proj");
+        // Add a worktree on a new branch.
+        let wt = tmp.path().join("wt-feature");
+        git(
+            &repo,
+            &["worktree", "add", "-b", "feature", wt.to_str().unwrap()],
+        );
+
+        let got = gather_project_worktrees(tmp.path(), &["proj".to_string()]);
+        assert_eq!(got.len(), 1);
+        let pw = &got[0];
+        assert_eq!(pw.project_name, "proj");
+        // Only the extra worktree, never the primary tree.
+        assert_eq!(pw.worktrees.len(), 1);
+        // git reports the canonical path (e.g. /private/var on macOS).
+        assert_eq!(
+            std::fs::canonicalize(&pw.worktrees[0].path).unwrap(),
+            std::fs::canonicalize(&wt).unwrap()
+        );
+        assert!(pw.worktrees[0].branch.ends_with("feature"));
+    }
+
+    #[test]
+    fn gather_skips_missing_and_non_git_dirs() {
+        let tmp = tempdir().unwrap();
+        init_repo(tmp.path(), "proj");
+        std::fs::create_dir(tmp.path().join("plain")).unwrap();
+
+        let got = gather_project_worktrees(
+            tmp.path(),
+            &["proj".to_string(), "plain".to_string(), "nope".to_string()],
+        );
+        // Only the real git project is included.
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].project_name, "proj");
+    }
+
+    #[test]
+    fn remove_worktree_quiet_removes_clean_and_refuses_dirty() {
+        let tmp = tempdir().unwrap();
+        let repo = init_repo(tmp.path(), "proj");
+        let wt = tmp.path().join("wt-feature");
+        git(
+            &repo,
+            &["worktree", "add", "-b", "feature", wt.to_str().unwrap()],
+        );
+
+        // Dirty the worktree: removal without force must fail and leave it in place.
+        std::fs::write(wt.join("b.txt"), "new").unwrap();
+        assert!(worktree_is_dirty(&wt));
+        assert!(remove_worktree_quiet(&repo, &wt, false).is_err());
+        assert!(wt.exists());
+
+        // Force removal succeeds and the directory is gone.
+        remove_worktree_quiet(&repo, &wt, true).unwrap();
+        assert!(!wt.exists());
+        assert!(
+            gather_project_worktrees(tmp.path(), &["proj".to_string()])[0]
+                .worktrees
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn prune_project_quiet_counts_stale_entries() {
+        let tmp = tempdir().unwrap();
+        let repo = init_repo(tmp.path(), "proj");
+        let wt = tmp.path().join("wt-feature");
+        git(
+            &repo,
+            &["worktree", "add", "-b", "feature", wt.to_str().unwrap()],
+        );
+        // Delete the worktree directory out from under git, leaving a stale ref.
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        let pruned = prune_project_quiet(&repo).unwrap();
+        assert_eq!(pruned, 1);
+        // A second prune has nothing left to do.
+        assert_eq!(prune_project_quiet(&repo).unwrap(), 0);
     }
 }

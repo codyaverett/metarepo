@@ -6,6 +6,7 @@ This guide covers advanced worktree configuration options in Metarepo, including
 
 - [Overview](#overview)
 - [Post-Create Commands (worktree_init)](#post-create-commands-worktree_init)
+- [Interactive Manager (meta worktree tui)](#interactive-manager-meta-worktree-tui)
 - [Bare Repository Support](#bare-repository-support)
 - [Shallow Clone Depth](#shallow-clone-depth)
 - [Configuration Examples](#configuration-examples)
@@ -214,6 +215,57 @@ anywhere) and `--root` (target the outermost metarepo) — see the "Directory-aw
 scope" section in the README. You can also target specific projects with
 `--project <name>` / `--projects a,b,c`. For `remove`, when several in-scope
 projects have the named branch you'll be asked which to remove from.
+
+## Interactive Manager (meta worktree tui)
+
+`meta worktree tui` opens an interactive dashboard of the workspace's worktrees,
+built on the same shared tree-shell primitives as `meta status`. It lists every
+in-scope project with its extra worktrees as a navigable tree, so you can review
+and tidy worktrees without stringing together several commands.
+
+```bash
+meta worktree tui          # manage worktrees in the current directory scope
+meta worktree tui -w       # manage every project in the workspace
+```
+
+Aliases: `meta worktree ui`, `meta worktree manage`.
+
+### Keys
+
+| Key            | Action                                                    |
+| -------------- | --------------------------------------------------------- |
+| `j` / `k`, arrows | Move the selection / expand / collapse                 |
+| `Enter`        | On a worktree: exit and print its path (see cd-on-exit)   |
+| `d`            | Remove the selected worktree (press twice to confirm)     |
+| `x`            | Prune stale references for the selected project (all when the top row is selected) |
+| `r`            | Refresh                                                    |
+| `?`            | Toggle the help overlay                                   |
+| `q` / `Esc`    | Quit                                                       |
+
+A dirty worktree is flagged with a yellow `*`. Removing one requires an explicit
+second `d` press, and the status line warns that uncommitted changes will be
+discarded before it proceeds. Pruning is non-destructive: it only removes git's
+references to worktree directories that no longer exist on disk.
+
+### Jumping into a worktree (cd-on-exit)
+
+A child process cannot change the parent shell's directory, so `Enter` on a
+worktree exits the manager and prints that worktree's path as the final line.
+Wrap the command in a shell substitution to `cd` straight into it:
+
+```bash
+cd "$(meta worktree tui)"
+```
+
+### Scope of v1
+
+The manager is deliberately focused on listing, removing, pruning, and revealing
+worktrees. **Creating** worktrees stays on the command line
+(`meta worktree add <branch>`): it needs interactive starting-point resolution
+and a hook-consent prompt that cannot run while the terminal is in the TUI's raw
+mode. In-TUI creation (with an inline text-input field), a confirmation modal,
+and merged-branch cleanup from the TUI are tracked as follow-ups to issue #125
+(epic #117).
 
 ## Bare Repository Support
 

@@ -1,3 +1,4 @@
+use super::manager::WorktreeManager;
 use super::{
     add_worktrees, clean_worktrees, list_all_worktrees, prune_worktrees, remove_worktrees,
     repair_worktrees, CleanOptions,
@@ -47,6 +48,7 @@ impl WorktreePlugin {
                  \n\
                    meta worktree add feature-123        create a worktree for the branch\n\
                    meta worktree list                   show worktrees in the current scope\n\
+                   meta worktree tui                    manage worktrees interactively\n\
                    meta worktree clean --dry-run        preview merged worktrees to remove",
             )
             .command(
@@ -377,6 +379,31 @@ impl WorktreePlugin {
                             .takes_value(true)
                     )
             )
+            .command(
+                command("tui")
+                    .about("Interactive worktree manager")
+                    .help_description(
+                        "Open an interactive dashboard of the workspace's worktrees.\n\
+                         \n\
+                         Lists each project's extra worktrees in a navigable tree. Select a\n\
+                         worktree to see its details, press d twice to remove it, x to prune\n\
+                         stale references, and r to refresh. Navigate with the arrow keys or\n\
+                         j/k, ? for help, and q to quit.\n\
+                         \n\
+                         Press Enter on a worktree to exit and print its path, so you can jump\n\
+                         straight into it:\n\
+                         \n\
+                           cd $(meta worktree tui)\n\
+                         \n\
+                         Creating worktrees stays on the command line (meta worktree add).\n\
+                         \n\
+                         Projects follow your directory scope; use --workspace/-w to manage\n\
+                         every project from anywhere.",
+                    )
+                    .aliases(vec!["ui".to_string(), "manage".to_string()])
+                    .with_help_formatting(),
+            )
+            .handler("tui", handle_tui)
             .handler("add", handle_add)
             .handler("remove", handle_remove)
             .handler("list", handle_list)
@@ -385,6 +412,22 @@ impl WorktreePlugin {
             .handler("clean", handle_clean)
             .build()
     }
+}
+
+/// Handler for the interactive worktree manager.
+fn handle_tui(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
+    let projects = config.scoped_project_keys();
+    if projects.is_empty() {
+        println!("\n{}", "No projects in this directory".dimmed());
+        return Ok(());
+    }
+    // If the user selected a worktree to jump into, print its path as the final
+    // line so `cd $(meta worktree tui)` works. Done after terminal restore.
+    if let Some(path) = WorktreeManager::new(base_path, projects).run()? {
+        println!("{}", path.display());
+    }
+    Ok(())
 }
 
 /// Handler for the add command
