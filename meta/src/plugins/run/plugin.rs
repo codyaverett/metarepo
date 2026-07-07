@@ -110,6 +110,11 @@ impl RunPlugin {
                             .help("Set environment variable (KEY=VALUE)")
                             .takes_value(true)
                     )
+                    .arg(
+                        arg("tui")
+                            .long("tui")
+                            .help("Open the interactive picker and live per-project output view")
+                    )
             )
             .command(
                 command("list")
@@ -147,6 +152,32 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
         .non_interactive
         .unwrap_or(NonInteractiveMode::Defaults);
 
+    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
+    // Directory-aware scope: when no explicit project is given, run only in the
+    // in-scope projects that define the script.
+    let scope = config.scoped_project_keys();
+
+    // Parse environment variables (shared by the CLI and TUI paths).
+    let mut env_vars = HashMap::new();
+    if let Some(env_args) = matches.get_many::<String>("env") {
+        for env_str in env_args {
+            if let Some((key, value)) = env_str.split_once('=') {
+                env_vars.insert(key.to_string(), value.to_string());
+            }
+        }
+    }
+
+    // Interactive TUI: fuzzy-pick a script (unless one was named) and show a live
+    // per-project output view.
+    if matches.get_flag("tui") {
+        if !is_interactive() {
+            return Err(anyhow::anyhow!("--tui requires an interactive terminal"));
+        }
+        let preselected = matches.get_one::<String>("script").map(|s| s.as_str());
+        super::tui::run_tui(preselected, &base_path, &scope, &env_vars)?;
+        return Ok(());
+    }
+
     // Get or prompt for script name
     let script_name = match matches.get_one::<String>("script") {
         Some(s) => s.clone(),
@@ -176,22 +207,6 @@ fn handle_run_script(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()>
     let git_only = matches.get_flag("git-only");
     let no_progress = matches.get_flag("no-progress");
     let streaming = matches.get_flag("streaming");
-
-    let base_path = config.meta_root().unwrap_or(config.working_dir.clone());
-
-    // Directory-aware scope: when no explicit project is given, run only in the
-    // in-scope projects that define the script.
-    let scope = config.scoped_project_keys();
-
-    // Parse environment variables
-    let mut env_vars = HashMap::new();
-    if let Some(env_args) = matches.get_many::<String>("env") {
-        for env_str in env_args {
-            if let Some((key, value)) = env_str.split_once('=') {
-                env_vars.insert(key.to_string(), value.to_string());
-            }
-        }
-    }
 
     // Collect selected projects
     let mut projects = Vec::new();
@@ -270,9 +285,13 @@ impl MetaPlugin for RunPlugin {
                  --existing-only restrict the project set, and -e/--env KEY=VALUE injects\n\
                  environment variables into each run.\n\
                  \n\
+                 Pass --tui for an interactive picker of the available scripts followed by a\n\
+                 live per-project output view (requires a terminal).\n\
+                 \n\
                  Examples:\n  \
                    meta run test\n  \
                    meta run build --all --parallel\n  \
+                   meta run --tui\n  \
                    meta run deploy -p api -e ENV=staging",
             ))
             .version(env!("CARGO_PKG_VERSION"))
@@ -346,12 +365,24 @@ impl MetaPlugin for RunPlugin {
                     .long("streaming")
                     .help("Show output as it happens instead of buffered (legacy behavior)")
                     .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                clap::Arg::new("tui")
+                    .long("tui")
+                    .help("Open the interactive picker and live per-project output view")
+                    .action(clap::ArgAction::SetTrue),
             );
 
         app.subcommand(run_cmd)
     }
 
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+        // Interactive TUI takes precedence: it opens the picker when no script
+        // was named, so it must be handled before the list fallback below.
+        if matches.get_flag("tui") {
+            return handle_run_script(matches, config);
+        }
+
         // Check for list flag
         if matches.get_flag("list") {
             return handle_list(matches, config);

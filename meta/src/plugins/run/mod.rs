@@ -11,13 +11,14 @@ use std::sync::Arc;
 pub use self::plugin::RunPlugin;
 
 mod plugin;
+mod tui;
 
 /// Load the workspace config at `base_path` with global scripts cascaded down
 /// the enclosing .meta chain (outermost defaults, nearest overrides). Project
 /// scripts are untouched and still override globals at lookup time. In a flat
 /// (single-.meta) workspace this returns the same scripts the config already
 /// had, so the cascade is a no-op there.
-fn load_config_with_script_cascade(base_path: &Path) -> Result<MetaConfig> {
+pub(crate) fn load_config_with_script_cascade(base_path: &Path) -> Result<MetaConfig> {
     let meta_file_path = MetaConfig::locate_in(base_path)?.path;
     let mut config = MetaConfig::load_from_file(&meta_file_path)?;
 
@@ -35,6 +36,134 @@ fn load_config_with_script_cascade(base_path: &Path) -> Result<MetaConfig> {
     }
 
     Ok(config)
+}
+
+/// A script available in the workspace, with the projects it can run in.
+/// Feeds the interactive picker ([`tui`]).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ScriptInfo {
+    pub name: String,
+    pub command: String,
+    pub projects: Vec<String>,
+}
+
+/// Build (but do not run) the `Command` for `script_name` in `project_name`,
+/// resolving the script via the config cascade and applying global and
+/// project-specific environment variables. Returns the configured command and
+/// its display string. Shared by the sequential, buffered, and streaming paths.
+pub(crate) fn build_script_command(
+    config: &MetaConfig,
+    script_name: &str,
+    project_name: &str,
+    base_path: &Path,
+    env_vars: &HashMap<String, String>,
+) -> Result<(Command, String)> {
+    let project_path = base_path.join(project_name);
+    if !project_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Project directory '{}' not found",
+            project_name
+        ));
+    }
+
+    let scripts = config.get_all_scripts(Some(project_name));
+    let script_cmd = scripts.get(script_name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Script '{}' not found for project '{}'",
+            script_name,
+            project_name
+        )
+    })?;
+
+    // Parse the script command with shell-style tokenization so quoted args
+    // with spaces survive intact. shlex returns None for unbalanced quotes —
+    // surface that to the caller instead of silently mis-splitting.
+    let parts = shlex::split(script_cmd).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Failed to parse script command (unbalanced quotes?): {}",
+            script_cmd
+        )
+    })?;
+    if parts.is_empty() {
+        return Err(anyhow::anyhow!("Empty script command"));
+    }
+
+    let mut cmd = Command::new(&parts[0]);
+    if parts.len() > 1 {
+        cmd.args(&parts[1..]);
+    }
+    cmd.current_dir(&project_path);
+
+    for (key, value) in env_vars {
+        cmd.env(key, value);
+    }
+    if let Some(ProjectEntry::Metadata(metadata)) = config.projects.get(project_name) {
+        for (key, value) in &metadata.env {
+            cmd.env(key, value);
+        }
+    }
+
+    Ok((cmd, script_cmd.to_string()))
+}
+
+/// Collect the distinct scripts available across the workspace: global scripts
+/// (already cascade-merged into `config.scripts`) plus per-project scripts, each
+/// annotated with the projects it can run in. Sorted by name.
+pub(crate) fn gather_scripts(config: &MetaConfig) -> Vec<ScriptInfo> {
+    use std::collections::BTreeMap;
+
+    // name -> (command, projects). BTreeMap keeps the result name-sorted.
+    let mut map: BTreeMap<String, (String, Vec<String>)> = BTreeMap::new();
+
+    // Global scripts run in every project that does not shadow them.
+    if let Some(global) = &config.scripts {
+        for (name, cmd) in global {
+            map.entry(name.clone())
+                .or_insert_with(|| (cmd.clone(), Vec::new()))
+                .1 = find_projects_with_script(config, name);
+        }
+    }
+
+    // Project-specific scripts. A project script shadows a global of the same
+    // name; keep the project command for display when no global exists.
+    for (project_name, entry) in &config.projects {
+        if let ProjectEntry::Metadata(metadata) = entry {
+            for (name, cmd) in &metadata.scripts {
+                let e = map
+                    .entry(name.clone())
+                    .or_insert_with(|| (cmd.clone(), Vec::new()));
+                if !e.1.contains(project_name) {
+                    e.1.push(project_name.clone());
+                }
+            }
+        }
+    }
+
+    map.into_iter()
+        .map(|(name, (command, mut projects))| {
+            projects.sort();
+            ScriptInfo {
+                name,
+                command,
+                projects,
+            }
+        })
+        .collect()
+}
+
+/// The in-scope projects that define `script_name` (the default target set when
+/// no explicit projects are named). Shared by the CLI default path and the TUI.
+pub(crate) fn scripts_scoped_projects(
+    config: &MetaConfig,
+    script_name: &str,
+    scope: &[String],
+) -> Vec<String> {
+    let with_script = find_projects_with_script(config, script_name);
+    scope
+        .iter()
+        .filter(|p| with_script.contains(p))
+        .cloned()
+        .collect()
 }
 
 /// Execute a script for selected projects
@@ -57,12 +186,7 @@ pub fn run_script(
     let mut selected_projects = if projects.is_empty() {
         // No explicit projects: run in the in-scope projects that define the
         // script (scope already reflects the cwd and the --workspace flag).
-        let with_script = find_projects_with_script(&config, script_name);
-        scope
-            .iter()
-            .filter(|p| with_script.contains(p))
-            .cloned()
-            .collect()
+        scripts_scoped_projects(&config, script_name, scope)
     } else if projects.len() == 1 && projects[0] == "--all" {
         // Run in all projects
         config.projects.keys().cloned().collect()
@@ -249,60 +373,12 @@ fn execute_script_in_project(
     config: &MetaConfig,
     env_vars: &HashMap<String, String>,
 ) -> Result<()> {
-    let project_path = base_path.join(project_name);
-
-    if !project_path.exists() {
-        return Err(anyhow::anyhow!(
-            "Project directory '{}' not found",
-            project_name
-        ));
-    }
-
     println!("\n  {} {}", "📦".blue(), project_name.bold());
 
-    // Get the script command
-    let scripts = config.get_all_scripts(Some(project_name));
-    let script_cmd = scripts.get(script_name).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Script '{}' not found for project '{}'",
-            script_name,
-            project_name
-        )
-    })?;
+    let (mut cmd, script_cmd) =
+        build_script_command(config, script_name, project_name, base_path, env_vars)?;
 
     println!("     {} {}", "►".bright_black(), script_cmd.bright_white());
-
-    // Parse the script command with shell-style tokenization so quoted args
-    // with spaces survive intact. shlex returns None for unbalanced quotes —
-    // surface that to the caller instead of silently mis-splitting.
-    let parts = shlex::split(script_cmd).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Failed to parse script command (unbalanced quotes?): {}",
-            script_cmd
-        )
-    })?;
-    if parts.is_empty() {
-        return Err(anyhow::anyhow!("Empty script command"));
-    }
-
-    let mut cmd = Command::new(&parts[0]);
-    if parts.len() > 1 {
-        cmd.args(&parts[1..]);
-    }
-
-    cmd.current_dir(&project_path);
-
-    // Add environment variables
-    for (key, value) in env_vars {
-        cmd.env(key, value);
-    }
-
-    // Add project-specific environment variables
-    if let Some(ProjectEntry::Metadata(metadata)) = config.projects.get(project_name) {
-        for (key, value) in &metadata.env {
-            cmd.env(key, value);
-        }
-    }
 
     let output = cmd
         .output()
@@ -334,56 +410,8 @@ fn execute_script_in_project_buffered(
     config: &MetaConfig,
     env_vars: &HashMap<String, String>,
 ) -> Result<(i32, Vec<u8>, Vec<u8>, String)> {
-    let project_path = base_path.join(project_name);
-
-    if !project_path.exists() {
-        return Err(anyhow::anyhow!(
-            "Project directory '{}' not found",
-            project_name
-        ));
-    }
-
-    // Get the script command
-    let scripts = config.get_all_scripts(Some(project_name));
-    let script_cmd = scripts.get(script_name).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Script '{}' not found for project '{}'",
-            script_name,
-            project_name
-        )
-    })?;
-
-    // Parse the script command with shell-style tokenization so quoted args
-    // with spaces survive intact. shlex returns None for unbalanced quotes —
-    // surface that to the caller instead of silently mis-splitting.
-    let parts = shlex::split(script_cmd).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Failed to parse script command (unbalanced quotes?): {}",
-            script_cmd
-        )
-    })?;
-    if parts.is_empty() {
-        return Err(anyhow::anyhow!("Empty script command"));
-    }
-
-    let mut cmd = Command::new(&parts[0]);
-    if parts.len() > 1 {
-        cmd.args(&parts[1..]);
-    }
-
-    cmd.current_dir(&project_path);
-
-    // Add environment variables
-    for (key, value) in env_vars {
-        cmd.env(key, value);
-    }
-
-    // Add project-specific environment variables
-    if let Some(ProjectEntry::Metadata(metadata)) = config.projects.get(project_name) {
-        for (key, value) in &metadata.env {
-            cmd.env(key, value);
-        }
-    }
+    let (mut cmd, script_cmd) =
+        build_script_command(config, script_name, project_name, base_path, env_vars)?;
 
     let output = cmd
         .output()
@@ -393,7 +421,7 @@ fn execute_script_in_project_buffered(
         output.status.code().unwrap_or(-1),
         output.stdout,
         output.stderr,
-        script_cmd.to_string(),
+        script_cmd,
     ))
 }
 

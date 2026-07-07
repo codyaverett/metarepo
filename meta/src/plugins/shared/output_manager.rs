@@ -103,6 +103,40 @@ impl OutputManager {
         }
     }
 
+    /// Append a chunk of streamed stdout for a running project. Used by the live
+    /// run view, which reads child output incrementally instead of receiving it
+    /// all at once via [`complete_project`].
+    pub fn append_stdout(&self, name: &str, chunk: &[u8]) {
+        if let Some(output) = self.outputs.lock().unwrap().get_mut(name) {
+            output.stdout.extend_from_slice(chunk);
+        }
+    }
+
+    /// Append a chunk of streamed stderr for a running project.
+    pub fn append_stderr(&self, name: &str, chunk: &[u8]) {
+        if let Some(output) = self.outputs.lock().unwrap().get_mut(name) {
+            output.stderr.extend_from_slice(chunk);
+        }
+    }
+
+    /// Mark a streamed project finished, recording its exit code and duration
+    /// without replacing the buffers already filled by
+    /// [`append_stdout`]/[`append_stderr`]. Counterpart to [`complete_project`]
+    /// for the streaming path.
+    pub fn finish_project(&self, name: &str, exit_code: i32) {
+        if let Some(output) = self.outputs.lock().unwrap().get_mut(name) {
+            if let Some(start_time) = output.start_time {
+                output.duration = Some(start_time.elapsed());
+            }
+            output.exit_code = Some(exit_code);
+            output.status = if exit_code == 0 {
+                JobStatus::Completed
+            } else {
+                JobStatus::Failed
+            };
+        }
+    }
+
     pub fn get_status_summary(&self) -> (usize, usize, usize) {
         let outputs = self.outputs.lock().unwrap();
         let mut completed = 0;
@@ -295,5 +329,43 @@ impl ProgressIndicator {
         if let Some(handle) = self.handle {
             handle.join().unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+
+    #[test]
+    fn append_then_finish_accumulates_output() {
+        let mgr = OutputManager::new(vec!["a".to_string()]);
+        mgr.start_project("a");
+        mgr.append_stdout("a", b"hello ");
+        mgr.append_stdout("a", b"world");
+        mgr.append_stderr("a", b"warn");
+        mgr.finish_project("a", 0);
+
+        let out = mgr.get_project_output("a").unwrap();
+        assert_eq!(out.stdout, b"hello world");
+        assert_eq!(out.stderr, b"warn");
+        assert_eq!(out.exit_code, Some(0));
+        assert_eq!(out.status, JobStatus::Completed);
+        assert!(out.duration.is_some());
+        assert!(mgr.all_completed());
+    }
+
+    #[test]
+    fn nonzero_exit_marks_failed() {
+        let mgr = OutputManager::new(vec!["a".to_string(), "b".to_string()]);
+        mgr.start_project("a");
+        mgr.finish_project("a", 3);
+        let out = mgr.get_project_output("a").unwrap();
+        assert_eq!(out.exit_code, Some(3));
+        assert_eq!(out.status, JobStatus::Failed);
+
+        // b never finished, so the batch is not complete yet.
+        assert!(!mgr.all_completed());
+        let (done, _running, failed) = mgr.get_status_summary();
+        assert_eq!((done, failed), (1, 1));
     }
 }
