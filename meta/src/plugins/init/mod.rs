@@ -158,11 +158,13 @@ pub fn initialize_meta_repo_with_options<P: AsRef<Path>>(
     report.gitignore_updated = update_gitignore(root)?;
 
     // --- optional skill ---
+    // init writes to the default location (a fresh workspace has no config yet).
     if options.want_skill() {
-        if skill::is_installed(root) {
+        let skill_root = skill::default_skill_root(root);
+        if skill::is_installed(&skill_root) {
             report.skill_already_present = true;
         } else {
-            skill::write_skill(root)?;
+            skill::write_skill(&skill_root)?;
             report.skill_installed = true;
         }
     }

@@ -38,6 +38,20 @@ The `skill` plugin now covers the full lifecycle of working with skills:
 | Vetting skills | `audit` |
 | Importing skills | `steal` (local path or git URL), `add` (skills.sh) |
 
+### Install location
+
+By default the bundled meta-tool skill installs to
+`<workspace>/.claude/skills/meta-tool/`. If you set the `[skill] dest` config key
+(the same skills-home used for stolen/added skills), the bundled skill installs
+under it too, as `<dest>/meta-tool/` — so users not on Claude Code, or with a
+different skills home, can relocate it. `dest` is tilde-expanded, and
+`install`/`update`/`status`/`remove` all operate on the resolved location.
+
+```bash
+meta config set skill.dest ~/.config/agents/skills
+meta skill install   # installs to ~/.config/agents/skills/meta-tool/
+```
+
 ### Bundled skill update safety
 
 `install` and `update` record a sha256 fingerprint of the files they write in

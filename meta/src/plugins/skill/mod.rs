@@ -29,8 +29,10 @@ pub mod steal;
 pub const SKILL_MD: &str = include_str!("assets/meta-tool/SKILL.md");
 pub const SKILL_CHANGELOG: &str = include_str!("assets/meta-tool/references/CHANGELOG_NOTES.md");
 
-/// Relative location of the installed skill under a workspace root.
-fn skill_root(workspace: &Path) -> PathBuf {
+/// Default install location of the bundled meta-tool skill under a workspace
+/// root: `<workspace>/.claude/skills/meta-tool`. Used when no `[skill] dest`
+/// override is configured.
+pub fn default_skill_root(workspace: &Path) -> PathBuf {
     workspace.join(".claude").join("skills").join("meta-tool")
 }
 
@@ -61,16 +63,16 @@ pub fn bundled_version() -> Option<String> {
     parse_version(SKILL_MD)
 }
 
-/// Version of the skill currently installed in `workspace`, if any.
-pub fn installed_version(workspace: &Path) -> Option<String> {
-    let path = skill_root(workspace).join("SKILL.md");
+/// Version of the skill currently installed at `root`, if any.
+pub fn installed_version(root: &Path) -> Option<String> {
+    let path = root.join("SKILL.md");
     let contents = fs::read_to_string(path).ok()?;
     parse_version(&contents)
 }
 
 /// Whether a skill is installed at all (presence of SKILL.md).
-pub fn is_installed(workspace: &Path) -> bool {
-    skill_root(workspace).join("SKILL.md").exists()
+pub fn is_installed(root: &Path) -> bool {
+    root.join("SKILL.md").exists()
 }
 
 /// Lock file recording the fingerprint of the files we last wrote, so `update`
@@ -96,15 +98,14 @@ fn fingerprint(skill_md: &str, changelog: &str) -> String {
 
 /// Fingerprint recorded at the last install/update, if any. Legacy installs
 /// (written before lock files existed) have none.
-fn recorded_fingerprint(workspace: &Path) -> Option<String> {
-    let raw = fs::read_to_string(skill_root(workspace).join(LOCK_FILE)).ok()?;
+fn recorded_fingerprint(root: &Path) -> Option<String> {
+    let raw = fs::read_to_string(root.join(LOCK_FILE)).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
     Some(parsed.get("sha256")?.as_str()?.to_string())
 }
 
 /// Fingerprint of the files currently on disk (missing files hash as empty).
-fn installed_fingerprint(workspace: &Path) -> Option<String> {
-    let root = skill_root(workspace);
+fn installed_fingerprint(root: &Path) -> Option<String> {
     let skill_md = fs::read_to_string(root.join("SKILL.md")).ok()?;
     let changelog =
         fs::read_to_string(root.join("references").join("CHANGELOG_NOTES.md")).unwrap_or_default();
@@ -120,17 +121,16 @@ fn write_lock(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Write the bundled skill files into `workspace`, overwriting whatever is
-/// there, and record their fingerprint in the lock file.
-pub fn write_skill(workspace: &Path) -> Result<()> {
-    let root = skill_root(workspace);
+/// Write the bundled skill files into `root`, overwriting whatever is there, and
+/// record their fingerprint in the lock file.
+pub fn write_skill(root: &Path) -> Result<()> {
     fs::create_dir_all(root.join("references"))?;
     fs::write(root.join("SKILL.md"), SKILL_MD)?;
     fs::write(
         root.join("references").join("CHANGELOG_NOTES.md"),
         SKILL_CHANGELOG,
     )?;
-    write_lock(&root)?;
+    write_lock(root)?;
     Ok(())
 }
 
@@ -165,14 +165,14 @@ pub enum UpdateRefusal {
 
 /// Install the skill. With `force`, always rewrite. Otherwise install only when
 /// absent; if already present, leave it untouched (use `update` to refresh).
-pub fn install(workspace: &Path, force: bool) -> Result<SkillAction> {
-    if !is_installed(workspace) {
-        write_skill(workspace)?;
+pub fn install(root: &Path, force: bool) -> Result<SkillAction> {
+    if !is_installed(root) {
+        write_skill(root)?;
         return Ok(SkillAction::Installed);
     }
     if force {
-        let from = installed_version(workspace);
-        write_skill(workspace)?;
+        let from = installed_version(root);
+        write_skill(root)?;
         return Ok(SkillAction::Updated {
             from,
             to: bundled_version(),
@@ -186,14 +186,14 @@ pub fn install(workspace: &Path, force: bool) -> Result<SkillAction> {
 /// written, and the installed version must not be newer than the bundled one.
 /// Anything else is refused (overridable with `force`). Does not install when
 /// absent — `install`/`init` are the opt-in entry points.
-pub fn update(workspace: &Path, force: bool) -> Result<SkillAction> {
-    if !is_installed(workspace) {
+pub fn update(root: &Path, force: bool) -> Result<SkillAction> {
+    if !is_installed(root) {
         return Ok(SkillAction::NotInstalled);
     }
-    let installed = installed_version(workspace);
+    let installed = installed_version(root);
     let bundled = bundled_version();
     if force {
-        write_skill(workspace)?;
+        write_skill(root)?;
         return Ok(SkillAction::Updated {
             from: installed,
             to: bundled,
@@ -202,10 +202,10 @@ pub fn update(workspace: &Path, force: bool) -> Result<SkillAction> {
 
     // Content identical to the bundle: nothing to do. Backfill the lock so
     // legacy installs (written before lock files existed) gain a fingerprint.
-    let on_disk = installed_fingerprint(workspace);
+    let on_disk = installed_fingerprint(root);
     if on_disk.as_deref() == Some(fingerprint(SKILL_MD, SKILL_CHANGELOG).as_str()) {
-        if recorded_fingerprint(workspace).is_none() {
-            write_lock(&skill_root(workspace))?;
+        if recorded_fingerprint(root).is_none() {
+            write_lock(root)?;
         }
         return Ok(SkillAction::AlreadyCurrent);
     }
@@ -227,10 +227,10 @@ pub fn update(workspace: &Path, force: bool) -> Result<SkillAction> {
         }
     }
 
-    match recorded_fingerprint(workspace) {
+    match recorded_fingerprint(root) {
         Some(recorded) if on_disk.as_deref() == Some(recorded.as_str()) => {
             // Pristine copy of an older bundle: safe to refresh.
-            write_skill(workspace)?;
+            write_skill(root)?;
             Ok(SkillAction::Updated {
                 from: installed,
                 to: bundled,
@@ -242,10 +242,9 @@ pub fn update(workspace: &Path, force: bool) -> Result<SkillAction> {
 }
 
 /// Remove an installed skill directory. Returns true if something was removed.
-pub fn remove(workspace: &Path) -> Result<bool> {
-    let root = skill_root(workspace);
+pub fn remove(root: &Path) -> Result<bool> {
     if root.exists() {
-        fs::remove_dir_all(&root)?;
+        fs::remove_dir_all(root)?;
         Ok(true)
     } else {
         Ok(false)
@@ -265,43 +264,41 @@ mod tests {
     #[test]
     fn install_then_status_reports_installed() {
         let tmp = tempdir().unwrap();
-        assert!(!is_installed(tmp.path()));
-        assert_eq!(install(tmp.path(), false).unwrap(), SkillAction::Installed);
-        assert!(is_installed(tmp.path()));
+        let root = default_skill_root(tmp.path());
+        assert!(!is_installed(&root));
+        assert_eq!(install(&root, false).unwrap(), SkillAction::Installed);
+        assert!(is_installed(&root));
+        assert!(root.join("SKILL.md").exists());
+        assert!(root.join("references/CHANGELOG_NOTES.md").exists());
+        // The default layout is <workspace>/.claude/skills/meta-tool.
         assert!(tmp
             .path()
             .join(".claude/skills/meta-tool/SKILL.md")
-            .exists());
-        assert!(tmp
-            .path()
-            .join(".claude/skills/meta-tool/references/CHANGELOG_NOTES.md")
             .exists());
     }
 
     #[test]
     fn install_is_idempotent_without_force() {
         let tmp = tempdir().unwrap();
-        install(tmp.path(), false).unwrap();
-        assert_eq!(
-            install(tmp.path(), false).unwrap(),
-            SkillAction::AlreadyCurrent
-        );
+        let root = default_skill_root(tmp.path());
+        install(&root, false).unwrap();
+        assert_eq!(install(&root, false).unwrap(), SkillAction::AlreadyCurrent);
     }
 
     #[test]
     fn force_install_rewrites() {
         let tmp = tempdir().unwrap();
-        install(tmp.path(), false).unwrap();
-        match install(tmp.path(), true).unwrap() {
+        let root = default_skill_root(tmp.path());
+        install(&root, false).unwrap();
+        match install(&root, true).unwrap() {
             SkillAction::Updated { .. } => {}
             other => panic!("expected Updated, got {other:?}"),
         }
     }
 
-    /// Write an old-version skill by hand, optionally with a lock that matches
-    /// its content (i.e. a pristine install of an older bundle).
-    fn write_stale_skill(workspace: &Path, with_lock: bool) {
-        let root = workspace.join(".claude/skills/meta-tool");
+    /// Write an old-version skill by hand at `root`, optionally with a lock that
+    /// matches its content (i.e. a pristine install of an older bundle).
+    fn write_stale_skill(root: &Path, with_lock: bool) {
         fs::create_dir_all(root.join("references")).unwrap();
         let skill_md = "---\nname: meta-cli\nversion: 0.0.1\n---\nold\n";
         let changelog = "old notes\n";
@@ -319,39 +316,42 @@ mod tests {
     #[test]
     fn update_refreshes_pristine_older_install() {
         let tmp = tempdir().unwrap();
-        write_stale_skill(tmp.path(), true);
-        match update(tmp.path(), false).unwrap() {
+        let root = default_skill_root(tmp.path());
+        write_stale_skill(&root, true);
+        match update(&root, false).unwrap() {
             SkillAction::Updated { from, to } => {
                 assert_eq!(from, Some("0.0.1".to_string()));
                 assert_eq!(to, bundled_version());
             }
             other => panic!("expected Updated, got {other:?}"),
         }
-        assert_eq!(installed_version(tmp.path()), bundled_version());
+        assert_eq!(installed_version(&root), bundled_version());
     }
 
     #[test]
     fn update_refuses_without_recorded_fingerprint() {
         let tmp = tempdir().unwrap();
-        write_stale_skill(tmp.path(), false);
+        let root = default_skill_root(tmp.path());
+        write_stale_skill(&root, false);
         assert_eq!(
-            update(tmp.path(), false).unwrap(),
+            update(&root, false).unwrap(),
             SkillAction::Refused(UpdateRefusal::UnknownProvenance)
         );
         // Untouched.
-        assert_eq!(installed_version(tmp.path()), Some("0.0.1".to_string()));
+        assert_eq!(installed_version(&root), Some("0.0.1".to_string()));
     }
 
     #[test]
     fn update_refuses_locally_modified_install() {
         let tmp = tempdir().unwrap();
-        install(tmp.path(), false).unwrap();
-        let md = tmp.path().join(".claude/skills/meta-tool/SKILL.md");
+        let root = default_skill_root(tmp.path());
+        install(&root, false).unwrap();
+        let md = root.join("SKILL.md");
         let mut contents = fs::read_to_string(&md).unwrap();
         contents.push_str("\nlocal tweak\n");
         fs::write(&md, &contents).unwrap();
         assert_eq!(
-            update(tmp.path(), false).unwrap(),
+            update(&root, false).unwrap(),
             SkillAction::Refused(UpdateRefusal::LocallyModified)
         );
         // The edit survives.
@@ -361,25 +361,26 @@ mod tests {
     #[test]
     fn update_force_overwrites_modified_install() {
         let tmp = tempdir().unwrap();
-        install(tmp.path(), false).unwrap();
-        let md = tmp.path().join(".claude/skills/meta-tool/SKILL.md");
+        let root = default_skill_root(tmp.path());
+        install(&root, false).unwrap();
+        let md = root.join("SKILL.md");
         fs::write(&md, "---\nname: meta-cli\nversion: 0.0.1\n---\nedited\n").unwrap();
-        match update(tmp.path(), true).unwrap() {
+        match update(&root, true).unwrap() {
             SkillAction::Updated { to, .. } => assert_eq!(to, bundled_version()),
             other => panic!("expected Updated, got {other:?}"),
         }
-        assert_eq!(installed_version(tmp.path()), bundled_version());
+        assert_eq!(installed_version(&root), bundled_version());
     }
 
     #[test]
     fn update_refuses_downgrade_of_newer_install() {
         let tmp = tempdir().unwrap();
-        let root = tmp.path().join(".claude/skills/meta-tool");
+        let root = default_skill_root(tmp.path());
         fs::create_dir_all(root.join("references")).unwrap();
         let skill_md = "---\nname: meta-cli\nversion: 99.0.0\n---\nfuture\n";
         fs::write(root.join("SKILL.md"), skill_md).unwrap();
         fs::write(root.join("references/CHANGELOG_NOTES.md"), "notes\n").unwrap();
-        match update(tmp.path(), false).unwrap() {
+        match update(&root, false).unwrap() {
             SkillAction::Refused(UpdateRefusal::InstalledNewer { installed, .. }) => {
                 assert_eq!(installed, "99.0.0");
             }
@@ -390,24 +391,20 @@ mod tests {
     #[test]
     fn update_does_not_install_when_absent() {
         let tmp = tempdir().unwrap();
-        assert_eq!(
-            update(tmp.path(), false).unwrap(),
-            SkillAction::NotInstalled
-        );
-        assert!(!is_installed(tmp.path()));
+        let root = default_skill_root(tmp.path());
+        assert_eq!(update(&root, false).unwrap(), SkillAction::NotInstalled);
+        assert!(!is_installed(&root));
     }
 
     #[test]
     fn update_is_noop_when_current_and_backfills_lock() {
         let tmp = tempdir().unwrap();
-        install(tmp.path(), false).unwrap();
+        let root = default_skill_root(tmp.path());
+        install(&root, false).unwrap();
         // Simulate a legacy install: drop the lock, content still pristine.
-        let lock = tmp.path().join(".claude/skills/meta-tool").join(LOCK_FILE);
+        let lock = root.join(LOCK_FILE);
         fs::remove_file(&lock).unwrap();
-        assert_eq!(
-            update(tmp.path(), false).unwrap(),
-            SkillAction::AlreadyCurrent
-        );
+        assert_eq!(update(&root, false).unwrap(), SkillAction::AlreadyCurrent);
         assert!(lock.exists());
     }
 

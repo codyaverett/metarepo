@@ -1,11 +1,28 @@
 use super::{
-    adapt, audit, bundled_version, install, installed_version, is_installed, locations, registry,
-    remove, scan, search, steal, update, SkillAction, UpdateRefusal,
+    adapt, audit, bundled_version, default_skill_root, install, installed_version, is_installed,
+    locations, registry, remove, scan, search, steal, update, SkillAction, UpdateRefusal,
 };
 use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use colored::Colorize;
 use metarepo_core::{BasePlugin, MetaPlugin, RuntimeConfig};
+use std::path::{Path, PathBuf};
+
+/// Resolve the bundled meta-tool skill's install directory. When `[skill] dest`
+/// is configured it installs at `<dest>/meta-tool` (tilde-expanded), matching
+/// where stolen skills land; otherwise it falls back to the workspace default
+/// `<workspace>/.claude/skills/meta-tool`.
+fn meta_tool_root(config: &RuntimeConfig) -> PathBuf {
+    if let Some(dest) = config
+        .meta_config
+        .skill
+        .as_ref()
+        .and_then(|s| s.dest.as_deref())
+    {
+        return PathBuf::from(expand_tilde(dest)).join("meta-tool");
+    }
+    default_skill_root(&config.working_dir)
+}
 
 /// Resolve the install destination: `--dest` flag, else the configured
 /// `[skill] dest` (tilde-expanded), else `None` (the env/cwd/home chain applies).
@@ -121,11 +138,12 @@ impl Default for SkillPlugin {
     }
 }
 
-fn print_action(action: &SkillAction) {
+fn print_action(action: &SkillAction, root: &Path) {
     match action {
         SkillAction::Installed => println!(
-            "  {} Installed Claude Code skill at .claude/skills/meta-tool/",
-            "✓".green()
+            "  {} Installed Claude Code skill at {}/",
+            "✓".green(),
+            root.display()
         ),
         SkillAction::Updated { from, to } => println!(
             "  {} Updated Claude Code skill ({} → {})",
@@ -157,15 +175,17 @@ fn print_action(action: &SkillAction) {
                 ),
             }
             println!(
-                "    Back up or diff .claude/skills/meta-tool/ first, then re-run with 'meta skill update --force' to overwrite."
+                "    Back up or diff {}/ first, then re-run with 'meta skill update --force' to overwrite.",
+                root.display()
             );
         }
     }
 }
 
 fn handle_status(config: &RuntimeConfig) -> Result<()> {
+    let root = meta_tool_root(config);
     let bundled = bundled_version();
-    if !is_installed(&config.working_dir) {
+    if !is_installed(&root) {
         println!(
             "  {} Skill not installed (bundled version {}). Run 'meta skill install'.",
             "·".bright_black(),
@@ -173,7 +193,7 @@ fn handle_status(config: &RuntimeConfig) -> Result<()> {
         );
         return Ok(());
     }
-    let installed = installed_version(&config.working_dir);
+    let installed = installed_version(&root);
     let installed_label = installed.as_deref().unwrap_or("unknown");
     let bundled_label = bundled.as_deref().unwrap_or("unknown");
     if installed.is_some() && installed == bundled {
@@ -203,7 +223,7 @@ impl MetaPlugin for SkillPlugin {
         vec![
             ConfigSetting::new(
                 "skill.dest",
-                "Default install directory for skills (overridden by --dest)",
+                "Skills home directory. Sets where stolen/added skills land (overridden by --dest) and where the bundled meta-tool skill installs, as <dest>/meta-tool. Tilde-expanded; defaults to the workspace .claude/skills.",
                 ConfigValueType::String,
             ),
             ConfigSetting::new(
@@ -251,17 +271,20 @@ impl MetaPlugin for SkillPlugin {
     fn handle_command(&self, matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         match matches.subcommand() {
             Some(("install", m)) => {
-                let action = install(&config.working_dir, m.get_flag("force"))?;
-                print_action(&action);
+                let root = meta_tool_root(config);
+                let action = install(&root, m.get_flag("force"))?;
+                print_action(&action, &root);
                 Ok(())
             }
             Some(("update", m)) => {
-                let action = update(&config.working_dir, m.get_flag("force"))?;
-                print_action(&action);
+                let root = meta_tool_root(config);
+                let action = update(&root, m.get_flag("force"))?;
+                print_action(&action, &root);
                 Ok(())
             }
             Some(("remove", _)) => {
-                if remove(&config.working_dir)? {
+                let root = meta_tool_root(config);
+                if remove(&root)? {
                     println!("  {} Removed Claude Code skill", "✓".yellow());
                 } else {
                     println!("  {} No installed skill to remove", "·".bright_black());
@@ -365,8 +388,9 @@ fn skill_command() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .long_about(
             "Install and maintain the bundled meta-tool Claude Code skill under\n\
-                     .claude/skills/meta-tool/, and discover, audit, and copy other\n\
-                     Claude Code skills between repos.\n\n\
+                     .claude/skills/meta-tool/ (or under the configured [skill] dest,\n\
+                     as <dest>/meta-tool), and discover, audit, and copy other Claude\n\
+                     Code skills between repos.\n\n\
                      Examples:\n  \
                        meta skill              Show installed vs bundled version\n  \
                        meta skill install      Install the skill (no-op if present)\n  \
