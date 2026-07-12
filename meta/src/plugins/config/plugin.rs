@@ -238,6 +238,9 @@ impl ConfigPlugin {
                 setting.value_type.label().bright_black()
             );
             println!("      {}", setting.description);
+            if let Some(choices) = &setting.choices {
+                println!("      choices: {}", choices.join(", ").bright_black());
+            }
             println!(
                 "      current: {}{}{}",
                 value_display.green(),
@@ -284,13 +287,13 @@ impl ConfigPlugin {
         let value_str = matches.get_one::<String>("value").unwrap();
         let to_root = matches.get_flag("root");
 
-        // If the key is a declared setting, validate the value against its type.
-        // Otherwise fall back to free-form JSON-or-string parsing (still
-        // nested-key safe) so arbitrary config paths keep working.
+        // If the key is a declared setting, validate the value against its type
+        // (and its allowed choices, if any). Otherwise fall back to free-form
+        // JSON-or-string parsing (still nested-key safe) so arbitrary config
+        // paths keep working.
         let value = match config.settings_catalog.iter().find(|s| &s.key == key) {
             Some(setting) => setting
-                .value_type
-                .parse(value_str)
+                .coerce(value_str)
                 .map_err(|e| anyhow!("Invalid value for '{}': {}", key, e))?,
             None => serde_json::from_str(value_str)
                 .unwrap_or_else(|_| serde_json::Value::String(value_str.to_string())),

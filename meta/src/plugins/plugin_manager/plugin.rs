@@ -680,6 +680,13 @@ impl MetaPlugin for PluginManagerPlugin {
     fn settings(&self) -> Vec<ConfigSetting> {
         vec![
             ConfigSetting::new(
+                "plugins-integrity",
+                "Plugin checksum-integrity enforcement. 'required' verifies each external plugin against the lockfile before loading; 'off' (default) skips verification.",
+                ConfigValueType::String,
+            )
+            .with_default("off")
+            .with_choices(["off", "required"]),
+            ConfigSetting::new(
                 "allow-version-mismatch",
                 "Load external plugins even when their version does not satisfy the pin in .meta. Relaxes a security default; precedence: flag --allow-version-mismatch > env METAREPO_ALLOW_VERSION_MISMATCH > this config > false.",
                 ConfigValueType::Bool,

@@ -548,6 +548,68 @@ impl ConfigEditor {
         true
     }
 
+    /// If the selected node is a choice-constrained setting, advance it to the
+    /// next allowed value in place (wrapping) and commit, instead of opening a
+    /// text buffer. Returns true when it handled the node. An unset/empty or
+    /// unrecognized current value starts at the first choice.
+    fn cycle_choice_setting(&mut self) -> bool {
+        let selected = self.state.tree_state.selected;
+        let (node_type, current) = match self
+            .tree_roots
+            .iter()
+            .flat_map(|r| r.flatten(true))
+            .nth(selected)
+            .map(|n| (n.node_type.clone(), n.value.clone().unwrap_or_default()))
+        {
+            Some(v) => v,
+            None => return false,
+        };
+
+        // Only declared settings with a choices list are cyclable.
+        let key = match parse_setting_node_type(&node_type) {
+            Some((_, key)) => key.to_string(),
+            None => return false,
+        };
+        let choices = match self
+            .settings
+            .iter()
+            .find(|s| s.key == key)
+            .and_then(|s| s.choices.as_ref())
+        {
+            Some(c) if !c.is_empty() => c.clone(),
+            _ => return false,
+        };
+
+        // Advance to the next choice, wrapping; unknown current starts at [0].
+        let cur = current.trim();
+        let next_idx = choices
+            .iter()
+            .position(|c| c == cur)
+            .map(|i| (i + 1) % choices.len())
+            .unwrap_or(0);
+        let new_value = choices[next_idx].clone();
+
+        self.snapshot_for_undo();
+        self.edited_settings.insert(key.clone());
+        self.dirty.insert(node_type);
+
+        let visible_ptrs: Vec<_> = self
+            .tree_roots
+            .iter_mut()
+            .flat_map(|r| r.flatten_mut())
+            .collect();
+        if let Some(&node_ptr) = visible_ptrs.get(selected) {
+            unsafe {
+                (*node_ptr).value = Some(new_value.clone());
+                (*node_ptr).dirty = true;
+            }
+        }
+        self.state.modified = true;
+        self.state
+            .set_status(format!("Set '{}' = {}", key, new_value));
+        true
+    }
+
     /// Show where an inherited setting's value comes from (the ancestor `.meta`
     /// path) in the status bar. A no-op hint when the selection is local/unset.
     fn reveal_inherited_source(&mut self) {
@@ -1595,6 +1657,10 @@ impl MenuApp for ConfigEditor {
     fn start_editing(&mut self) {
         // Bool settings toggle in place instead of opening a text buffer.
         if self.toggle_bool_setting() {
+            return;
+        }
+        // Choice-constrained settings cycle to the next allowed value in place.
+        if self.cycle_choice_setting() {
             return;
         }
 
@@ -2838,6 +2904,48 @@ mod tests {
         assert_eq!(val(&editor), "true");
         editor.start_editing();
         assert_eq!(val(&editor), "false");
+    }
+
+    #[test]
+    fn choice_setting_cycles_through_allowed_values() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".meta");
+        std::fs::write(&path, r#"{"projects":{}}"#).unwrap();
+
+        // A choice-constrained String setting declared in the catalog.
+        let catalog =
+            vec![
+                metarepo_core::ConfigSetting::new("mode", "pick one", ConfigValueType::String)
+                    .with_choices(["off", "required"]),
+            ];
+        let mut editor = ConfigEditor::new(path, catalog).unwrap();
+        editor.select_by_test(|n| {
+            parse_setting_node_type(&n.node_type)
+                .map(|(vt, k)| vt == ConfigValueType::String && k == "mode")
+                .unwrap_or(false)
+        });
+
+        let val = |e: &ConfigEditor| {
+            e.tree_roots
+                .iter()
+                .flat_map(|r| r.flatten_all())
+                .find(|n| n.node_type == "setting:string:mode")
+                .and_then(|n| n.value.clone())
+                .unwrap_or_default()
+        };
+
+        // Editing cycles rather than opening a text buffer: unset -> first
+        // choice -> next -> wraps back to first.
+        editor.start_editing();
+        assert!(editor.textarea.is_none());
+        assert!(!editor.state.editing);
+        assert!(editor.state.modified);
+        assert!(editor.dirty.contains("setting:string:mode"));
+        assert_eq!(val(&editor), "off");
+        editor.start_editing();
+        assert_eq!(val(&editor), "required");
+        editor.start_editing();
+        assert_eq!(val(&editor), "off");
     }
 
     #[test]

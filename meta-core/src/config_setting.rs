@@ -115,6 +115,12 @@ pub struct ConfigSetting {
     /// env equivalent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env_var: Option<String>,
+    /// Allowed values for a choice-constrained setting. When present, `meta
+    /// config set` accepts only these values, and the TUI editor offers an
+    /// inline cycle-picker instead of free-text entry. Used with
+    /// `ConfigValueType::String`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choices: Option<Vec<String>>,
 }
 
 impl ConfigSetting {
@@ -130,6 +136,7 @@ impl ConfigSetting {
             default: None,
             value_type,
             env_var: None,
+            choices: None,
         }
     }
 
@@ -145,6 +152,41 @@ impl ConfigSetting {
     pub fn with_env(mut self, env_var: impl Into<String>) -> Self {
         self.env_var = Some(env_var.into());
         self
+    }
+
+    /// Constrain this setting to a fixed set of allowed values. `meta config
+    /// set` then rejects anything outside the list, and the TUI editor offers an
+    /// inline cycle-picker. Implies `ConfigValueType::String`.
+    pub fn with_choices<I, S>(mut self, choices: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.choices = Some(choices.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Parse and validate `raw` against this setting's type and, if declared, its
+    /// allowed `choices`. Returns the JSON value to store, or a message
+    /// explaining why it was rejected.
+    pub fn coerce(&self, raw: &str) -> Result<Value, String> {
+        let value = self.value_type.parse(raw)?;
+        if let Some(choices) = &self.choices {
+            // Choice sets are string domains; compare on the string form.
+            let s = match &value {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            if !choices.iter().any(|c| c == &s) {
+                return Err(format!(
+                    "'{}' is not an allowed value for '{}'. Choices: {}",
+                    raw,
+                    self.key,
+                    choices.join(", ")
+                ));
+            }
+        }
+        Ok(value)
     }
 
     /// The namespace (segment before the first `.`), usually the plugin name.
@@ -170,6 +212,27 @@ mod tests {
     fn integer_parses_and_rejects() {
         assert_eq!(ConfigValueType::Integer.parse(" 42 "), Ok(json!(42)));
         assert!(ConfigValueType::Integer.parse("3.5").is_err());
+    }
+
+    #[test]
+    fn coerce_without_choices_matches_parse() {
+        let s = ConfigSetting::new("x", "d", ConfigValueType::Bool);
+        assert_eq!(s.coerce("true"), Ok(json!(true)));
+        assert!(s.coerce("maybe").is_err());
+    }
+
+    #[test]
+    fn coerce_enforces_choices() {
+        let s = ConfigSetting::new("mode", "d", ConfigValueType::String)
+            .with_choices(["off", "required"]);
+        assert_eq!(s.coerce("required"), Ok(json!("required")));
+        assert_eq!(s.coerce("off"), Ok(json!("off")));
+
+        let err = s.coerce("maybe").unwrap_err();
+        assert!(
+            err.contains("not an allowed value") && err.contains("off, required"),
+            "error should list choices, got: {err}"
+        );
     }
 
     #[test]

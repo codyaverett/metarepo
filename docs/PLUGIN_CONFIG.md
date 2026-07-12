@@ -34,12 +34,28 @@ fn settings(&self) -> Vec<ConfigSetting> {
         ConfigSetting::new("skill.search-limit",
             "Default number of hits for skill search",
             ConfigValueType::Integer).with_default("25"),
+        ConfigSetting::new("plugins-integrity",
+            "Plugin checksum-integrity enforcement",
+            ConfigValueType::String)
+            .with_default("off")
+            .with_choices(["off", "required"]),
     ]
 }
 ```
 
 `ConfigValueType` is one of `String`, `Bool`, `Integer`, `StringList`. The type
 drives validation (`meta config set` rejects mismatched input) and display.
+
+Builder options refine a setting further:
+
+- `.with_default("...")` — value shown (and used) when the key is unset.
+- `.with_env("ENV_VAR")` — an environment variable that also controls the
+  setting; `meta config list` flags when it is currently overriding the config.
+- `.with_choices(["a", "b"])` — constrain a `String` setting to a fixed set of
+  values. `meta config set` then rejects anything outside the list, `meta config
+  list` shows the allowed `choices:`, and the interactive editor offers an
+  inline cycle-picker (press the edit key to advance to the next value) instead
+  of free-text entry, mirroring the in-place toggle for `Bool` settings.
 
 ## 2. Edit via `meta config`
 
