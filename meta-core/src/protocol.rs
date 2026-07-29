@@ -155,6 +155,13 @@ pub struct RuntimeConfigDto {
 }
 
 impl RuntimeConfigDto {
+    /// Typed access to a plugin's own config block, mirroring
+    /// [`crate::RuntimeConfig::plugin_config`] so external plugins read their
+    /// settings exactly the way in-process ones do.
+    pub fn plugin_config<T: serde::de::DeserializeOwned>(&self, name: &str) -> Option<T> {
+        self.meta_config.plugin_settings(name)
+    }
+
     /// Resolve the project keys an external plugin should operate on, applying
     /// the same directory-aware rules as the host. See [`crate::scoped_keys`].
     pub fn scoped_project_keys(&self) -> Vec<String> {

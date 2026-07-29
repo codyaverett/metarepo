@@ -5,6 +5,7 @@ use super::{
 use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use colored::Colorize;
+use locations::expand_tilde;
 use metarepo_core::{BasePlugin, MetaPlugin, RuntimeConfig};
 use std::path::{Path, PathBuf};
 
@@ -38,14 +39,14 @@ fn resolved_dest(flag: Option<&str>, config: &RuntimeConfig) -> Option<String> {
         .map(expand_tilde)
 }
 
-/// Expand a leading `~/` to `$HOME`.
-fn expand_tilde(p: &str) -> String {
-    if let Some(rest) = p.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-            return format!("{home}/{rest}");
-        }
-    }
-    p.to_string()
+/// Configured `[skill] dest-roots`, or an empty list for the built-in chain.
+fn resolved_dest_roots(config: &RuntimeConfig) -> Vec<String> {
+    config
+        .meta_config
+        .skill
+        .as_ref()
+        .and_then(|s| s.dest_roots.clone())
+        .unwrap_or_default()
 }
 
 /// skills.sh search endpoint: `[skill] search-url`, else the built-in default.
@@ -261,6 +262,16 @@ impl MetaPlugin for SkillPlugin {
                 "skills.sh API key (SKILLS_SH_API_KEY env takes precedence)",
                 ConfigValueType::String,
             ),
+            ConfigSetting::new(
+                "skill.dest-roots",
+                "Ordered fallback destination roots for stolen/added skills, tried after $CLAUDE_SKILLS_HOME and used only when skill.dest and --dest are unset. Tilde-expanded; replaces the built-in ./.claude/skills then ~/.claude/skills chain.",
+                ConfigValueType::StringList,
+            ),
+            ConfigSetting::new(
+                "skill.audit-suppress",
+                "Built-in audit patterns to skip, by their exact needle string (e.g. 'curl ', 'rm -rf'). Extra patterns are declared under [skill] audit-patterns, which is edit-by-hand only.",
+                ConfigValueType::StringList,
+            ),
         ]
     }
 
@@ -304,10 +315,10 @@ impl MetaPlugin for SkillPlugin {
                     .get_one::<String>("path")
                     .map(String::as_str)
                     .expect("path is required");
-                audit::run(path)
+                audit::run(path, config.meta_config.skill.as_ref())
             }
             Some(("locations", _)) => {
-                locations::run()?;
+                locations::run(Some(&resolved_dest_roots(config)))?;
                 print_skill_config(config);
                 Ok(())
             }
@@ -335,8 +346,12 @@ impl MetaPlugin for SkillPlugin {
                     m.get_flag("force"),
                     m.get_flag("overwrite"),
                     m.get_one::<String>("ref").map(String::as_str),
-                    &resolved_detail_url(config),
-                    resolved_api_key(config).as_deref(),
+                    registry::Resolved {
+                        detail_url: &resolved_detail_url(config),
+                        api_key: resolved_api_key(config).as_deref(),
+                        rules: audit::AuditRules::from_settings(config.meta_config.skill.as_ref())?,
+                        dest_roots: resolved_dest_roots(config),
+                    },
                 )
             }
             Some(("steal", m)) => {
@@ -356,6 +371,8 @@ impl MetaPlugin for SkillPlugin {
                     adapt_cmd: adapt::AdaptCommand::from_settings(
                         config.meta_config.skill.as_ref(),
                     ),
+                    rules: audit::AuditRules::from_settings(config.meta_config.skill.as_ref())?,
+                    dest_roots: resolved_dest_roots(config),
                 };
                 let non_interactive = config
                     .non_interactive

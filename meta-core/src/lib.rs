@@ -415,6 +415,17 @@ pub struct MetaConfig {
     /// plugin/module declared for that command's man-page `Description:` section.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub help_descriptions: Option<HashMap<String, String>>,
+    /// Top-level blocks this struct has no typed field for — chiefly the config
+    /// blocks owned by external plugins (`[example]` for a plugin named
+    /// `example`). Captured so they survive a load/save round-trip and so
+    /// [`MetaConfig::plugin_settings`] can find them; without this they would be
+    /// dropped on deserialize, silently deleting a user's plugin config the
+    /// first time anything rewrote `.meta`.
+    ///
+    /// Serialized last: TOML rejects a scalar written after a table, and every
+    /// captured value is itself a table.
+    #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 /// Configuration for the `meta skill` commands (the `[skill]` block in `.meta`).
@@ -464,6 +475,42 @@ pub struct SkillSettings {
     /// takes precedence over this. Prefer the env var for secrets.
     #[serde(rename = "api-key", default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Extra audit risk patterns (regex + severity + message) merged with the
+    /// built-in set. Regex is validated when the audit runs.
+    #[serde(
+        rename = "audit-patterns",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub audit_patterns: Option<Vec<AuditPattern>>,
+    /// Built-in audit patterns to suppress, identified by their exact needle
+    /// string (e.g. `"curl "`, `"rm -rf"`).
+    #[serde(
+        rename = "audit-suppress",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub audit_suppress: Option<Vec<String>>,
+    /// Ordered fallback destination roots for stolen/added skills, tried after
+    /// `$CLAUDE_SKILLS_HOME`. When unset, the built-in defaults apply
+    /// (`./.claude/skills`, then `~/.claude/skills`).
+    #[serde(
+        rename = "dest-roots",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub dest_roots: Option<Vec<String>>,
+}
+
+/// A user-declared audit risk pattern under `[skill] audit-patterns`. The
+/// `pattern` is a regex matched case-insensitively against each file line; the
+/// `severity` is `high`, `medium`, or `low`. Validated by the skill plugin when
+/// the audit runs (`meta-core` keeps it as plain data).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditPattern {
+    pub severity: String,
+    pub pattern: String,
+    pub message: String,
 }
 
 /// Configuration for the experimental `meta mcp` plugin (the `[mcp]` block in
@@ -528,6 +575,7 @@ impl Default for MetaConfig {
             skill: None,
             mcp: None,
             help_descriptions: None,
+            extra: HashMap::new(),
         }
     }
 }
@@ -1167,6 +1215,44 @@ mod tests {
         // Absent block → None.
         let none: Option<SkillSettings> = MetaConfig::default().plugin_settings("skill");
         assert!(none.is_none());
+    }
+
+    /// An external plugin's block has no typed field on `MetaConfig`, so it is
+    /// only reachable — and only survives a rewrite — via the `extra` catch-all.
+    #[test]
+    fn external_plugin_block_is_readable_and_survives_a_round_trip() {
+        #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+        struct ExampleSettings {
+            greeting: Option<String>,
+            #[serde(rename = "max-projects")]
+            max_projects: Option<usize>,
+        }
+
+        let raw = r#"{"projects":{},"example":{"greeting":"hi","max-projects":3}}"#;
+        let cfg: MetaConfig = serde_json::from_str(raw).unwrap();
+
+        let s: ExampleSettings = cfg
+            .plugin_settings("example")
+            .expect("external plugin block present");
+        assert_eq!(s.greeting.as_deref(), Some("hi"));
+        assert_eq!(s.max_projects, Some(3));
+
+        // Re-serializing must not drop the block: anything that loads and saves
+        // `.meta` would otherwise delete the user's plugin config.
+        let out = serde_json::to_string(&cfg).unwrap();
+        let back: MetaConfig = serde_json::from_str(&out).unwrap();
+        assert_eq!(back.plugin_settings::<ExampleSettings>("example"), Some(s));
+    }
+
+    /// TOML rejects a scalar emitted after a table, so the flattened catch-all
+    /// must serialize last to keep `.meta` in TOML form writable.
+    #[test]
+    fn external_plugin_block_survives_a_toml_round_trip() {
+        let raw = "ignore = [\".git\"]\n[projects]\n[example]\ngreeting = \"hi\"\n";
+        let cfg: MetaConfig = toml::from_str(raw).unwrap();
+        let out = toml::to_string_pretty(&cfg).expect("TOML serialization");
+        let back: MetaConfig = toml::from_str(&out).unwrap();
+        assert!(back.extra.contains_key("example"));
     }
 
     #[test]

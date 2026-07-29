@@ -24,7 +24,7 @@ use walkdir::WalkDir;
 use crate::plugins::plugin_manager::lockfile::{LockEntry, Lockfile};
 use crate::plugins::plugin_manager::verify;
 use crate::plugins::skill::audit::{audit_skill, has_high, print_findings};
-use crate::plugins::skill::locations::default_dest_root;
+use crate::plugins::skill::locations::default_dest_root_with;
 use crate::plugins::skill::skill_file::Skill;
 use crate::plugins::skill::steal;
 
@@ -35,6 +35,16 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// `.meta-modules` (not `.metarepo/...`): the canonical config filename is
 /// `.metarepo`, so a `.metarepo` directory would both shadow the config during
 /// discovery and be impossible to create when the config is a `.metarepo` file.
+/// Configured `[skill] dest-roots` from the workspace config; empty means the
+/// built-in chain. Module skills install and uninstall through the same roots
+/// as `meta skill steal`, so an enable/disable pair stays symmetric.
+fn config_dest_roots(cfg: &MetaConfig) -> Vec<String> {
+    cfg.skill
+        .as_ref()
+        .and_then(|s| s.dest_roots.clone())
+        .unwrap_or_default()
+}
+
 fn staged_root(module_name: &str) -> PathBuf {
     Path::new(".meta-modules").join(module_name)
 }
@@ -119,6 +129,7 @@ pub fn enable(repo: &Path, meta_file: &Path, force: bool, overwrite: bool) -> Re
     }
 
     // --- Skills: reuse the audit-gated steal path. ---
+    let dest_roots = config_dest_roots(&cfg);
     for s in &manifest.module.skills {
         let src = repo.join(&s.path);
         let src_str = src
@@ -130,7 +141,10 @@ pub fn enable(repo: &Path, meta_file: &Path, force: bool, overwrite: bool) -> Re
             force,
             overwrite,
             None,
-            steal::SelectOpts::default(),
+            steal::SelectOpts {
+                dest_roots: dest_roots.clone(),
+                ..Default::default()
+            },
             metarepo_core::NonInteractiveMode::Defaults,
         )
         .with_context(|| format!("installing skill from {}", s.path))?;
@@ -230,7 +244,7 @@ pub fn disable(name: &str, meta_file: &Path) -> Result<()> {
     }
 
     // Remove installed skills.
-    let dest_root = default_dest_root();
+    let dest_root = default_dest_root_with(Some(&config_dest_roots(&cfg)));
     for n in &skill_names {
         let d = dest_root.join(n);
         if d.exists() {

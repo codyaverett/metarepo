@@ -73,6 +73,19 @@ struct FileEntry {
     contents: String,
 }
 
+/// The pieces of `[skill]` config already resolved by the caller (flag > env >
+/// config > default), bundled so [`run`] takes one parameter for all of them.
+pub struct Resolved<'a> {
+    /// The skill-detail endpoint to query on the keyed path.
+    pub detail_url: &'a str,
+    /// The skills.sh API key, if one is configured.
+    pub api_key: Option<&'a str>,
+    /// Audit rules (built-ins plus any configured extras/suppressions).
+    pub rules: super::audit::AuditRules,
+    /// Configured `[skill] dest-roots`; empty means the built-in chain.
+    pub dest_roots: Vec<String>,
+}
+
 /// `meta skill add <id>` — install a skill from skills.sh.
 ///
 /// `detail_url` is the resolved skill-detail endpoint and `api_key` the resolved
@@ -86,9 +99,14 @@ pub fn run(
     force: bool,
     overwrite: bool,
     git_ref: Option<&str>,
-    detail_url: &str,
-    api_key: Option<&str>,
+    resolved: Resolved<'_>,
 ) -> Result<()> {
+    let Resolved {
+        detail_url,
+        api_key,
+        rules,
+        dest_roots,
+    } = resolved;
     let parsed = ParsedId::parse(id)?;
     let tmp = TempDir::new().context("creating temp working dir")?;
 
@@ -128,7 +146,11 @@ pub fn run(
         force,
         overwrite,
         git_ref,
-        steal::SelectOpts::default(),
+        steal::SelectOpts {
+            rules,
+            dest_roots,
+            ..Default::default()
+        },
         metarepo_core::NonInteractiveMode::Defaults,
     )
 }

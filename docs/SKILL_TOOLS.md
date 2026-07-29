@@ -102,7 +102,8 @@ prompts to read the file, not as a verdict.
 ### locations
 
 Print the candidate skill destination directories in resolution order, marking
-which already exist.
+which already exist. The list reflects the configured `[skill] dest-roots` when
+one is set.
 
 ```bash
 meta skill locations
@@ -145,8 +146,9 @@ meta skill steal ~/Downloads/some-skill --force         # copy despite HIGH find
 Flags:
 
 - `--dest <dir>` — destination skills root. Resolution order: `--dest` > the
-  configured `[skill] dest` (see below) > `$CLAUDE_SKILLS_HOME` > `./.claude/skills`
-  > `~/.claude/skills`.
+  configured `[skill] dest` (see below) > `$CLAUDE_SKILLS_HOME` > the configured
+  `[skill] dest-roots`, or, when that is unset, `./.claude/skills` then
+  `~/.claude/skills`.
 - `--ref <ref>` (alias `--branch`) — for git URL sources, the branch, tag, or
   commit SHA to steal from. Branches and tags clone shallowly at the ref; a
   commit SHA is fetched into the clone and checked out. `url#ref` is equivalent
@@ -222,13 +224,20 @@ Notes for multi-file skills:
 
 ### Configuration — `[skill]` in `.meta`
 
-Both the default install location and the adapt command are configurable per
-workspace via a `[skill]` block. `meta skill locations` prints the resolved values.
+The default install location, the destination fallback chain, the audit patterns,
+and the adapt command are all configurable per workspace via a `[skill]` block.
+`meta skill locations` prints the resolved destinations.
 
 ```toml
 [skill]
 # Default install dir for stolen skills (tilde-expanded). Overridden by --dest.
 dest = "~/.config/agent-skills"
+
+# Fallback destination roots, tried in order after $CLAUDE_SKILLS_HOME and used
+# only when neither --dest nor `dest` applies. Tilde-expanded. Setting this
+# replaces the built-in ./.claude/skills then ~/.claude/skills chain outright,
+# so a workspace that lists only shared roots never falls back to ~/.claude.
+dest-roots = ["./.claude/skills", "/opt/team/skills"]
 
 # The AI command run by --adapt. Defaults to Claude when unset.
 # `{prompt}` is replaced with the generated adaptation prompt; the command runs
@@ -249,8 +258,31 @@ adapt-command = "opencode"
 adapt-args = ["run", "{prompt}"]
 ```
 
-(JSON/YAML `.meta` work too; the keys are `skill.dest`, `skill.adapt-command`,
-`skill.adapt-args`.)
+Extend or trim the audit in the same block. `audit-patterns` adds rules on top of
+the [built-in set](#risk-patterns-flagged-by-audit); `audit-suppress` drops
+built-ins by their exact needle string:
+
+```toml
+[skill]
+# Extra rules. `pattern` is a regex matched case-insensitively against each line;
+# `severity` is high, medium, or low. A HIGH match blocks the copy like a
+# built-in one does, so this is how you make a house rule enforceable.
+audit-patterns = [
+  { severity = "high", pattern = "internal\\.example\\.com", message = "references an internal host" },
+  { severity = "medium", pattern = "kubectl\\s+delete", message = "destructive kubectl call" },
+]
+
+# Turn off built-ins that are noise in this workspace.
+audit-suppress = ["curl ", "ssh "]
+```
+
+An invalid regex or severity fails the audit loudly rather than silently
+under-checking, so a typo here cannot quietly disable the gate.
+
+(JSON/YAML `.meta` work too; the keys are `skill.dest`, `skill.dest-roots`,
+`skill.adapt-command`, `skill.adapt-args`, `skill.audit-patterns`,
+`skill.audit-suppress`. `meta config set` covers all of them except
+`skill.audit-patterns`, whose entries are structs and must be edited by hand.)
 
 In a non-interactive run (no TTY) against a multi-skill source, you must pass
 `--all` or `--name`; otherwise `steal` errors and lists the skills it found. A
@@ -319,6 +351,10 @@ prevents silently importing a skill that fetches and executes remote code, runs
 the copy still completes but a `⚠` reminder is printed to review before use.
 
 ## Risk patterns flagged by audit
+
+The lists below are the built-ins. Add your own with `[skill] audit-patterns` and
+drop any of these with `[skill] audit-suppress` — see
+[Configuration](#configuration--skill-in-meta).
 
 **HIGH**
 

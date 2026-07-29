@@ -12,8 +12,20 @@ keywords = ["metarepo", "plugin", "meta", "monorepo", "example"]
 categories = ["development-tools"]
 
 [dependencies]
-metarepo-plugin-sdk = { version = "0.20", path = "../../metarepo-plugin-sdk" }
+# Path-only on purpose: this example lives in the metarepo tree and must build
+# against the SDK sources beside it. A version requirement here would go stale on
+# every SDK release (it did — it sat at 0.20 while the SDK reached 0.54, and
+# nothing caught it because this crate is excluded from the workspace). An
+# out-of-tree plugin would instead depend on the published crate:
+#     metarepo-plugin-sdk = "0.54"
+metarepo-plugin-sdk = { path = "../../metarepo-plugin-sdk" }
 anyhow = "1.0"
+# Needed to derive the typed settings struct read via plugin_config.
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+# Test-only: builds the [example] config block the settings tests read back.
+serde_json = "1.0"
 
 [[bin]]
 name = "metarepo-plugin-example"

@@ -125,10 +125,24 @@ Example — the skill plugin's search limit is `--limit` flag, else
 `[skill] search-limit`, else `25`; its API key is `SKILLS_SH_API_KEY` env, else
 `[skill] api-key`. Keep secrets in the environment, not in `.meta`.
 
+Config can also *replace* a built-in list rather than just supply a default:
+`[skill] dest-roots` takes over the destination fallback chain (after the
+`$CLAUDE_SKILLS_HOME` env override), and `[skill] audit-patterns` /
+`audit-suppress` extend and trim the built-in audit rules. Values that cannot be
+parsed — a bad regex or severity — are rejected when the command runs, so a
+misconfiguration fails loudly instead of silently weakening a check. See
+[SKILL_TOOLS.md](SKILL_TOOLS.md#configuration--skill-in-meta).
+
 ## External (subprocess) plugins
 
-External plugins receive the config snapshot over the wire and can call the same
-`plugin_config` accessor on the DTO's `meta_config`.
+External plugins receive the config snapshot over the wire and call
+`plugin_config` on the `RuntimeConfigDto` exactly as an in-process plugin calls
+it on `RuntimeConfig`.
+
+A plugin's block has no typed field on `MetaConfig`, so it is captured by a
+flattened `extra` map. That map is what makes the block both readable and
+durable: it is re-serialized on save, so a `meta config set` (or any other
+load-then-write path) preserves plugin blocks instead of dropping them.
 
 They also **declare** their settings to the host: implement `Plugin::settings()`
 in the SDK (returns `Vec<ConfigSetting>`). The host requests them over the
@@ -137,6 +151,31 @@ protocol (`GetSettings`, protocol 1.1+) at load time and folds them into the
 plugins exactly like built-in ones. A 1.0 plugin that predates this simply
 declares nothing.
 
+## Worked example
+
+[`examples/metarepo-plugin-example`](../examples/metarepo-plugin-example) is an
+external plugin that does the whole loop end to end: it declares
+`example.greeting` and `example.max-projects` from `Plugin::settings`, mirrors
+them as a typed `ExampleSettings` struct, and reads them with
+`config.plugin_config("example")`. `meta example config` prints each resolved
+value and whether it came from `[example]` or a built-in default; `meta example
+hello` shows argument-over-config-over-default precedence.
+
+```toml
+# .meta
+[example]
+greeting = "metarepo"
+max-projects = 25
+```
+
+```bash
+meta config list | grep example    # declared keys appear in the catalog
+meta config set example.greeting metarepo
+meta example config                # resolved values and their source
+meta example hello                 # "Hello, metarepo!"
+meta example hello Ada             # argument wins: "Hello, Ada!"
+```
+
 ## Reference
 
 - Types: `metarepo-core/src/config_setting.rs`
@@ -144,3 +183,4 @@ declares nothing.
 - Accessor: `MetaConfig::plugin_settings` / `RuntimeConfig::plugin_config`
 - Command: `meta/src/plugins/config/plugin.rs`
 - First consumer: `meta/src/plugins/skill/plugin.rs`
+- External-plugin example: `examples/metarepo-plugin-example/src/lib.rs`

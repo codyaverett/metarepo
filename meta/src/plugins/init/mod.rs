@@ -99,6 +99,7 @@ fn create_default_config() -> MetaConfig {
         skill: None,
         mcp: None,
         help_descriptions: None,
+        extra: HashMap::new(),
     }
 }
 
