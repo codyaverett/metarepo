@@ -49,7 +49,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-metarepo-plugin-sdk = "0.20"
+metarepo-plugin-sdk = "0.54"
 anyhow = "1.0"
 ```
 
@@ -447,7 +447,7 @@ description = "..."
 repository = "https://github.com/you/metarepo-plugin-yourname"
 
 [dependencies]
-metarepo-plugin-sdk = "0.20"
+metarepo-plugin-sdk = "0.54"
 anyhow = "1.0"
 ```
 

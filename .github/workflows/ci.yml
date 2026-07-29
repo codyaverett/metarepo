@@ -55,6 +55,53 @@ jobs:
     - name: Run tests
       run: cargo test --locked --verbose --all
 
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    # The example crates under examples/ are deliberately excluded from the
+    # workspace so they build the way an out-of-tree consumer would. That also
+    # means `cargo build --all` never touches them, so they rot silently — the
+    # plugin example once sat on an SDK requirement 34 minor versions stale and
+    # no longer compiled. This job builds and tests each one on its own.
+    steps:
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache cargo registry
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+    # Not --locked: each example keeps its own lockfile, and every version bump
+    # in the workspace would otherwise fail the job on a stale path-dep entry.
+    - name: Build and test each example crate
+      run: |
+        set -eu
+        # Every Cargo.toml directly under examples/<crate>/ is one example crate.
+        manifests=$(find examples -mindepth 2 -maxdepth 2 -name Cargo.toml | sort)
+        if [ -z "$manifests" ]; then
+          echo "No example crates found under examples/ — did the layout change?" >&2
+          exit 1
+        fi
+        for manifest in $manifests; do
+          echo "::group::$manifest"
+          cargo fmt --manifest-path "$manifest" -- --check
+          cargo clippy --manifest-path "$manifest" --all-targets -- -D warnings
+          cargo test --manifest-path "$manifest"
+          echo "::endgroup::"
+        done
+
   build-release:
     name: Build Release
     runs-on: ubuntu-latest

@@ -229,6 +229,30 @@ cargo test --package metarepo-core  # Test specific package
 cargo test integration      # Run integration tests
 ```
 
+#### Example crates
+
+The crates under `examples/` are excluded from the workspace on purpose: they
+build the way an out-of-tree consumer would. That also means `cargo test --all`
+never touches them, so they can rot unnoticed — the plugin example once sat on an
+SDK requirement 34 minor versions stale and no longer compiled at all.
+
+CI's `Examples` job builds and tests each of them separately, discovering every
+`examples/<crate>/Cargo.toml` automatically, so a new example is covered with no
+workflow change. To run the same checks locally:
+
+```bash
+for m in examples/*/Cargo.toml; do
+  cargo fmt --manifest-path "$m" -- --check
+  cargo clippy --manifest-path "$m" --all-targets -- -D warnings
+  cargo test --manifest-path "$m"
+done
+```
+
+Depend on in-tree crates by path only (no version requirement) in an example, so
+a workspace version bump cannot break it. Show the published `version = "..."`
+form in the example's README instead, where it documents real usage without
+being compiled.
+
 ### Code Quality
 
 ```bash
