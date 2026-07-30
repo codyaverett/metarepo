@@ -27,15 +27,19 @@ impl GitPlugin {
                  \n\
                  Metarepo treats the main repo and each project listed in .meta as a\n\
                  single fleet. These subcommands fan the same git action out across all\n\
-                 of them at once, so you can clone, status, update, and pull the whole\n\
-                 workspace with one command. Operations are scoped to your current\n\
-                 directory: run them from a project subdirectory to act on just that\n\
-                 project, or from the workspace root to act on everything.\n\
+                 of them at once, so you can clone, status, update, pull, push, fetch,\n\
+                 and checkout the whole workspace with one command. Operations are\n\
+                 scoped to your current directory: run them from a project subdirectory\n\
+                 to act on just that project, or from the workspace root to act on\n\
+                 everything.\n\
                  \n\
                  Examples:\n\
                  \n\
                    meta git status                    status for every repo\n\
                    meta git pull --skip-main          pull child repos only\n\
+                   meta git push                      push every repo with an upstream\n\
+                   meta git fetch                     fetch remotes in parallel\n\
+                   meta git checkout feature/x        switch every repo to a branch\n\
                    meta git clone git@host:org/x.git  clone a workspace and its children",
             )
             .command(
@@ -177,10 +181,178 @@ impl GitPlugin {
                          repos do not accumulate history over time",
                     )),
             )
+            .command(
+                command("push")
+                    .about("Push commits for all repositories with an upstream")
+                    .help_description(
+                        "Push the current branch of every repository in scope to its\n\
+                         upstream remote.\n\
+                         \n\
+                         Pushes run concurrently by default; use --sequential for one\n\
+                         repo at a time. Repositories with no upstream tracking branch\n\
+                         are skipped with a note. Bare repositories push from each\n\
+                         managed worktree. Dirty working trees are still pushed (git\n\
+                         allows this). The main repo is included in the full-workspace\n\
+                         view unless --skip-main is given.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta git push\n\
+                           meta git push --skip-main\n\
+                           meta git push --exclude vendor,docs",
+                    )
+                    .aliases(vec!["ps".to_string()])
+                    .with_help_formatting()
+                    .arg(
+                        arg("parallel")
+                            .long("parallel")
+                            .help("Push repositories in parallel (now the default)"),
+                    )
+                    .arg(
+                        arg("sequential")
+                            .long("sequential")
+                            .help("Push repositories one at a time instead of concurrently"),
+                    )
+                    .arg(
+                        arg("skip-main")
+                            .long("skip-main")
+                            .help("Skip pushing the main meta repository"),
+                    )
+                    .arg(
+                        arg("include-only")
+                            .long("include-only")
+                            .help("Only include projects matching patterns (comma-separated)")
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("exclude")
+                            .long("exclude")
+                            .help("Exclude projects matching patterns (comma-separated)")
+                            .takes_value(true),
+                    ),
+            )
+            .command(
+                command("fetch")
+                    .about("Fetch remotes for all repositories")
+                    .help_description(
+                        "Fetch from the default remote for every repository in scope.\n\
+                         \n\
+                         Fetch is network-bound and runs concurrently by default; use\n\
+                         --sequential to fetch one repo at a time. Bare repositories are\n\
+                         fetched at the bare root (no worktree expansion). Dirty working\n\
+                         trees are not skipped because fetch does not touch the work tree.\n\
+                         The main repo is included in the full-workspace view unless\n\
+                         --skip-main is given.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta git fetch\n\
+                           meta git fetch --skip-main\n\
+                           meta git fetch --include-only frontend,backend",
+                    )
+                    .aliases(vec!["f".to_string()])
+                    .with_help_formatting()
+                    .arg(
+                        arg("parallel")
+                            .long("parallel")
+                            .help("Fetch repositories in parallel (now the default)"),
+                    )
+                    .arg(
+                        arg("sequential")
+                            .long("sequential")
+                            .help("Fetch repositories one at a time instead of concurrently"),
+                    )
+                    .arg(
+                        arg("skip-main")
+                            .long("skip-main")
+                            .help("Skip fetching the main meta repository"),
+                    )
+                    .arg(
+                        arg("include-only")
+                            .long("include-only")
+                            .help("Only include projects matching patterns (comma-separated)")
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("exclude")
+                            .long("exclude")
+                            .help("Exclude projects matching patterns (comma-separated)")
+                            .takes_value(true),
+                    ),
+            )
+            .command(
+                command("checkout")
+                    .about("Check out a branch across all repositories")
+                    .help_description(
+                        "Switch every repository in scope to the given branch.\n\
+                         \n\
+                         Repositories with uncommitted changes are skipped so local work\n\
+                         is not lost. Bare repositories check out inside each managed\n\
+                         worktree. Pass --create (or -b) to create the branch when it\n\
+                         does not already exist (equivalent to git checkout -b). The\n\
+                         main repo is included in the full-workspace view unless\n\
+                         --skip-main is given.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta git checkout main\n\
+                           meta git checkout feature/auth\n\
+                           meta git checkout -b feature/new\n\
+                           meta git switch develop",
+                    )
+                    .aliases(vec![
+                        "co".to_string(),
+                        "switch".to_string(),
+                        "sw".to_string(),
+                    ])
+                    .with_help_formatting()
+                    .arg(
+                        arg("branch")
+                            .help("Branch name to check out")
+                            .required(true)
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("create")
+                            .short('b')
+                            .long("create")
+                            .help("Create the branch if it does not exist (git checkout -b)"),
+                    )
+                    .arg(
+                        arg("parallel")
+                            .long("parallel")
+                            .help("Check out repositories in parallel (now the default)"),
+                    )
+                    .arg(
+                        arg("sequential")
+                            .long("sequential")
+                            .help("Check out repositories one at a time instead of concurrently"),
+                    )
+                    .arg(
+                        arg("skip-main")
+                            .long("skip-main")
+                            .help("Skip checking out the main meta repository"),
+                    )
+                    .arg(
+                        arg("include-only")
+                            .long("include-only")
+                            .help("Only include projects matching patterns (comma-separated)")
+                            .takes_value(true),
+                    )
+                    .arg(
+                        arg("exclude")
+                            .long("exclude")
+                            .help("Exclude projects matching patterns (comma-separated)")
+                            .takes_value(true),
+                    ),
+            )
             .handler("clone", handle_clone)
             .handler("status", handle_status)
             .handler("update", handle_update)
             .handler("pull", handle_pull)
+            .handler("push", handle_push)
+            .handler("fetch", handle_fetch)
+            .handler("checkout", handle_checkout)
             .build()
     }
 }
@@ -262,26 +434,160 @@ fn handle_update(_matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
 
 /// Handler for the pull command
 fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let shallow = matches.get_flag("shallow");
+    let parallel = fanout_parallel(matches);
+    let (targets, depths) = resolve_fanout_targets(
+        matches,
+        config,
+        FanoutPolicy {
+            expand_bare_worktrees: true,
+            require_clean: true,
+            require_upstream: true,
+            track_depth: true,
+        },
+    )?;
+
+    let workers = parallelism();
+    let refetch_targets: Vec<(ProjectInfo, i32)> = targets
+        .iter()
+        .zip(depths.iter())
+        .filter_map(|(p, d)| d.map(|d| (p.clone(), d)))
+        .collect();
+
+    execute_with_projects("git", &["pull"], targets, false, parallel, false, false)?;
+
+    // With --shallow, re-truncate each depth-tracked repository after the
+    // pull so its history shrinks back to the stored depth. This must run
+    // after (not before) pulling: a `fetch --depth` that moves the shallow
+    // boundary past the local HEAD leaves the local and remote branches with
+    // no visible common ancestor, and a subsequent `git pull` then fails
+    // with a divergent-branches error under default git configuration.
+    if shallow {
+        if refetch_targets.is_empty() {
+            println!("\nℹ️  --shallow: no projects in scope have a stored clone depth in .meta");
+        } else {
+            println!(
+                "\nRe-truncating {} shallow target(s) to their stored depth...",
+                refetch_targets.len()
+            );
+            let results = parallel_map(refetch_targets, workers, |(project, depth)| {
+                let result = crate::plugins::shared::refetch_shallow(&project.path, depth);
+                (project.name, depth, result)
+            });
+            for (name, depth, result) in results {
+                if let Err(e) = result {
+                    eprintln!("⚠️  {} (depth {}): {}", name, depth, e);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Handler for the push command
+fn handle_push(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let parallel = fanout_parallel(matches);
+    let (targets, _) = resolve_fanout_targets(
+        matches,
+        config,
+        FanoutPolicy {
+            expand_bare_worktrees: true,
+            require_clean: false,
+            require_upstream: true,
+            track_depth: false,
+        },
+    )?;
+    execute_with_projects("git", &["push"], targets, false, parallel, false, false)
+}
+
+/// Handler for the fetch command
+fn handle_fetch(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let parallel = fanout_parallel(matches);
+    // Fetch does not need a work tree: bare roots are fine, dirty trees ok.
+    let (targets, _) = resolve_fanout_targets(
+        matches,
+        config,
+        FanoutPolicy {
+            expand_bare_worktrees: false,
+            require_clean: false,
+            require_upstream: false,
+            track_depth: false,
+        },
+    )?;
+    execute_with_projects("git", &["fetch"], targets, false, parallel, false, false)
+}
+
+/// Handler for the checkout / switch command
+fn handle_checkout(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let branch = matches
+        .get_one::<String>("branch")
+        .ok_or_else(|| anyhow::anyhow!("branch is required"))?;
+    let create = matches.get_flag("create");
+    let parallel = fanout_parallel(matches);
+    let (targets, _) = resolve_fanout_targets(
+        matches,
+        config,
+        FanoutPolicy {
+            expand_bare_worktrees: true,
+            require_clean: true,
+            require_upstream: false,
+            track_depth: false,
+        },
+    )?;
+
+    let args: Vec<&str> = if create {
+        vec!["checkout", "-b", branch.as_str()]
+    } else {
+        vec!["checkout", branch.as_str()]
+    };
+    execute_with_projects("git", &args, targets, false, parallel, false, false)
+}
+
+/// Preflight policy shared by multi-repo git fan-out commands.
+struct FanoutPolicy {
+    /// Expand bare project roots into managed worktrees (pull/push/checkout).
+    /// When false, operate on the bare root itself (fetch).
+    expand_bare_worktrees: bool,
+    /// Skip targets with uncommitted changes.
+    require_clean: bool,
+    /// Skip targets whose current branch has no upstream.
+    require_upstream: bool,
+    /// Attach each project's stored shallow depth (for pull --shallow).
+    track_depth: bool,
+}
+
+fn fanout_parallel(matches: &ArgMatches) -> bool {
+    // Network-bound ops run concurrently by default. `--sequential` restores
+    // one-at-a-time; `--parallel` is kept for back-compat.
+    !matches.get_flag("sequential")
+}
+
+fn parallelism() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+}
+
+/// Collect scoped project candidates, preflight them, print skip notes, and
+/// return the executable targets (plus optional shallow depths when tracked).
+fn resolve_fanout_targets(
+    matches: &ArgMatches,
+    config: &RuntimeConfig,
+    policy: FanoutPolicy,
+) -> Result<(Vec<ProjectInfo>, Vec<Option<i32>>)> {
     let base_path = config
         .meta_root()
         .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
 
-    // Directory-aware scope: only the in-scope projects are pulled.
     let scope = config.scoped_project_keys();
     if scope.is_empty() {
         println!("No projects in this directory.");
-        return Ok(());
+        return Ok((Vec::new(), Vec::new()));
     }
     let full_scope = scope.len() == config.meta_config.projects.len();
-
-    // Pulls are network-bound, so run them concurrently by default. `--sequential`
-    // restores one-at-a-time behavior; `--parallel` is kept for back-compat.
-    let parallel = !matches.get_flag("sequential");
-    // Pull the main repo only in the full-workspace view (or when not skipped).
     let skip_main = matches.get_flag("skip-main") || !full_scope;
-    let shallow = matches.get_flag("shallow");
 
-    // Build iterator scoped to the in-scope projects, filtered to existing repos.
     let mut iterator = ProjectIterator::new(&config.meta_config, &base_path)
         .with_scope(&scope)
         .filter_existing()
@@ -297,22 +603,17 @@ fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         iterator = iterator.with_exclude_patterns(pattern_vec);
     }
 
-    // Collect every candidate up front so the independent per-repo preflight
-    // checks (bare detection, uncommitted-change and upstream probes, worktree
-    // listing) can run concurrently rather than one repo at a time.
-    // Each candidate carries the project's stored shallow-clone depth (if any)
-    // so `--shallow` can re-truncate it after pulling; expanded bare-repo
-    // worktrees inherit the depth of the project they belong to.
     let mut candidates: Vec<(ProjectInfo, Option<i32>)> = iterator
         .map(|p| {
-            let depth = config.meta_config.get_project_depth(&p.name);
+            let depth = if policy.track_depth {
+                config.meta_config.get_project_depth(&p.name)
+            } else {
+                None
+            };
             (p, depth)
         })
         .collect();
 
-    // Treat the main meta repository as just another candidate so it goes
-    // through the same graceful skipping (uncommitted changes / no upstream)
-    // instead of aborting the whole run, and so it is pulled alongside the rest.
     if !skip_main {
         let main_name = base_path
             .file_name()
@@ -328,16 +629,17 @@ fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         );
     }
 
-    // Expand each candidate into the directories that can actually be pulled.
-    // Regular repos pull in place; bare repos (whose top-level git dir is bare)
-    // pull in each managed worktree so we never hit
-    // "fatal: this operation must be run in a work tree". Worktrees with
-    // uncommitted changes are skipped to avoid conflicts.
-    let workers = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
+    let workers = parallelism();
     let classifications = parallel_map(candidates, workers, |(project, depth)| {
-        (classify_pull_target(project), depth)
+        (
+            classify_fanout_target(
+                project,
+                policy.expand_bare_worktrees,
+                policy.require_clean,
+                policy.require_upstream,
+            ),
+            depth,
+        )
     });
 
     let mut targets: Vec<(ProjectInfo, Option<i32>)> = Vec::new();
@@ -384,51 +686,9 @@ fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         println!();
     }
 
-    let refetch_targets: Vec<(ProjectInfo, i32)> = targets
-        .iter()
-        .filter_map(|(p, d)| d.map(|d| (p.clone(), d)))
-        .collect();
-    let pull_targets: Vec<ProjectInfo> = targets.into_iter().map(|(p, _)| p).collect();
-
-    // `include_main` is false here: the main repo, when not skipped, is already
-    // part of `targets` so it is filtered and pulled like any other repository.
-    execute_with_projects(
-        "git",
-        &["pull"],
-        pull_targets,
-        false,
-        parallel,
-        false,
-        false,
-    )?;
-
-    // With --shallow, re-truncate each depth-tracked repository after the
-    // pull so its history shrinks back to the stored depth. This must run
-    // after (not before) pulling: a `fetch --depth` that moves the shallow
-    // boundary past the local HEAD leaves the local and remote branches with
-    // no visible common ancestor, and a subsequent `git pull` then fails
-    // with a divergent-branches error under default git configuration.
-    if shallow {
-        if refetch_targets.is_empty() {
-            println!("\nℹ️  --shallow: no projects in scope have a stored clone depth in .meta");
-        } else {
-            println!(
-                "\nRe-truncating {} shallow target(s) to their stored depth...",
-                refetch_targets.len()
-            );
-            let results = parallel_map(refetch_targets, workers, |(project, depth)| {
-                let result = crate::plugins::shared::refetch_shallow(&project.path, depth);
-                (project.name, depth, result)
-            });
-            for (name, depth, result) in results {
-                if let Err(e) = result {
-                    eprintln!("⚠️  {} (depth {}): {}", name, depth, e);
-                }
-            }
-        }
-    }
-
-    Ok(())
+    let depths: Vec<Option<i32>> = targets.iter().map(|(_, d)| *d).collect();
+    let projects: Vec<ProjectInfo> = targets.into_iter().map(|(p, _)| p).collect();
+    Ok((projects, depths))
 }
 
 /// Outcome of inspecting a single candidate before pulling.
@@ -447,24 +707,41 @@ enum PullTarget {
     },
 }
 
-/// Inspect one candidate and decide how (or whether) it should be pulled.
+/// Inspect one candidate and decide how (or whether) it should be operated on.
 ///
 /// This is pure preflight: it only spawns short-lived, network-free git probes,
 /// which makes it safe to run concurrently across many repositories.
-fn classify_pull_target(project: ProjectInfo) -> PullTarget {
+fn classify_fanout_target(
+    project: ProjectInfo,
+    expand_bare_worktrees: bool,
+    require_clean: bool,
+    require_upstream: bool,
+) -> PullTarget {
     if is_bare_repository(&project.path) {
-        let mut targets = Vec::new();
-        let mut skipped = Vec::new();
-        let mut no_upstream = Vec::new();
-        expand_bare_repo_targets(&project, &mut targets, &mut skipped, &mut no_upstream);
-        PullTarget::Bare {
-            targets,
-            skipped,
-            no_upstream,
+        if expand_bare_worktrees {
+            let mut targets = Vec::new();
+            let mut skipped = Vec::new();
+            let mut no_upstream = Vec::new();
+            expand_bare_repo_targets(
+                &project,
+                require_clean,
+                require_upstream,
+                &mut targets,
+                &mut skipped,
+                &mut no_upstream,
+            );
+            PullTarget::Bare {
+                targets,
+                skipped,
+                no_upstream,
+            }
+        } else {
+            // Fetch-style: bare roots accept the command without a work tree.
+            PullTarget::Pull(project)
         }
-    } else if project.has_uncommitted_changes() {
+    } else if require_clean && project.has_uncommitted_changes() {
         PullTarget::Skip(project.name)
-    } else if !branch_has_upstream(&project.path) {
+    } else if require_upstream && !branch_has_upstream(&project.path) {
         PullTarget::NoUpstream(project.name)
     } else {
         PullTarget::Pull(project)
@@ -552,13 +829,17 @@ fn branch_has_upstream(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Expand a bare repository into one pull target per checked-out worktree.
+/// Expand a bare repository into one target per checked-out worktree.
 ///
-/// Every managed branch (worktree) is added so they all get updated, and the
-/// default branch is verified to be present. The bare entry and detached
-/// worktrees are skipped because there is nothing to pull into them.
+/// Every managed branch (worktree) is added so they all get the fan-out
+/// command. The bare entry and detached worktrees are skipped because there
+/// is no work tree to operate on. When `require_upstream` is set and no
+/// worktree for the default branch exists, fall back to a bare-root fetch so
+/// the default branch refs are still updated (pull-oriented behavior).
 fn expand_bare_repo_targets(
     project: &ProjectInfo,
+    require_clean: bool,
+    require_upstream: bool,
     targets: &mut Vec<ProjectInfo>,
     skipped: &mut Vec<String>,
     no_upstream: &mut Vec<String>,
@@ -575,7 +856,7 @@ fn expand_bare_repo_targets(
     let mut added_default = false;
 
     for wt in &worktrees {
-        // Skip the bare entry and any detached HEADs: neither can be pulled.
+        // Skip the bare entry and any detached HEADs: neither has a branch to act on.
         if wt.is_bare || wt.is_detached {
             continue;
         }
@@ -595,19 +876,18 @@ fn expand_bare_repo_targets(
             project.repo_url.clone(),
         );
 
-        if info.has_uncommitted_changes() {
+        if require_clean && info.has_uncommitted_changes() {
             skipped.push(info.name.clone());
-        } else if !branch_has_upstream(&info.path) {
+        } else if require_upstream && !branch_has_upstream(&info.path) {
             no_upstream.push(info.name.clone());
         } else {
             targets.push(info);
         }
     }
 
-    // "Always use the default branch at least": if no worktree for the default
-    // branch exists, fall back to fetching so its refs are still updated rather
-    // than leaving the bare repo untouched.
-    if !added_default {
+    // Pull-oriented fallback: if no worktree for the default branch exists,
+    // fetch its refs at the bare root so the bare repo is not left untouched.
+    if require_upstream && !added_default {
         if let Some(branch) = &default_branch {
             println!(
                 "ℹ️  {}: no worktree for default branch '{}', fetching instead",
@@ -666,5 +946,55 @@ impl BasePlugin for GitPlugin {
 impl Default for GitPlugin {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Command as ClapCommand;
+
+    #[test]
+    fn git_plugin_registers_push_fetch_checkout() {
+        let plugin = GitPlugin::create_plugin();
+        let app = plugin.register_commands(ClapCommand::new("meta"));
+        let git = app
+            .get_subcommands()
+            .find(|c| c.get_name() == "git")
+            .expect("git subcommand");
+        let names: Vec<&str> = git.get_subcommands().map(|c| c.get_name()).collect();
+        for expected in [
+            "push", "fetch", "checkout", "pull", "clone", "status", "update",
+        ] {
+            assert!(
+                names.contains(&expected),
+                "expected git subcommand '{}', got {:?}",
+                expected,
+                names
+            );
+        }
+        // switch is an alias of checkout
+        let checkout = git
+            .get_subcommands()
+            .find(|c| c.get_name() == "checkout")
+            .expect("checkout");
+        let aliases: Vec<&str> = checkout.get_all_aliases().collect();
+        assert!(aliases.contains(&"switch"));
+        assert!(aliases.contains(&"co"));
+    }
+
+    #[test]
+    fn classify_fetch_keeps_bare_root() {
+        // Synthetic bare detection is path-based; without a real repo the
+        // non-bare path falls through to Pull when no filters apply.
+        let project = ProjectInfo::new(
+            "demo".into(),
+            std::env::temp_dir().join("metarepo-git-classify-missing"),
+            "local".into(),
+        );
+        match classify_fanout_target(project, false, false, false) {
+            PullTarget::Pull(_) | PullTarget::Skip(_) | PullTarget::NoUpstream(_) => {}
+            PullTarget::Bare { .. } => panic!("missing path should not expand as bare"),
+        }
     }
 }

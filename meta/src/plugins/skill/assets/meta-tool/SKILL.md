@@ -15,7 +15,7 @@ The `meta` CLI is a powerful multi-project management tool for managing multiple
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--version` | `-v` | Print version information |
-| `--experimental` | `-x` | Enable experimental features (rules, plugin, mcp) |
+| `--experimental` | `-x` | Enable experimental features (rules, mcp) |
 | `--non-interactive` | | Non-interactive mode: 'fail' or 'defaults' |
 
 ### Common Project Selection Flags
@@ -95,6 +95,64 @@ meta git update
 ```
 
 Aliases: `up`, `u`
+
+#### `meta git pull`
+
+Pull latest changes for every repository in scope. Skips dirty trees and
+branches with no upstream. Bare projects pull each managed worktree.
+Parallel by default; use `--sequential` for one-at-a-time. `--shallow`
+re-truncates depth-tracked clones after pull.
+
+```bash
+meta git pull
+meta git pull --skip-main
+meta git pull --shallow
+```
+
+Aliases: `p`
+
+#### `meta git push`
+
+Push the current branch of every repository that has an upstream. Dirty
+trees are still pushed. Bare projects push from each managed worktree.
+
+```bash
+meta git push
+meta git push --skip-main
+meta git push --exclude vendor,docs
+```
+
+Aliases: `ps`
+
+#### `meta git fetch`
+
+Fetch remotes for every repository. Bare roots are fetched in place (no
+worktree expansion). Dirty trees are not skipped.
+
+```bash
+meta git fetch
+meta git fetch --skip-main
+```
+
+Aliases: `f`
+
+#### `meta git checkout <branch>`
+
+Switch every repository in scope to the given branch. Skips dirty trees.
+Bare projects check out inside each managed worktree. Pass `-b` / `--create`
+to create the branch when missing.
+
+```bash
+meta git checkout main
+meta git checkout feature/auth
+meta git checkout -b feature/new
+meta git switch develop
+```
+
+Aliases: `co`, `switch`, `sw`
+
+Shared fan-out flags on pull/push/fetch/checkout: `--parallel` (default),
+`--sequential`, `--skip-main`, `--include-only`, `--exclude`.
 
 ---
 
@@ -497,50 +555,16 @@ meta -x rules copy myproject
 
 ---
 
-### `meta plugin` (Experimental)
+### `meta plugin` (stable)
 
-Manage metarepo plugins.
-
-#### `meta -x plugin add [path]`
-
-Add a plugin from a local path.
+Manage external metarepo plugins (list, remove, update, verify).
 
 ```bash
-meta -x plugin add /path/to/plugin
+meta plugin list
+meta plugin update
+meta plugin verify
+meta plugin remove example
 ```
-
-#### `meta -x plugin install <name>`
-
-Install a plugin from crates.io.
-
-```bash
-meta -x plugin install example
-```
-
-#### `meta -x plugin remove <name>`
-
-Remove an installed plugin.
-
-```bash
-meta -x plugin remove example
-```
-
-#### `meta -x plugin list`
-
-List all installed plugins.
-
-```bash
-meta -x plugin list
-```
-
-#### `meta -x plugin update`
-
-Update all plugins to their latest versions.
-
-```bash
-meta -x plugin update
-```
-
 ---
 
 ### `meta mcp` (Experimental)
@@ -759,8 +783,10 @@ See `references/CHANGELOG_NOTES.md` for version history and breaking changes.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `rules` | Experimental | Project structure enforcement |
-| `plugin` | Experimental | External plugin management |
-| `mcp` | Experimental | MCP server integration |
+| `rules` | Experimental | Project structure enforcement (`-x`) |
+| `mcp` | Experimental | MCP server / gateway (`-x`) |
+| `plugin` | Stable | External plugin management (no longer requires `-x`) |
+| `skill` / `module` | Stable | Agent/extension surface (see docs/PRODUCT.md) |
 
-These require `-x` or `--experimental` flag to access.
+Experimental commands require `-x` or `--experimental`. Product boundaries:
+multi-repo CLI (default) vs agent/extension profile — see `docs/PRODUCT.md`.

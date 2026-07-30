@@ -5,23 +5,99 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.77.0] - Unreleased
+
+### Added
+
+- *(git)* `meta git push` — fan-out push with upstream preflight, bare worktree expansion, parallel by default
+- *(git)* `meta git fetch` — fan-out fetch (bare roots, no dirty skip)
+- *(git)* `meta git checkout` / `switch` — branch switch across repos with optional `-b/--create`, dirty skip
+- *(docs)* dual-product identity document (`docs/PRODUCT.md`) and README surface split
+- *(docs)* archive historical implementation plan under `docs/history/`
+
+### Changed
+
+- *(git)* shared fan-out preflight for pull/push/fetch/checkout (clean/upstream/bare policies)
+
+## [0.76.0] - 2026-07-29 (approx)
+
+Skill and config polish through mid/late July releases. Notable themes in the
+0.54–0.76 band (not every micro-release listed):
+
+### Added (summary of 0.54–0.76)
+
+- *(project)* `meta project check` workspace hygiene drift; nested `project init`
+- *(config)* cascade writes and run-script cascade; enum/choices picker; security toggles via config
+- *(status)* interactive multi-repo dashboard with inline fetch/pull
+- *(worktree)* interactive worktree manager TUI
+- *(run)* interactive script picker with live per-project output
+- *(tui)* shared tree-shell and keybindings in meta-core
+- *(skill)* configurable audit rules, dest roots; honor `[skill] dest` for bundled skill
+- *(git)* shallow clone (`--depth`) and `pull --shallow` re-truncation
+- *(config)* disable projects via `enabled` / disabled list
+
+### Fixed
+
+- *(config)* preserve unknown top-level `.meta` blocks for external plugin settings
+- *(git)* shallow re-truncate after pull (not before) to avoid divergent-branch failures
+- *(plugins)* Windows executable extension resolution for plugin binaries
+
+## [0.53.x] - 2026-06
+
+### Added
+
+- *(security)* supply-chain threat model document
+- *(skill)* steal/add from git ref; refuse clobber of modified skills on update
+- *(mcp)* gateway phases: workspace pin, progressive meta-tools, tool promotion, allowlist hosting
+
+## [0.42.0 – 0.51.0] - 2026-06
+
+### Added
+
+- *(config)* nested config cascade (reads); catalog-driven config TUI CRUD
+- *(plugin)* subprocess plugins declare settings over protocol
+- *(help)* man-page-style `helpDescription` sections
+- *(module)* `meta module` system bundling plugins and skills
+- *(skill)* scan/audit/locations/steal; skills.sh search/add
+
+## [0.27.0 – 0.41.0] - 2026-05 – 2026-06
+
+### Added
+
+- *(skill)* full Claude skill lifecycle tooling
+- *(config)* extensible plugin settings via `meta config list/get/set`
+- *(scoping)* directory-aware scope, `--workspace` / `--root` (epic)
+
+## [0.20.0 – 0.26.0] - 2026-05
+
+### Added
+
+- *(plugin)* protocol v1, metarepo-plugin-sdk, manifest plugins, cross-language templates
+- *(plugin)* install/list/remove/update, version pins and integrity lockfile
+- *(init)* multi-format config (JSON/YAML/TOML), idempotent init
+- *(worktree)* context-aware commands, path repair
+
 ## [0.17.0](https://github.com/codyaverett/metarepo/compare/v0.13.0...v0.17.0) - 2026-05-14
 
 ### Added
 
-- *(init)* idempotent meta init with
-- *(worktree)* add repair command for moved
-- *(worktree)* make commands context-aware
+- *(init)* idempotent meta init
+- *(worktree)* repair command for moved worktrees; context-aware commands
 - *(security)* harden config and plugin trust boundaries (v0.14.0)
 
 ## [0.13.0](https://github.com/codyaverett/metarepo/compare/v0.12.0...v0.13.0) - 2026-04-23
 
 ### Added
 
-- *(ci)* adopt release-plz for automated release PRs and publishing (v0.13.0)
-- *(tests)* add security test suite against real metarepo APIs (v0.12.2)
-- *(git)* add dirty-tree detection to meta git pull, skip repos with uncommitted changes (v0.12.1)
+- *(ci)* release-plz for automated release PRs and publishing
+- *(tests)* security test suite against real metarepo APIs (v0.12.2)
+- *(git)* dirty-tree detection on `meta git pull` (v0.12.1)
 
 ### Fixed
 
-- *(ci)* resolve CI and security
+- *(ci)* resolve CI and security workflow issues
+
+---
+
+Older releases: see git tags (`v0.2.0` … `v0.13.0`). Detailed per-commit history
+is available via `git log` and GitHub releases.

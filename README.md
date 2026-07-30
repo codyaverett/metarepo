@@ -1,47 +1,25 @@
 # Metarepo - Multi-Project Management Tool
 
-A Rust implementation inspired by the Node.js [meta](https://github.com/mateodelnorte/meta) tool for managing multi-project systems and libraries.
+A Rust multi-repo workspace CLI inspired by the Node.js [meta](https://github.com/mateodelnorte/meta) tool.
+
+**Dual product surface** (see [docs/PRODUCT.md](docs/PRODUCT.md)):
+
+1. **Multi-repo CLI (stable, default)** — fleet git ops, projects, exec/run, bare-first worktrees, config cascade, status dashboard.
+2. **Agent / extension profile** — Claude skills, modules, plugins; experimental MCP gateway and structure rules via `meta -x`.
 
 ## Project Structure
 
 ```
 metarepo/
 ├── Cargo.toml              # Workspace configuration
-├── docs/                   # Architecture and implementation docs
-│   ├── IMPLEMENTATION_PLAN.md
-│   └── ARCHITECTURE.md
-├── meta-core/              # Shared plugin interfaces
-│   └── src/
-│       ├── lib.rs          # Plugin traits and data types
-│       └── protocol.rs     # v1 external-plugin wire protocol (shared)
-├── metarepo-plugin-sdk/    # SDK for authoring external plugins (Plugin trait + serve())
-├── examples/
-│   ├── metarepo-plugin-example/  # Reference protocol plugin built on the SDK (Rust)
-│   ├── metarepo-plugin-shell/    # Reference manifest plugin (shell script + manifest)
-│   ├── plugin-node/              # Node.js protocol-plugin template
-│   ├── plugin-python/            # Python protocol-plugin template
-│   └── plugin-go/                # Go protocol-plugin template
-├── meta/                   # Core binary crate with built-in plugins
-│   ├── src/
-│   │   ├── lib.rs          # Main library
-│   │   ├── config.rs       # Configuration handling
-│   │   ├── plugin.rs       # Plugin system
-│   │   ├── cli.rs          # CLI framework
-│   │   ├── main.rs         # Binary entry point
-│   │   └── plugins/        # Built-in plugins
-│   │       ├── init/       # Initialize new meta repositories
-│   │       ├── skill/      # Manage the bundled Claude Code skill
-│   │       ├── git/        # Git operations across repositories
-│   │       ├── project/    # Project management
-│   │       ├── config/     # Configuration management
-│   │       ├── exec/       # Execute commands across repositories
-│   │       ├── run/        # Run project-specific scripts from .meta
-│   │       ├── worktree/   # Git worktree management
-│   │       ├── rules/      # Project structure enforcement (experimental)
-│   │       ├── mcp/        # Model Context Protocol integration (experimental)
-│   │       ├── plugin_manager/ # External plugin management (experimental)
-│   │       └── shared/     # Shared utilities for plugins
-│   └── Cargo.toml
+├── docs/                   # Architecture, product identity, plugin docs
+│   ├── PRODUCT.md          # Dual-surface product boundaries
+│   ├── ARCHITECTURE.md
+│   └── history/            # Archived plans
+├── meta-core/              # Shared plugin interfaces + TUI primitives
+├── metarepo-plugin-sdk/    # SDK for authoring external plugins
+├── examples/               # Protocol + manifest plugin templates (Rust/Node/Python/Go/shell)
+├── meta/                   # Core binary (`meta`) and built-in plugins
 └── README.md
 ```
 
@@ -84,6 +62,13 @@ meta git status
 # Clone missing repositories defined in .meta
 meta git update
 
+# Pull / fetch / push / checkout across the fleet
+meta git pull
+meta git fetch
+meta git push
+meta git checkout main
+meta git checkout -b feature/x
+
 # Execute commands across all projects
 meta exec --all npm install
 
@@ -97,6 +82,9 @@ meta run --list
 # Manage worktrees for feature branches
 meta worktree add feature/new-feature --all
 meta worktree list
+
+# Interactive multi-repo status
+meta status
 ```
 
 To clone an existing meta workspace:
@@ -109,27 +97,37 @@ meta git update
 
 ## Built-in Plugins
 
+### Multi-repo CLI (stable)
+
 | Plugin | Command Pattern | Description |
 |--------|----------------|-------------|
-| **init** | `meta init [--with-skill\|--with-completions\|--all]` | Initialize a meta repository; optionally install the Claude Code skill and shell completions |
-| **git** | `meta git <clone\|status\|update>` | Git operations across repositories |
-| **project** | `meta project <add\|list\|remove\|rename\|tree\|update\|convert-to-bare\|update-gitignore>` | Project management |
-| **config** | `meta config <edit\|show\|get\|set\|validate>` | Configuration management with interactive TUI |
+| **init** | `meta init [--with-skill\|--with-completions\|--all]` | Initialize a meta repository; optional skill and shell completions |
+| **git** | `meta git <clone\|status\|update\|pull\|push\|fetch\|checkout>` | Fleet git operations (bare/worktree-aware) |
+| **project** | `meta project <add\|list\|remove\|rename\|tree\|check\|update\|convert-to-bare\|...>` | Project lifecycle and workspace hygiene |
+| **config** | `meta config <get\|set\|list\|edit>` | Configuration with cascade + interactive TUI |
 | **exec** | `meta exec [flags] <command>` | Execute commands across repositories |
-| **run** | `meta run [flags] <script>` | Run scripts defined in `.meta` |
-| **worktree** | `meta worktree <add\|remove\|list\|prune\|clean\|repair>` | Git worktree management across workspace (`clean` removes merged worktrees) |
-| **rules** | `meta -x rules <check\|init\|list\|...>` | Project structure enforcement (experimental) |
-| **plugin** | `meta -x plugin <add\|install\|remove\|list\|update>` | External plugin management (experimental) |
-| **mcp** | `meta -x mcp <add\|list\|connect\|serve\|...>` | Model Context Protocol integration (experimental) |
+| **run** | `meta run [flags] <script>` | Run scripts defined in `.meta` (optional TUI picker) |
+| **worktree** | `meta worktree <add\|remove\|list\|prune\|clean\|repair\|tui>` | Bare-first worktree management |
+| **status** | `meta status` | Interactive multi-repo status dashboard |
 
-See [CLI Reference](.claude/skills/meta-tool/SKILL.md) for full command documentation with all flags and examples.
+### Agent / extension (stable unless marked experimental)
+
+| Plugin | Command Pattern | Description |
+|--------|----------------|-------------|
+| **skill** | `meta skill <install\|steal\|audit\|search\|add\|...>` | Claude Code skill lifecycle and registry |
+| **module** | `meta module <enable\|disable\|list\|scan\|...>` | Modules bundling plugins + skills |
+| **plugin** | `meta plugin <list\|remove\|update\|verify>` | External plugin management |
+| **rules** | `meta -x rules <check\|init\|list\|...>` | Project structure rules (**experimental**) |
+| **mcp** | `meta -x mcp <serve\|add\|list\|...>` | MCP server and gateway (**experimental**) |
+
+See [docs/PRODUCT.md](docs/PRODUCT.md) for surface boundaries and [CLI Reference](.claude/skills/meta-tool/SKILL.md) for full flags.
 
 ## Global Flags
 
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--version` | `-v` | Print version information |
-| `--experimental` | `-x` | Enable experimental features (rules, plugin, mcp) |
+| `--experimental` | `-x` | Enable experimental features (rules, mcp) |
 | `--non-interactive` | | Non-interactive mode: `fail` or `defaults` (for CI) |
 | `--config` | `-c` | Use a specific config file, overriding auto-discovery |
 | `--workspace` | `-w` | Operate on every project, ignoring the current directory |
@@ -137,8 +135,9 @@ See [CLI Reference](.claude/skills/meta-tool/SKILL.md) for full command document
 
 ## Directory-aware scope
 
-Multi-project commands (`git status`/`pull`, `exec`, `run`, `project list`/`tree`,
-and `worktree`) act on a set of projects determined by your current directory:
+Multi-project commands (`git status`/`pull`/`push`/`fetch`/`checkout`, `exec`, `run`,
+`project list`/`tree`, and `worktree`) act on a set of projects determined by your
+current directory:
 
 - **inside a project** → just that project
 - **inside a subdirectory** that contains projects → the projects beneath it

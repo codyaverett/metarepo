@@ -15,7 +15,7 @@ The `meta` CLI is a powerful multi-project management tool for managing multiple
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--version` | `-v` | Print version information |
-| `--experimental` | `-x` | Enable experimental features (rules, plugin, mcp) |
+| `--experimental` | `-x` | Enable experimental features (rules, mcp) |
 | `--non-interactive` | | Non-interactive mode: 'fail' or 'defaults' |
 
 ### Common Project Selection Flags
@@ -72,21 +72,9 @@ Clone a meta repository and all child repositories.
 
 ```bash
 meta git clone https://github.com/user/meta-workspace.git
-
-# Shallow clone: only the most recent commit
-meta git clone --depth 1 https://github.com/user/meta-workspace.git
 ```
 
 Aliases: `c`
-
-**Flags:**
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--depth` | | Create a shallow clone with the given history depth (must be a positive integer) |
-
-`--depth` is recorded in `.meta` for the cloned project, so a later `meta git
-update` (re-cloning a missing project) stays shallow too.
 
 #### `meta git status`
 
@@ -110,18 +98,61 @@ Aliases: `up`, `u`
 
 #### `meta git pull`
 
-Pull the latest changes for every repository in scope (concurrent by default).
+Pull latest changes for every repository in scope. Skips dirty trees and
+branches with no upstream. Bare projects pull each managed worktree.
+Parallel by default; use `--sequential` for one-at-a-time. `--shallow`
+re-truncates depth-tracked clones after pull.
 
 ```bash
 meta git pull
-meta git pull --shallow   # re-truncate shallow repos to their stored depth
+meta git pull --skip-main
+meta git pull --shallow
 ```
 
-Shallow projects (cloned with `--depth`) accumulate history on a plain pull.
-`--shallow` runs `git fetch --depth N` after the pull for each project with a
-stored depth in `.meta`, so history shrinks back to the configured depth.
-
 Aliases: `p`
+
+#### `meta git push`
+
+Push the current branch of every repository that has an upstream. Dirty
+trees are still pushed. Bare projects push from each managed worktree.
+
+```bash
+meta git push
+meta git push --skip-main
+meta git push --exclude vendor,docs
+```
+
+Aliases: `ps`
+
+#### `meta git fetch`
+
+Fetch remotes for every repository. Bare roots are fetched in place (no
+worktree expansion). Dirty trees are not skipped.
+
+```bash
+meta git fetch
+meta git fetch --skip-main
+```
+
+Aliases: `f`
+
+#### `meta git checkout <branch>`
+
+Switch every repository in scope to the given branch. Skips dirty trees.
+Bare projects check out inside each managed worktree. Pass `-b` / `--create`
+to create the branch when missing.
+
+```bash
+meta git checkout main
+meta git checkout feature/auth
+meta git checkout -b feature/new
+meta git switch develop
+```
+
+Aliases: `co`, `switch`, `sw`
+
+Shared fan-out flags on pull/push/fetch/checkout: `--parallel` (default),
+`--sequential`, `--skip-main`, `--include-only`, `--exclude`.
 
 ---
 
@@ -154,7 +185,6 @@ Aliases: `import`, `i`, `a`
 | `--no-recursive` | | Disable recursive import |
 | `--init-git` | | Auto-initialize git if not a repo |
 | `--bare` | | Clone as bare repository with worktree structure |
-| `--depth` | | Shallow-clone with the given history depth (must be a positive integer); ignored (with a warning) when combined with `--recursive`/`--flatten`/`--max-depth` |
 
 #### `meta project list`
 
@@ -216,12 +246,17 @@ Convert a normal repository to bare repository with worktrees.
 meta project convert-to-bare myproject
 ```
 
-#### `meta project update-gitignore <name>`
+#### `meta project check [--fix]`
 
-Update .gitignore for a project that now has a remote.
+Report drift between the workspace config and the working tree, exiting
+non-zero when any is found (usable as a CI or pre-commit lint). Pass `--fix`
+to apply the fixable corrections: add missing `.gitignore` entries for
+remote-backed projects, and promote any `local:` project whose repo has
+gained a remote (rewrite its `.meta` entry to the remote URL and ignore it).
 
 ```bash
-meta project update-gitignore myproject
+meta project check          # report drift
+meta project check --fix    # apply the fixable corrections
 ```
 
 ---
@@ -520,50 +555,16 @@ meta -x rules copy myproject
 
 ---
 
-### `meta plugin` (Experimental)
+### `meta plugin` (stable)
 
-Manage metarepo plugins.
-
-#### `meta -x plugin add [path]`
-
-Add a plugin from a local path.
+Manage external metarepo plugins (list, remove, update, verify).
 
 ```bash
-meta -x plugin add /path/to/plugin
+meta plugin list
+meta plugin update
+meta plugin verify
+meta plugin remove example
 ```
-
-#### `meta -x plugin install <name>`
-
-Install a plugin from crates.io.
-
-```bash
-meta -x plugin install example
-```
-
-#### `meta -x plugin remove <name>`
-
-Remove an installed plugin.
-
-```bash
-meta -x plugin remove example
-```
-
-#### `meta -x plugin list`
-
-List all installed plugins.
-
-```bash
-meta -x plugin list
-```
-
-#### `meta -x plugin update`
-
-Update all plugins to their latest versions.
-
-```bash
-meta -x plugin update
-```
-
 ---
 
 ### `meta mcp` (Experimental)
@@ -701,30 +702,6 @@ meta exec --all --no-progress npm ci
 meta exec --all --no-progress --parallel npm run build
 ```
 
-### Shallow-Clone an Entire GitHub Org
-
-Bring every repo in an org into the workspace as a shallow (depth-1) clone —
-useful when you only need current state (e.g. for search/exec across many
-repos) and don't want the full history of each one:
-
-```bash
-meta init
-gh repo list ORG --limit 1000 --json name,url --jq '.[] | "\(.name) \(.url)"' \
-  | while read -r name url; do
-      meta project add "$name" "$url" --depth 1
-    done
-```
-
-Each project's `.meta` entry records `"depth": 1`, so a later `meta git
-update` (re-cloning any missing project) also stays shallow.
-
-To keep these repos at depth 1 over time, pull with `--shallow` — a plain
-pull would accumulate every new upstream commit:
-
-```bash
-meta git pull --shallow
-```
-
 ---
 
 ## Configuration Reference
@@ -762,10 +739,6 @@ destination, `--to <path>` chooses a non-default destination.
     "backend": {
       "url": "git@github.com:org/backend.git",
       "branch": "develop"
-    },
-    "vendored-lib": {
-      "url": "git@github.com:org/vendored-lib.git",
-      "depth": 1
     },
     "shared": {}
   },
@@ -810,8 +783,10 @@ See `references/CHANGELOG_NOTES.md` for version history and breaking changes.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `rules` | Experimental | Project structure enforcement |
-| `plugin` | Experimental | External plugin management |
-| `mcp` | Experimental | MCP server integration |
+| `rules` | Experimental | Project structure enforcement (`-x`) |
+| `mcp` | Experimental | MCP server / gateway (`-x`) |
+| `plugin` | Stable | External plugin management (no longer requires `-x`) |
+| `skill` / `module` | Stable | Agent/extension surface (see docs/PRODUCT.md) |
 
-These require `-x` or `--experimental` flag to access.
+Experimental commands require `-x` or `--experimental`. Product boundaries:
+multi-repo CLI (default) vs agent/extension profile — see `docs/PRODUCT.md`.

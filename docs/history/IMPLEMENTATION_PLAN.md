@@ -1,5 +1,9 @@
 # Rust Meta Tool Implementation Plan
 
+> **Archived.** This early checklist is historical. Many items shipped without
+> boxes being checked. Current guidance: [PRODUCT.md](../PRODUCT.md),
+> [ARCHITECTURE.md](../ARCHITECTURE.md), and the README.
+
 ## Overview
 This project recreates the tooling and experience of the Node.js [meta](https://github.com/mateodelnorte/meta) project in Rust. Meta is a tool for managing multi-project systems and libraries, answering the conundrum of choosing between a mono repo or many repos by saying "both", with a meta repo.
 
