@@ -1,11 +1,13 @@
-- When recommending what a git commit should be always specify a description detailed and related to the files changed, output using commitizen formatting
-- After completing a set of work recommend the git commit, then afterwards update the Cargo.toml version number and create and push a git tag
-- include the package version numbers in the recommended commit message
-- Never commit on behalf of the user, present them with a commit message that they can commit themselves
-- DO NOT attribute claude in the commit messages
-- Use commitizen standards for commit message formatting
-- Do not include any double quotes in the commit message
-- After completing a task or phase of work give the user a commit message covering the changes made
+## Git / Commits
+
+- After completing a task or coherent phase of work, **stage and commit automatically** without waiting for the user to say commit. Do not only paste a suggested message and stop.
+- Commit messages must use commitizen / Conventional Commits formatting, be detailed about the files and intent of the change, and include package version numbers when the version changed.
+- Prefer GPG-signed commits (`git commit -S`). After committing, verify the signature (`git log --show-signature -1`). If signing fails or no signing key is available, fall back to an unsigned commit and note that in the reply.
+- Shell-safe messages only: no backticks, exclamation marks, angle brackets, em-dashes, or double quotes in the commit message body/subject (they break zsh/heredocs).
+- DO NOT attribute Claude, Grok, or other agents in commit messages (no Generated with ... footers).
+- After a feature or milestone set of commits, bump the Cargo.toml version appropriately, then create and push a git tag when that step is part of the release flow. Pushing the branch and tags still requires normal caution for shared remotes; prefer pushing when the user is shipping, or when they have already asked for autonomous end-to-end delivery.
+- When closing multiple issues, use a separate Closes #N line per issue.
+- Never commit secrets, credentials, or `.env` files.
 
 ## GitHub Issue Creation
 
@@ -108,4 +110,4 @@ See `.github/scripts/README.md` for complete documentation including:
 - Integration examples
 - Error handling
 - CI/CD usage patterns
-- After completing a feature or major milestones generate a commit message for the work done and wait for me to commit the changes to the git repo.
+- After completing a feature or major milestone, stage and commit the work automatically (see Git / Commits above); do not wait for an explicit commit request.
