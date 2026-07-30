@@ -203,11 +203,28 @@ run_check_verbose() {
 
 echo -e "${CYAN}Auto-fix checks:${NC}"
 
+# The files the user actually staged, captured before any auto-fix runs.
+# Re-staging is limited to these on purpose: a bare `git add -u` sweeps in every
+# other tracked modification in the worktree, silently widening the commit and
+# destroying a deliberate partial staging (e.g. splitting work into several
+# commits). Deletions are excluded by --diff-filter=ACM, so nothing here can
+# re-add a path the user meant to remove.
+STAGED_AT_START=$(git diff --cached --name-only --diff-filter=ACM)
+
+# Re-stage only files that were already staged and still exist.
+restage_autofixed() {
+    [ -n "$STAGED_AT_START" ] || return 0
+    printf '%s\n' "$STAGED_AT_START" | while IFS= read -r file; do
+        [ -n "$file" ] && [ -e "$file" ] && git add -- "$file"
+    done
+    return 0
+}
+
 # Cargo fmt (auto-fix)
 if ! run_check "Formatting Rust code" "cargo fmt --all" "false"; then
     echo -e "  ${INFO} Running: ${YELLOW}cargo fmt --all${NC}"
     cargo fmt --all 2>&1 | grep -v "^Diff in" || true
-    git add -u
+    restage_autofixed
     FIXED=$((FIXED + 1))
     echo -e "  ${CHECK} Code formatted and staged"
 fi
@@ -238,8 +255,8 @@ else
     echo -e "${YELLOW}checked${NC}"
 fi
 
-# Stage any auto-fixed files
-git add -u 2>/dev/null || true
+# Stage any auto-fixed files (only those that were already staged)
+restage_autofixed
 
 echo ""
 

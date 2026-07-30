@@ -296,9 +296,25 @@ The hook only checks **staged files** (files you've run `git add` on), not all f
 
 When auto-fixes are applied, the hook:
 1. Makes the fixes
-2. Re-stages the fixed files
+2. Re-stages **only files that were already staged** — it records the staged set
+   before fixing anything and re-adds just those paths
 3. Allows the commit to proceed
 4. Shows what was fixed in the output
+
+Step 2 matters if you split work across several commits. The hook used to
+re-stage with a bare `git add -u`, which swept in *every* modified tracked file
+and silently widened the commit past what you staged.
+
+One caveat remains: if a single file is only partially staged (some hunks staged,
+others not), an auto-fix rewrites the file on disk and re-adding it stages the
+whole thing. Commit partially-staged files with `--no-verify` if you need that
+split preserved, and run the checks yourself first:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --workspace
+```
 
 **Validations (must pass for commit to succeed):**
 - Clippy linting (`cargo clippy -- -D warnings`) - No warnings allowed
