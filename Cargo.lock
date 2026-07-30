@@ -811,7 +811,7 @@ dependencies = [
 
 [[package]]
 name = "metarepo-core"
-version = "0.60.0"
+version = "0.77.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "metarepo-plugin-sdk"
-version = "0.54.0"
+version = "0.77.0"
 dependencies = [
  "anyhow",
  "metarepo-core",
