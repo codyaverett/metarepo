@@ -237,7 +237,13 @@ impl ExternalPlugin {
         config: &RuntimeConfig,
     ) -> Result<()> {
         let mut argv = vec![subcmd.to_string()];
-        Self::collect_args(sub_matches, &mut argv);
+        // Takeover commands declare a raw trailing-args catch-all (see
+        // build_command_from_info); prefer it so flags survive verbatim.
+        if let Ok(Some(raw)) = sub_matches.try_get_many::<String>("takeover_args") {
+            argv.extend(raw.cloned());
+        } else {
+            Self::collect_args(sub_matches, &mut argv);
+        }
 
         let dto: metarepo_core::protocol::RuntimeConfigDto = config.into();
         let config_json = serde_json::to_string(&dto)
@@ -326,6 +332,19 @@ impl ExternalPlugin {
             }
 
             cmd = cmd.arg(clap_arg);
+        }
+
+        // Takeover commands are argv pipes: the plugin binary parses its own
+        // flags after exec, so the host accepts anything following the command
+        // name verbatim instead of validating it against declared args.
+        if info.takeover {
+            cmd = cmd.arg(
+                clap::Arg::new("takeover_args")
+                    .num_args(0..)
+                    .trailing_var_arg(true)
+                    .allow_hyphen_values(true)
+                    .help("Arguments passed through to the plugin binary"),
+            );
         }
 
         // Add subcommands recursively

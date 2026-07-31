@@ -828,6 +828,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "metarepo-plugin-mcp"
+version = "0.77.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "metarepo-core",
+ "metarepo-plugin-sdk",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "metarepo-plugin-sdk"
 version = "0.77.0"
 dependencies = [

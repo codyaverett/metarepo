@@ -1356,14 +1356,15 @@ pub fn print_vscode_config(workspaces: &[String], allowlist: bool) {
             .unwrap_or_else(|| "workspace".to_string())
     };
 
-    // `mcp` is experimental, so the client must launch `meta -x mcp serve`.
+    // mcp is served by the external metarepo-plugin-mcp plugin; `meta mcp serve`
+    // execs into it (no -x needed since graduation).
     let mut servers = serde_json::Map::new();
     if allowlist && !workspaces.is_empty() {
         servers.insert(
             "metarepo".to_string(),
             json!({
                 "command": meta_path,
-                "args": ["-x", "mcp", "serve", "--allow-workspaces", workspaces.join(",")],
+                "args": ["mcp", "serve", "--allow-workspaces", workspaces.join(",")],
                 "env": {}
             }),
         );
@@ -1373,7 +1374,7 @@ pub fn print_vscode_config(workspaces: &[String], allowlist: bool) {
                 format!("metarepo-{}", basename(ws)),
                 json!({
                     "command": meta_path,
-                    "args": ["-x", "mcp", "serve", "--meta", ws],
+                    "args": ["mcp", "serve", "--meta", ws],
                     "env": {}
                 }),
             );
@@ -1386,7 +1387,7 @@ pub fn print_vscode_config(workspaces: &[String], allowlist: bool) {
             "metarepo".to_string(),
             json!({
                 "command": meta_path,
-                "args": ["-x", "mcp", "serve", "--meta", cwd],
+                "args": ["mcp", "serve", "--meta", cwd],
                 "env": {}
             }),
         );

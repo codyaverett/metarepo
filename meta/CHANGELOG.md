@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - *(plugin)* takeover commands (protocol 1.3): external plugin commands declared with takeover are launched by re-invoking the plugin binary directly (exec on Unix) with argv and METAREPO_PLUGIN_CONFIG instead of wire dispatch, so long-running servers and TUIs can own stdin/stdout; groundwork for extracting the mcp plugin (#137)
+- *(plugin)* takeover commands accept raw trailing arguments (flags included) and pass them through to the plugin binary verbatim, so external plugins keep their full clap surfaces
+
+### Changed
+
+- *(mcp)* the mcp plugin moved out of the meta binary into the external metarepo-plugin-mcp crate (plugins/metarepo-plugin-mcp), graduating it from experimental: install it and register it under plugins in .meta, then use meta mcp without -x; every command is declared takeover so serve owns stdin/stdout for the MCP stdio transport, and the binary also runs standalone (MCP client configs can point at it directly); generated client config blocks no longer emit -x (#132, #137)
 - *(git)* `meta git push` — fan-out push with upstream preflight, bare worktree expansion, parallel by default
 - *(git)* `meta git fetch` — fan-out fetch (bare roots, no dirty skip)
 - *(git)* `meta git checkout` / `switch` — branch switch across repos with optional `-b/--create`, dirty skip

@@ -26,7 +26,6 @@ impl McpPlugin {
             .version(env!("CARGO_PKG_VERSION"))
             .description("Manage MCP (Model Context Protocol) servers")
             .author("Metarepo Contributors")
-            .experimental(true)
             .help_description(
                 "Run Metarepo as an MCP server and manage connections to other MCP servers.\n\
                  \n\
@@ -767,7 +766,7 @@ impl MetaPlugin for McpPlugin {
     }
 
     fn is_experimental(&self) -> bool {
-        true
+        false
     }
 
     fn register_commands(&self, app: clap::Command) -> clap::Command {

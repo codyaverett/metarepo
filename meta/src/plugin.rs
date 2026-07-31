@@ -41,10 +41,9 @@ impl PluginRegistry {
         self.register(Box::new(plugins::status::StatusPlugin::new()));
         self.register(Box::new(plugins::plugin_manager::PluginManagerPlugin::new()));
 
-        // Only register experimental plugins if flag is set
-        if experimental {
-            self.register(Box::new(plugins::mcp::McpPlugin::new()));
-        }
+        // No built-in experimental plugins remain: mcp moved to the external
+        // metarepo-plugin-mcp crate (install it and register in .meta plugins).
+        let _ = experimental;
     }
 
     pub fn load_external_plugins(&mut self, config: &metarepo_core::MetaConfig) {

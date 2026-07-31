@@ -1,0 +1,23 @@
+[package]
+name = "metarepo-plugin-mcp"
+version = "0.77.0"
+edition = "2021"
+description = "MCP server and gateway for metarepo as an external plugin: expose a workspace over the Model Context Protocol and front downstream MCP servers with progressive disclosure"
+authors = ["Metarepo Contributors"]
+license = "MIT"
+repository = "https://github.com/codyaverett/metarepo"
+homepage = "https://github.com/codyaverett/metarepo"
+keywords = ["metarepo", "mcp", "plugin", "meta", "monorepo"]
+categories = ["development-tools", "command-line-utilities"]
+
+[dependencies]
+metarepo-core = { version = "0.77.0", path = "../../meta-core" }
+metarepo-plugin-sdk = { version = "0.77.0", path = "../../metarepo-plugin-sdk" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.0"
