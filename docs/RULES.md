@@ -1,5 +1,12 @@
 # Metarepo Rules System Documentation
 
+> **Packaging note (0.77.0):** rules ships as the external plugin crate
+> `metarepo-plugin-rules` (in `plugins/`), no longer built into the `meta`
+> binary or gated behind `-x`. Install it (`cargo install --path
+> plugins/metarepo-plugin-rules` or from crates.io once published) and register
+> it under `plugins` in `.meta` (e.g. `"rules": "0.77.0"`). All commands below
+> work unchanged; drop any `-x` from older examples.
+
 ## Overview
 
 The Metarepo Rules System provides comprehensive project structure validation and enforcement. It helps maintain consistency across all projects in a metarepo workspace through configurable rules that check directory structures, file patterns, naming conventions, documentation, security, and more.
@@ -352,16 +359,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Build meta CLI
         run: cargo build --release
-      
+
       - name: Check rules compliance
         run: ./target/release/meta rules check
-      
+
       - name: Upload violations report
         if: failure()
         uses: actions/upload-artifact@v4

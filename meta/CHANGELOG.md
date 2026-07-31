@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- *(workspace)* this repository now dogfoods both extracted plugins: rules and mcp are version-pinned under plugins in .meta and resolved from ~/.cargo/bin; CI installs them with cargo install --path and smoke-tests the wire protocol and takeover exec dispatch through the meta binary on every push (#138)
+
 - *(rules)* the rules plugin moved out of the meta binary into the external metarepo-plugin-rules crate (plugins/metarepo-plugin-rules), graduating it from experimental: install it and register it under plugins in .meta, then use meta rules without -x; every command is declared takeover so the plugin keeps its full clap surface, and the binary also runs standalone in any workspace (#132, #136)
 - *(mcp)* the mcp plugin moved out of the meta binary into the external metarepo-plugin-mcp crate (plugins/metarepo-plugin-mcp), graduating it from experimental: install it and register it under plugins in .meta, then use meta mcp without -x; every command is declared takeover so serve owns stdin/stdout for the MCP stdio transport, and the binary also runs standalone (MCP client configs can point at it directly); generated client config blocks no longer emit -x (#132, #137)
 - *(git)* `meta git push` — fan-out push with upstream preflight, bare worktree expansion, parallel by default

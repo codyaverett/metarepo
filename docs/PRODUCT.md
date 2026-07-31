@@ -27,11 +27,21 @@ Capabilities aimed at agent harnesses, Claude Code, and extensibility:
 | `meta skill` | Stable | Claude skill install/steal/audit/registry — largest plugin |
 | `meta module` | Stable | Bundle plugin + skills as one unit |
 | `meta plugin` | Stable | External protocol/manifest plugins, integrity |
-| `meta -x mcp` | Experimental | MCP server + progressive gateway |
-| `meta -x rules` | Experimental | Project structure rules engine |
+| `meta mcp` | External plugin | MCP server + progressive gateway (`metarepo-plugin-mcp`) |
+| `meta rules` | External plugin | Project structure rules engine (`metarepo-plugin-rules`) |
 
 Experimental commands require `-x` / `--experimental` and are **not** stability
 guarantees. They may graduate (drop `-x`) or be removed after review.
+
+As of 0.77.0 no built-in experimental plugins remain: `mcp` and `rules`
+graduated by moving into external plugin crates (`plugins/metarepo-plugin-mcp`,
+`plugins/metarepo-plugin-rules`), installed and registered per workspace under
+`plugins` in `.meta`. This is the graduation path of record for future
+experimental features: prove the feature behind `-x` if built-in, then ship it
+as an external plugin rather than keeping it in the core binary. The `-x` flag
+remains for external plugins that declare themselves experimental. This
+workspace dogfoods both plugins (see `plugins` in `.meta`), and CI installs and
+smoke-tests them on every push.
 
 ## Boundary rules
 

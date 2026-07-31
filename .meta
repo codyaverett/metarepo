@@ -30,7 +30,10 @@
     "docs": "local",
     "fuzz": "local"
   },
-  "plugins": {},
+  "plugins": {
+    "rules": "0.77.0",
+    "mcp": "0.77.0"
+  },
   "modules": {},
   "nested": null,
   "aliases": null,

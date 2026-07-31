@@ -26,6 +26,23 @@ external plugins use the SDK's `Plugin` trait (declarative commands over the
 subprocess protocol). They are different traits for different execution models;
 don't mix them.
 
+## Reference extractions: rules and mcp
+
+The formerly built-in `rules` and `mcp` plugins now live as external plugin
+crates in this repository (`plugins/metarepo-plugin-rules`,
+`plugins/metarepo-plugin-mcp`) and are the reference implementations for both
+execution models at once: each keeps its full clap surface by declaring every
+command `takeover` (protocol 1.3, see
+[`PLUGIN_PROTOCOL_V1.md`](./PLUGIN_PROTOCOL_V1.md)), so the host execs the
+plugin binary with raw argv instead of dispatching over the wire. Use this
+pattern when a plugin needs option flags, nested subcommands, or a long-running
+command that owns stdin/stdout (the mcp stdio server).
+
+The workspace dogfoods both: they are version-pinned under `plugins` in this
+repo's `.meta`, installed to `~/.cargo/bin` with
+`cargo install --path plugins/metarepo-plugin-<name>`, and CI reinstalls and
+smoke-tests them through the `meta` binary on every push.
+
 ## Planned work
 
 The management ergonomics the old guide assumed are tracked under the plugin
