@@ -72,14 +72,45 @@ treats compatibility by **major version**:
 - Different major → rejected with a clear error pointing the user at the
   appropriate SDK version.
 
-`protocol_version` is a JSON string. The current value is `"1.2"` (1.1 added the
+`protocol_version` is a JSON string. The current value is `"1.3"` (1.1 added the
 `GetSettings`/`Settings` exchange; 1.2 added the optional `help_description` field
-on commands). Minor revisions add optional fields; plugins built against an older
+on commands; 1.3 added the optional `takeover` flag on commands, see
+"Takeover commands" below). Minor revisions add optional fields; plugins built against an older
 `1.x` continue to load. A breaking change requires bumping the major version and
 is a deliberate event.
 
 Plugins that omit `protocol_version` (legacy plugins built against
 pre-v0.19 metarepo) are rejected with a hint to rebuild.
+
+## Takeover commands (protocol 1.3)
+
+The wire protocol occupies the plugin process's stdin/stdout, so a command
+that needs to own those streams for its lifetime — an MCP server speaking
+JSON-RPC on stdio, a TUI — cannot run through `HandleCommand`. A plugin marks
+such a command with `"takeover": true` in its `Commands` declaration.
+
+When the user invokes a takeover command, the host does not send
+`HandleCommand`. Instead it re-invokes the plugin binary directly:
+
+- argv is the command path followed by the parsed argument values
+  (e.g. `serve --transport http --port 8787`);
+- `METAREPO_PLUGIN_TAKEOVER=1` is set, and `METAREPO_PLUGIN_CONFIG` carries
+  the `RuntimeConfigDto` snapshot as JSON;
+- the working directory is the host's working directory;
+- on Unix the host process is replaced via exec, so the plugin owns the
+  terminal's stdin/stdout; elsewhere the host spawns, waits, and mirrors the
+  exit status.
+
+SDK-side, `serve_or_takeover(plugin, run)` dispatches: with
+`METAREPO_PLUGIN_TAKEOVER=1` or any argv present, `run` receives a
+`TakeoverInvocation` (args plus the optional parsed config); otherwise the
+process serves the wire protocol as usual. The argv fallback means an
+external client config (e.g. an MCP client block) may point at the plugin
+binary directly, bypassing `meta` entirely; `METAREPO_PLUGIN_CONFIG` is
+absent in that case and the plugin resolves its workspace itself.
+
+Non-takeover commands omit the field entirely on the wire, so 1.2 hosts
+never see it and 1.2 plugins (which never set it) behave exactly as before.
 
 ## Security
 

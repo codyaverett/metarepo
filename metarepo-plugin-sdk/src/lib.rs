@@ -83,6 +83,49 @@ pub trait Plugin {
     ) -> anyhow::Result<Option<String>>;
 }
 
+/// A takeover invocation: the host (or a user directly) ran the plugin binary
+/// with a command in argv instead of speaking the wire protocol. Commands
+/// declared with [`CommandInfo::takeover`] arrive this way so they can own the
+/// process stdin/stdout (long-running servers, TUIs).
+pub struct TakeoverInvocation {
+    /// argv after the binary name: the command path followed by argument
+    /// values, e.g. `["serve", "--transport", "http"]`.
+    pub args: Vec<String>,
+    /// The host's runtime config snapshot, when launched via `meta` (parsed
+    /// from `METAREPO_PLUGIN_CONFIG`). `None` when the binary was run
+    /// directly, e.g. by an MCP client config pointing at it.
+    pub config: Option<RuntimeConfigDto>,
+}
+
+/// Entry point for plugins with takeover commands. Dispatches on how the
+/// process was invoked: with `METAREPO_PLUGIN_TAKEOVER=1` or any CLI
+/// arguments, `run` is called with the [`TakeoverInvocation`]; otherwise the
+/// process serves the wire protocol on stdin/stdout like [`serve`].
+///
+/// Plugins whose commands all round-trip over the wire should keep calling
+/// [`serve`] directly.
+pub fn serve_or_takeover<P: Plugin>(
+    plugin: P,
+    run: impl FnOnce(TakeoverInvocation) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let takeover_env = std::env::var("METAREPO_PLUGIN_TAKEOVER")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    if takeover_env || !args.is_empty() {
+        let config = std::env::var("METAREPO_PLUGIN_CONFIG")
+            .ok()
+            .map(|json| {
+                serde_json::from_str(&json)
+                    .map_err(|e| anyhow::anyhow!("Invalid METAREPO_PLUGIN_CONFIG: {e}"))
+            })
+            .transpose()?;
+        run(TakeoverInvocation { args, config })
+    } else {
+        serve(plugin)
+    }
+}
+
 /// Run the plugin against the process stdin/stdout.
 ///
 /// This blocks, serving requests until stdin reaches EOF (the host closes the

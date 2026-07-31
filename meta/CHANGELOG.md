@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- *(plugin)* takeover commands (protocol 1.3): external plugin commands declared with takeover are launched by re-invoking the plugin binary directly (exec on Unix) with argv and METAREPO_PLUGIN_CONFIG instead of wire dispatch, so long-running servers and TUIs can own stdin/stdout; groundwork for extracting the mcp plugin (#137)
 - *(git)* `meta git push` — fan-out push with upstream preflight, bare worktree expansion, parallel by default
 - *(git)* `meta git fetch` — fan-out fetch (bare roots, no dirty skip)
 - *(git)* `meta git checkout` / `switch` — branch switch across repos with optional `-b/--create`, dirty skip

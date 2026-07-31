@@ -24,7 +24,7 @@ use std::path::PathBuf;
 /// 1.2 added the optional `help_description` field on [`CommandInfo`]; it is
 /// additive and backward compatible — older plugins omit it (deserializes to
 /// `None`) and the host renders no `Description:` section for that command.
-pub const PLUGIN_PROTOCOL_VERSION: &str = "1.2";
+pub const PLUGIN_PROTOCOL_VERSION: &str = "1.3";
 
 /// A request sent from the host to a plugin subprocess.
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,6 +87,15 @@ pub struct CommandInfo {
     pub help_description: Option<String>,
     pub subcommands: Vec<CommandInfo>,
     pub args: Vec<ArgInfo>,
+    /// When true, the host does not dispatch this command over the wire
+    /// protocol. Instead it re-invokes the plugin binary directly with the
+    /// command path and arguments as argv, handing it the terminal's
+    /// stdin/stdout. This is how long-running commands (servers, TUIs) run:
+    /// the wire protocol occupies the plugin's std streams, so takeover
+    /// commands get a fresh process that owns them. Added in protocol 1.3;
+    /// older plugins omit it and every command dispatches over the wire.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub takeover: bool,
 }
 
 impl CommandInfo {
@@ -98,7 +107,17 @@ impl CommandInfo {
             help_description: None,
             subcommands: Vec::new(),
             args: Vec::new(),
+            takeover: false,
         }
+    }
+
+    /// Mark this command as a takeover command: the host execs the plugin
+    /// binary with this command's path as argv instead of dispatching over
+    /// the wire protocol. Use for long-running commands that need to own
+    /// stdin/stdout (servers, TUIs).
+    pub fn takeover(mut self) -> Self {
+        self.takeover = true;
+        self
     }
 
     /// Set a long, man-page-style help description (rendered on `--help`).
@@ -240,6 +259,26 @@ fn split_major_minor(s: &str) -> std::result::Result<(u32, u32), std::num::Parse
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_info_takeover_defaults_false_for_legacy_json() {
+        // A pre-1.3 plugin's CommandInfo has no takeover field.
+        let json = r#"{"name":"hello","about":"greet","subcommands":[],"args":[]}"#;
+        let info: CommandInfo = serde_json::from_str(json).unwrap();
+        assert!(!info.takeover);
+    }
+
+    #[test]
+    fn command_info_takeover_builder_and_serde() {
+        let info = CommandInfo::new("serve", "Run the server").takeover();
+        assert!(info.takeover);
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"takeover\":true"));
+        // Non-takeover commands do not serialize the field at all, so 1.2
+        // hosts that reject unknown fields never see it.
+        let plain = serde_json::to_string(&CommandInfo::new("hello", "greet")).unwrap();
+        assert!(!plain.contains("takeover"));
+    }
 
     #[test]
     fn request_serialization_roundtrips() {

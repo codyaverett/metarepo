@@ -211,6 +211,93 @@ impl ExternalPlugin {
         Ok(response)
     }
 
+    /// Whether the named top-level subcommand is declared `takeover` by the
+    /// plugin (protocol 1.3). Takeover commands are not dispatched over the
+    /// wire; the plugin binary is re-invoked directly so it owns the terminal's
+    /// stdin/stdout (long-running servers, TUIs).
+    fn is_takeover_command(&self, subcmd: &str) -> bool {
+        self.commands
+            .first()
+            .map(|root| root.subcommands.iter())
+            .into_iter()
+            .flatten()
+            .any(|c| c.name == subcmd && c.takeover)
+    }
+
+    /// Re-invoke the plugin binary directly for a takeover command. The child
+    /// inherits stdin/stdout/stderr, receives the command path and parsed
+    /// argument values as argv, and gets the runtime config as JSON in
+    /// `METAREPO_PLUGIN_CONFIG` (the wire protocol is not in play). On Unix
+    /// this replaces the current process via exec so the plugin owns the
+    /// terminal; elsewhere it spawns, waits, and mirrors the exit status.
+    fn exec_takeover(
+        &self,
+        subcmd: &str,
+        sub_matches: &ArgMatches,
+        config: &RuntimeConfig,
+    ) -> Result<()> {
+        let mut argv = vec![subcmd.to_string()];
+        Self::collect_args(sub_matches, &mut argv);
+
+        let dto: metarepo_core::protocol::RuntimeConfigDto = config.into();
+        let config_json = serde_json::to_string(&dto)
+            .context("Failed to serialize runtime config for takeover command")?;
+
+        let mut cmd = Command::new(&self.path);
+        cmd.args(&argv)
+            .env("METAREPO_PLUGIN_TAKEOVER", "1")
+            .env("METAREPO_PLUGIN_CONFIG", config_json)
+            .current_dir(&config.working_dir);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // exec only returns on failure.
+            let err = cmd.exec();
+            Err(anyhow::anyhow!(
+                "Failed to exec plugin binary {:?} for takeover command '{}': {}",
+                self.path,
+                subcmd,
+                err
+            ))
+        }
+        #[cfg(not(unix))]
+        {
+            let status = cmd
+                .status()
+                .context("Failed to run plugin binary for takeover command")?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "Takeover command '{}' exited with {}",
+                    subcmd,
+                    status
+                ))
+            }
+        }
+    }
+
+    /// Collect subcommand names and argument values from parsed matches into
+    /// argv, recursing through nested subcommands. Mirrors the flat extraction
+    /// in `handle_command` but preserves the nesting order.
+    fn collect_args(matches: &ArgMatches, argv: &mut Vec<String>) {
+        for arg_id in matches.ids() {
+            if arg_id == "verbose" || arg_id == "quiet" || arg_id == "experimental" {
+                continue;
+            }
+            if let Ok(Some(values)) = matches.try_get_many::<String>(arg_id.as_str()) {
+                for value in values {
+                    argv.push(value.to_string());
+                }
+            }
+        }
+        if let Some((name, sub)) = matches.subcommand() {
+            argv.push(name.to_string());
+            Self::collect_args(sub, argv);
+        }
+    }
+
     fn build_command_from_info(info: &CommandInfo, version: &'static str) -> ClapCommand {
         // Store command info as leaked static strings to satisfy clap's lifetime requirements
         let name: &'static str = Box::leak(info.name.clone().into_boxed_str());
@@ -277,6 +364,9 @@ impl MetaPlugin for ExternalPlugin {
 
         // Get subcommand and its arguments
         if let Some((subcmd, sub_matches)) = matches.subcommand() {
+            if self.is_takeover_command(subcmd) {
+                return self.exec_takeover(subcmd, sub_matches, config);
+            }
             args.push(subcmd.to_string());
 
             // Get all argument values from subcommand matches
