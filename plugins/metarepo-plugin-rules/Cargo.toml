@@ -1,0 +1,28 @@
+[package]
+name = "metarepo-plugin-rules"
+version = "0.77.0"
+edition = "2021"
+description = "Project structure validation and enforcement for metarepo workspaces as an external plugin: directory, component, naming, size, security, and dependency rules with auto-fix"
+authors = ["Metarepo Contributors"]
+license = "MIT"
+repository = "https://github.com/codyaverett/metarepo"
+homepage = "https://github.com/codyaverett/metarepo"
+keywords = ["metarepo", "rules", "lint", "plugin", "monorepo"]
+categories = ["development-tools", "command-line-utilities"]
+
+[dependencies]
+metarepo-core = { version = "0.77.0", path = "../../meta-core" }
+metarepo-plugin-sdk = { version = "0.77.0", path = "../../metarepo-plugin-sdk" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+toml = "1.1"
+anyhow = { workspace = true }
+colored = "3.1"
+glob = "0.3"
+regex = "1.10"
+walkdir = "2.4"
+
+[dev-dependencies]
+tempfile = "3.0"

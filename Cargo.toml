@@ -4,6 +4,7 @@ members = [
     "meta",
     "metarepo-plugin-sdk",
     "plugins/metarepo-plugin-mcp",
+    "plugins/metarepo-plugin-rules",
 ]
 exclude = [
     "examples/metarepo-plugin-example",

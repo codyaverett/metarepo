@@ -1,3 +1,11 @@
+//! Project structure validation and enforcement for metarepo workspaces,
+//! packaged as an external plugin.
+//!
+//! Extracted from the `meta` binary's built-in (experimental) `rules` plugin.
+//! The module layout is unchanged; `main.rs` wires it to the plugin wire
+//! protocol via `metarepo-plugin-sdk`, declaring every command as a takeover
+//! command so the binary keeps its full clap surface.
+
 pub mod config;
 pub mod create;
 pub mod docs;
@@ -6,7 +14,6 @@ pub mod plugin;
 pub mod project;
 pub mod validators;
 
-// Export the main plugin
 pub use config::{
     ComponentRule, DependencyRule, DirectoryRule, DocumentationRule, FileRule, ImportRule,
     NamingRule, RulesConfig, SecurityRule, SizeRule,

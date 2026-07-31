@@ -842,6 +842,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "metarepo-plugin-rules"
+version = "0.77.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "colored",
+ "glob",
+ "metarepo-core",
+ "metarepo-plugin-sdk",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "toml",
+ "walkdir",
+]
+
+[[package]]
 name = "metarepo-plugin-sdk"
 version = "0.77.0"
 dependencies = [

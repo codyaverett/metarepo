@@ -707,7 +707,7 @@ impl MetaPlugin for RulesPlugin {
     }
 
     fn is_experimental(&self) -> bool {
-        true
+        false
     }
 
     fn register_commands(&self, app: clap::Command) -> clap::Command {
