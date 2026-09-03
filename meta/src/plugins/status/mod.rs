@@ -198,7 +198,11 @@ mod tests {
     use tempfile::tempdir;
 
     fn git(dir: &Path, args: &[&str]) {
+        // Pin the default branch so the fixture is independent of the host's
+        // init.defaultBranch: with a master default, clone A would be born on
+        // master while tracking origin/main and the plain push would refuse.
         let ok = Command::new("git")
+            .args(["-c", "init.defaultBranch=main"])
             .args(args)
             .current_dir(dir)
             .env("GIT_AUTHOR_NAME", "t")
