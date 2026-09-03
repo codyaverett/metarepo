@@ -81,7 +81,7 @@ to the harness's own permission/confirmation model rather than auto-approving.
 
 ## 4. The keystone: metarepo as an MCP server
 
-**Invest here first.** metarepo already ships an MCP server — `meta -x mcp serve`
+**Invest here first.** metarepo already ships an MCP server — `meta mcp serve`
 (`meta/src/plugins/mcp/mcp_server.rs`). It speaks JSON-RPC over stdio (protocol
 `2025-06-18`, `tools` capability) and any MCP-capable harness — Claude Code, opencode,
 Cursor, Zed, Claude Desktop, a custom client — gets metarepo for free by pointing at it.
@@ -90,7 +90,7 @@ instead of N reimplementations that drift apart.
 
 ### Mind the client/server duality
 
-`meta -x mcp` does **two opposite things** — don't conflate them:
+`meta mcp` does **two opposite things** — don't conflate them:
 
 - **metarepo as MCP _client_/manager**: `add`, `list`, `remove`, `connect`, `list-tools`,
   `list-resources`, `call-tool` manage and call *other* MCP servers
@@ -99,7 +99,7 @@ instead of N reimplementations that drift apart.
 - **metarepo as MCP _server_**: `serve` exposes *metarepo itself*
   (`mcp_server.rs`). `config` prints a ready-to-paste client config.
 
-> `mcp` is experimental, so commands need the `-x` flag: `meta -x mcp serve`.
+> `mcp` ships as the external plugin crate `metarepo-plugin-mcp` (pinned under `plugins` in `.meta`); once installed the commands run as plain `meta mcp ...`.
 
 ### Tools exposed today (13)
 
@@ -120,7 +120,7 @@ schema (see `build_tools()` in `mcp_server.rs`).
 ### Register it in any client
 
 ```bash
-meta -x mcp config        # prints a Claude Desktop / VS Code style block
+meta mcp config        # prints a Claude Desktop / VS Code style block
 ```
 
 ```json
@@ -143,7 +143,7 @@ Already the most developed target:
   by phrases like "meta exec", "meta worktree", "multi-repo". Keep its version header in
   sync with `Cargo.toml` (note: v0.10.5 **removed** `--output-format` and `--ai`; don't
   reintroduce them in examples). `CLAUDE.md` carries commit/issue conventions.
-- **Tools** — register `meta -x mcp serve` in `.mcp.json` / `.claude/settings.json` so the
+- **Tools** — register `meta mcp serve` in `.mcp.json` / `.claude/settings.json` so the
   agent can *act*, not just recall syntax.
 - **Workflow** — add slash commands for repeated procedures (e.g. a worktree-per-PR sweep),
   a subagent for multi-repo audits, and hooks (e.g. run `meta git status` after a clone).
@@ -153,7 +153,7 @@ Already the most developed target:
 
 - **Context** — add an `AGENTS.md` (opencode's `CLAUDE.md` analog) summarizing the meta
   surface from §3.
-- **Tools** — preferred: point opencode at the same `meta -x mcp serve` server. Alternative:
+- **Tools** — preferred: point opencode at the same `meta mcp serve` server. Alternative:
   a thin TS/JS opencode plugin that shells out to `meta`. Prefer MCP so there's one schema.
 - **Workflow** — opencode agents/commands wrapping common sweeps.
 
@@ -166,7 +166,7 @@ Two flavors:
    `meta/src/plugins/config/tui_editor.rs` is a working model). Show projects, worktrees,
    and cross-repo git status at a glance; launch `exec`/`run` from the UI. This is metarepo
    as *its own* harness surface.
-2. **Embed the MCP server** — any third-party TUI agent registers `meta -x mcp serve` and
+2. **Embed the MCP server** — any third-party TUI agent registers `meta mcp serve` and
    gets the same tools as everyone else.
 
 ---
@@ -188,7 +188,7 @@ Two flavors:
 
 | Phase | Work | Why first |
 |---|---|---|
-| **1 — MCP keystone** | Harden `meta -x mcp serve`: add `worktree`/`run` tools, expose project tree + `.meta` as resources, pass `--non-interactive`, document the schema, graduate from `-x`. | Unlocks all four harnesses at once. |
+| **1 — MCP keystone** | Harden `meta mcp serve`: add `worktree`/`run` tools, expose project tree + `.meta` as resources, pass `--non-interactive`, document the schema. | Unlocks all four harnesses at once. |
 | **2 — Claude Code depth** | Slash commands + multi-repo subagent + MCP registration on top of the existing skill; keep skill version-synced. | Highest-traffic harness today. |
 | **3 — opencode pack** | `AGENTS.md` + opencode pointed at the Phase 1 server. | Cheap once Phase 1 exists. |
 | **4 — `meta tui`** | Standalone dashboard on `meta-core/src/tui/`. | metarepo as its own surface. |

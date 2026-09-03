@@ -5,7 +5,7 @@ A Rust multi-repo workspace CLI inspired by the Node.js [meta](https://github.co
 **Dual product surface** (see [docs/PRODUCT.md](docs/PRODUCT.md)):
 
 1. **Multi-repo CLI (stable, default)** — fleet git ops, projects, exec/run, bare-first worktrees, config cascade, status dashboard.
-2. **Agent / extension profile** — Claude skills, modules, plugins; experimental MCP gateway and structure rules via `meta -x`.
+2. **Agent / extension profile** — Claude skills, modules, plugins; MCP gateway and structure rules as installable external plugins.
 
 ## Project Structure
 
@@ -117,8 +117,8 @@ meta git update
 | **skill** | `meta skill <install\|steal\|audit\|search\|add\|...>` | Claude Code skill lifecycle and registry |
 | **module** | `meta module <enable\|disable\|list\|scan\|...>` | Modules bundling plugins + skills |
 | **plugin** | `meta plugin <list\|remove\|update\|verify>` | External plugin management |
-| **rules** | `meta -x rules <check\|init\|list\|...>` | Project structure rules (**experimental**) |
-| **mcp** | `meta -x mcp <serve\|add\|list\|...>` | MCP server and gateway (**experimental**) |
+| **rules** | `meta rules <check\|init\|list\|...>` | Project structure rules (external plugin `metarepo-plugin-rules`) |
+| **mcp** | `meta mcp <serve\|add\|list\|...>` | MCP server and gateway (external plugin `metarepo-plugin-mcp`) |
 
 See [docs/PRODUCT.md](docs/PRODUCT.md) for surface boundaries and [CLI Reference](.claude/skills/meta-tool/SKILL.md) for full flags.
 

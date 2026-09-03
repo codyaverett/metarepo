@@ -294,7 +294,7 @@ pub enum MetaError {
 ## AI Harness Integration
 
 Beyond extending the CLI with internal plugins, metarepo can be driven by external AI
-agent harnesses (Claude Code, opencode, MCP clients, a custom TUI). The `meta -x mcp serve`
+agent harnesses (Claude Code, opencode, MCP clients, a custom TUI). The `meta mcp serve`
 command exposes metarepo itself as an MCP server, the universal bridge that lets any
 MCP-capable harness use meta operations as tools. See
 [Harness Integration](HARNESS_INTEGRATION.md) for the integration types, per-harness how-to,

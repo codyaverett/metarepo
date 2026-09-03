@@ -69,7 +69,7 @@ For zsh this also clears `~/.zcompdump*` so the next shell rebuilds its cache.
 
 ## Notes
 
-- Completions are generated from the **stable** command set. Experimental
-  subcommands (`-x rules` / `plugin` / `mcp`) are intentionally excluded.
+- Completions are generated from the **stable** command set. Subcommands served
+  by external plugins (`rules`, `mcp`) and `plugin` are intentionally excluded.
 - `init` never edits your rc files automatically. For the non-oh-my-zsh zsh case
   it only prints the one-line `$fpath` snippet for you to add.

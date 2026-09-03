@@ -15,7 +15,7 @@ The `meta` CLI is a powerful multi-project management tool for managing multiple
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--version` | `-v` | Print version information |
-| `--experimental` | `-x` | Enable experimental features (rules, mcp) |
+| `--experimental` | `-x` | Enable experimental features declared by external plugins |
 | `--non-interactive` | | Non-interactive mode: 'fail' or 'defaults' |
 
 ### Common Project Selection Flags
@@ -476,81 +476,81 @@ meta worktree prune --dry-run
 
 ---
 
-### Experimental Commands
+### External Plugin Commands
 
-These commands require the `--experimental` or `-x` flag.
+`rules` and `mcp` ship as external plugin crates (`metarepo-plugin-rules`, `metarepo-plugin-mcp`). Install them with `meta plugin install rules` / `meta plugin install mcp` (or `cargo install`) and pin them under `plugins` in `.meta`; they then appear as ordinary `meta` subcommands with no `-x` flag.
 
-### `meta rules` (Experimental)
+### `meta rules` (external plugin)
 
 Enforce project file structure rules.
 
-#### `meta -x rules check`
+#### `meta rules check`
 
 Check project structure against configured rules.
 
 ```bash
-meta -x rules check
-meta -x rules check --project myproject
-meta -x rules check --fix  # Auto-fix violations
+meta rules check
+meta rules check --project myproject
+meta rules check --fix  # Auto-fix violations
 ```
 
 Aliases: `c`, `chk`
 
-#### `meta -x rules init`
+#### `meta rules init`
 
 Initialize rules configuration file.
 
 ```bash
-meta -x rules init
-meta -x rules init --output .rules.yaml
-meta -x rules init --project myproject
+meta rules init
+meta rules init --output .rules.yaml
+meta rules init --project myproject
 ```
 
-#### `meta -x rules list`
+#### `meta rules list`
 
 List all configured rules.
 
 ```bash
-meta -x rules list
-meta -x rules list --project myproject
+meta rules list
+meta rules list --project myproject
 ```
 
 Aliases: `ls`, `l`
 
-#### `meta -x rules docs`
+#### `meta rules docs`
 
 Show documentation for creating and using rules.
 
 ```bash
-meta -x rules docs
-meta -x rules docs directory
-meta -x rules docs component
+meta rules docs
+meta rules docs directory
+meta rules docs component
 ```
 
-#### `meta -x rules create`
+#### `meta rules create`
 
 Create a new rule.
 
 ```bash
-meta -x rules create directory src --required
-meta -x rules create component "src/components/*" --structure "index.ts,styles.css"
-meta -x rules create file "*.ts" --requires "test:*.test.ts"
+meta rules create directory src --required
+meta rules create component "src/components/*" --structure "index.ts,styles.css"
+meta rules create file "*.ts" --requires "test:*.test.ts"
 ```
 
-#### `meta -x rules status`
+#### `meta rules status`
 
 Show rules status for all projects.
 
 ```bash
-meta -x rules status
+meta rules status
 ```
 
-#### `meta -x rules copy <project>`
+#### `meta rules copy <project>`
 
 Copy workspace rules to a specific project.
 
 ```bash
-meta -x rules copy myproject
+meta rules copy myproject
 ```
 
 ---
@@ -567,81 +567,81 @@ meta plugin remove example
 ```
 ---
 
-### `meta mcp` (Experimental)
+### `meta mcp` (external plugin)
 
 Manage MCP (Model Context Protocol) servers.
 
-#### `meta -x mcp add <name> <command> [args]`
+#### `meta mcp add <name> <command> [args]`
 
 Add a saved MCP server configuration.
 
 ```bash
-meta -x mcp add playwright npx -- --yes @modelcontextprotocol/server-playwright
-meta -x mcp add myserver /path/to/server --workdir /project --env "KEY=value"
+meta mcp add playwright npx -- --yes @modelcontextprotocol/server-playwright
+meta mcp add myserver /path/to/server --workdir /project --env "KEY=value"
 ```
 
-#### `meta -x mcp list`
+#### `meta mcp list`
 
 List saved MCP server configurations.
 
 ```bash
-meta -x mcp list
+meta mcp list
 ```
 
-#### `meta -x mcp remove <name>`
+#### `meta mcp remove <name>`
 
 Remove a saved MCP server configuration.
 
 ```bash
-meta -x mcp remove playwright
+meta mcp remove playwright
 ```
 
-#### `meta -x mcp connect <name>`
+#### `meta mcp connect <name>`
 
 Connect to an MCP server and show its info.
 
 ```bash
-meta -x mcp connect playwright
+meta mcp connect playwright
 ```
 
-#### `meta -x mcp list-tools <name>`
+#### `meta mcp list-tools <name>`
 
 List tools from an MCP server.
 
 ```bash
-meta -x mcp list-tools playwright
+meta mcp list-tools playwright
 ```
 
-#### `meta -x mcp list-resources <name>`
+#### `meta mcp list-resources <name>`
 
 List resources from an MCP server.
 
 ```bash
-meta -x mcp list-resources playwright
+meta mcp list-resources playwright
 ```
 
-#### `meta -x mcp call-tool <name> <tool> [--args JSON]`
+#### `meta mcp call-tool <name> <tool> [--args JSON]`
 
 Call a tool on an MCP server.
 
 ```bash
-meta -x mcp call-tool playwright browser_navigate --args '{"url": "https://example.com"}'
+meta mcp call-tool playwright browser_navigate --args '{"url": "https://example.com"}'
 ```
 
-#### `meta -x mcp serve`
+#### `meta mcp serve`
 
 Run Metarepo as an MCP server exposing CLI tools.
 
 ```bash
-meta -x mcp serve
+meta mcp serve
 ```
 
-#### `meta -x mcp config`
+#### `meta mcp config`
 
 Print MCP configuration for VS Code or Claude Desktop.
 
 ```bash
-meta -x mcp config
+meta mcp config
 ```
 
 ---
