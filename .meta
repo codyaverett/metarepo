@@ -31,8 +31,8 @@
     "fuzz": "local"
   },
   "plugins": {
-    "rules": "0.77.0",
-    "mcp": "0.77.0"
+    "rules": "0.78.0",
+    "mcp": "0.78.0"
   },
   "modules": {},
   "nested": null,

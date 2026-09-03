@@ -1,10 +1,10 @@
 # Metarepo Rules System Documentation
 
-> **Packaging note (0.77.0):** rules ships as the external plugin crate
+> **Packaging note (0.78.0):** rules ships as the external plugin crate
 > `metarepo-plugin-rules` (in `plugins/`), no longer built into the `meta`
 > binary or gated behind `-x`. Install it (`cargo install --path
 > plugins/metarepo-plugin-rules` or from crates.io once published) and register
-> it under `plugins` in `.meta` (e.g. `"rules": "0.77.0"`). All commands below
+> it under `plugins` in `.meta` (e.g. `"rules": "0.78.0"`). All commands below
 > work unchanged; drop any `-x` from older examples.
 
 ## Overview

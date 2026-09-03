@@ -4,10 +4,10 @@ Status: **all phases implemented** (#86, #87, #88, #89). Tracks how the
 experimental `meta mcp` plugin grew into (a) a progressive-disclosure gateway in
 front of other MCP servers, and (b) a workspace-scoped, permission-aware server.
 
-> **Packaging note (0.77.0):** mcp ships as the external plugin crate
+> **Packaging note (0.78.0):** mcp ships as the external plugin crate
 > `metarepo-plugin-mcp` (in `plugins/`), no longer built into the `meta` binary
 > or gated behind `-x`. Install it and register it under `plugins` in `.meta`
-> (e.g. `"mcp": "0.77.0"`); `meta mcp serve` execs into the plugin binary via
+> (e.g. `"mcp": "0.78.0"`); `meta mcp serve` execs into the plugin binary via
 > protocol 1.3 takeover, and MCP client configs may also launch the binary
 > directly. Older `-x` examples below predate graduation. HTTP transport is
 > tracked in #139.

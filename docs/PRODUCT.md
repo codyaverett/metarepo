@@ -33,7 +33,7 @@ Capabilities aimed at agent harnesses, Claude Code, and extensibility:
 Experimental commands require `-x` / `--experimental` and are **not** stability
 guarantees. They may graduate (drop `-x`) or be removed after review.
 
-As of 0.77.0 no built-in experimental plugins remain: `mcp` and `rules`
+As of 0.78.0 no built-in experimental plugins remain: `mcp` and `rules`
 graduated by moving into external plugin crates (`plugins/metarepo-plugin-mcp`,
 `plugins/metarepo-plugin-rules`), installed and registered per workspace under
 `plugins` in `.meta`. This is the graduation path of record for future

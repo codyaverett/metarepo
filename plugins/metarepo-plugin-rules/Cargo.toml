@@ -1,6 +1,6 @@
 [package]
 name = "metarepo-plugin-rules"
-version = "0.77.0"
+version = "0.78.0"
 edition = "2021"
 description = "Project structure validation and enforcement for metarepo workspaces as an external plugin: directory, component, naming, size, security, and dependency rules with auto-fix"
 authors = ["Metarepo Contributors"]
@@ -11,8 +11,8 @@ keywords = ["metarepo", "rules", "lint", "plugin", "monorepo"]
 categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
-metarepo-core = { version = "0.77.0", path = "../../meta-core" }
-metarepo-plugin-sdk = { version = "0.77.0", path = "../../metarepo-plugin-sdk" }
+metarepo-core = { version = "0.78.0", path = "../../meta-core" }
+metarepo-plugin-sdk = { version = "0.78.0", path = "../../metarepo-plugin-sdk" }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

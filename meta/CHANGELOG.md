@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.77.0] - Unreleased
+## [0.78.0] - 2026-09-03
 
 ### Added
 
@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(rules)* the rules plugin moved out of the meta binary into the external metarepo-plugin-rules crate (plugins/metarepo-plugin-rules), graduating it from experimental: install it and register it under plugins in .meta, then use meta rules without -x; every command is declared takeover so the plugin keeps its full clap surface, and the binary also runs standalone in any workspace (#132, #136)
 - *(mcp)* the mcp plugin moved out of the meta binary into the external metarepo-plugin-mcp crate (plugins/metarepo-plugin-mcp), graduating it from experimental: install it and register it under plugins in .meta, then use meta mcp without -x; every command is declared takeover so serve owns stdin/stdout for the MCP stdio transport, and the binary also runs standalone (MCP client configs can point at it directly); generated client config blocks no longer emit -x (#132, #137)
+
+### Packaging
+
+- *(release)* metarepo-plugin-rules and metarepo-plugin-mcp publish to crates.io for the first time at 0.78.0; the plugin manager resolves `"rules": "0.78.0"` / `"mcp": "0.78.0"` pins from there (earlier pin examples referencing 0.77.0 never resolved because those crates were unpublished)
+
+## [0.77.0] - 2026-07-30
+
+### Added
+
 - *(git)* `meta git push` — fan-out push with upstream preflight, bare worktree expansion, parallel by default
 - *(git)* `meta git fetch` — fan-out fetch (bare roots, no dirty skip)
 - *(git)* `meta git checkout` / `switch` — branch switch across repos with optional `-b/--create`, dirty skip
