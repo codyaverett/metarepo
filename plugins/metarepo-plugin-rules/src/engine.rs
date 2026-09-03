@@ -1,6 +1,14 @@
 use super::config::RulesConfig;
 use anyhow::Result;
-use glob::Pattern;
+use glob::{MatchOptions, Pattern};
+
+/// Glob options where `*` and `?` never cross a `/`, so `src/plugins/*` matches
+/// direct children only and `**` is the way to opt into recursion.
+const LITERAL_SEPARATOR: MatchOptions = MatchOptions {
+    case_sensitive: true,
+    require_literal_separator: true,
+    require_literal_leading_dot: false,
+};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -182,7 +190,7 @@ impl RuleEngine {
             let entry = entry?;
             if entry.file_type().is_dir() {
                 if let Ok(relative) = entry.path().strip_prefix(base_path) {
-                    if glob_pattern.matches_path(relative) {
+                    if glob_pattern.matches_path_with(relative, LITERAL_SEPARATOR) {
                         matching_dirs.push(entry.path().to_path_buf());
                     }
                 }
@@ -200,7 +208,7 @@ impl RuleEngine {
             let entry = entry?;
             if entry.file_type().is_file() {
                 if let Ok(relative) = entry.path().strip_prefix(base_path) {
-                    if glob_pattern.matches_path(relative) {
+                    if glob_pattern.matches_path_with(relative, LITERAL_SEPARATOR) {
                         matching_files.push(entry.path().to_path_buf());
                     }
                 }
@@ -651,7 +659,7 @@ pub fn fix_violations<P: AsRef<Path>>(project_path: P, violations: &[Violation])
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DirectoryRule, NamingRule, SecurityRule, SizeRule};
+    use crate::config::{ComponentRule, DirectoryRule, NamingRule, SecurityRule, SizeRule};
     use std::fs;
     use tempfile::tempdir;
 
@@ -682,6 +690,40 @@ mod tests {
             .message
             .contains("Required directory 'src' is missing"));
         assert!(violations[0].fixable);
+    }
+
+    #[test]
+    fn component_glob_star_matches_direct_children_only() {
+        // `src/plugins/*` must match src/plugins/<name> but not nested
+        // directories such as src/plugins/<name>/assets, which the glob
+        // crate's default options would also match because `*` crosses `/`.
+        let temp = tempdir().unwrap();
+        let good = temp.path().join("src/plugins/good");
+        let nested = good.join("assets/deep");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(good.join("mod.rs"), "").unwrap();
+        fs::create_dir_all(temp.path().join("src/plugins/bad")).unwrap();
+
+        let config = RulesConfig {
+            directories: Vec::new(),
+            components: vec![ComponentRule {
+                pattern: "src/plugins/*/".to_string(),
+                structure: vec!["mod.rs".to_string()],
+                description: None,
+            }],
+            files: Vec::new(),
+            naming: Vec::new(),
+            dependencies: Vec::new(),
+            imports: Vec::new(),
+            documentation: Vec::new(),
+            size: Vec::new(),
+            security: Vec::new(),
+        };
+
+        let violations = RuleEngine::new(config).validate(temp.path()).unwrap();
+        let paths: Vec<String> = violations.iter().map(|v| v.message.clone()).collect();
+        assert_eq!(violations.len(), 1, "{paths:?}");
+        assert!(paths[0].contains("'bad'"), "{paths:?}");
     }
 
     #[test]

@@ -397,6 +397,7 @@ fn handle_check(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
 
     let mut total_violations = 0;
 
+    let mut error_count = 0usize;
     for project_name in projects {
         let project_path = manager.get_project_path(&project_name)?;
 
@@ -426,6 +427,14 @@ fn handle_check(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             println!("✅ {}", "All rules passed!".green());
         } else {
             total_violations += violations.len();
+            // Error-level violations fail the command (exit non-zero) so the
+            // check can gate CI; warnings and info never do. Violations that
+            // --fix is about to repair do not count.
+            error_count += violations
+                .iter()
+                .filter(|v| matches!(v.severity, super::engine::Severity::Error))
+                .filter(|v| !(fix && v.fixable))
+                .count();
 
             for violation in &violations {
                 match violation.severity {
@@ -470,6 +479,10 @@ fn handle_check(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         if !fix {
             println!("💡 Run with --fix to automatically fix fixable violations");
         }
+    }
+
+    if error_count > 0 {
+        anyhow::bail!("rules check failed with {error_count} error-level violation(s)");
     }
 
     Ok(())
