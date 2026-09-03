@@ -11,6 +11,11 @@
 
 The Metarepo Rules System provides comprehensive project structure validation and enforcement. It helps maintain consistency across all projects in a metarepo workspace through configurable rules that check directory structures, file patterns, naming conventions, documentation, security, and more.
 
+> **Dogfood:** this repository checks itself with the rules plugin. The
+> workspace rules live in [`.rules.yaml`](../.rules.yaml) at the root and CI
+> runs `meta rules check` as a non-blocking step (see `.github/workflows/ci.yml`).
+> Note that glob `*` never crosses a `/`; use `**` to match recursively.
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)

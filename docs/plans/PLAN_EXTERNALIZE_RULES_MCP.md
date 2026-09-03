@@ -1,6 +1,6 @@
 # Plan: Externalize rules and mcp as managed external plugins
 
-Status: proposed
+Status: done (shipped in 0.78.0, 2026-09-03; phases 1-4 complete, see meta/CHANGELOG.md)
 Related issues: #132 (graduate or remove experimental plugins), #133 (dogfood a real meta module)
 Date: 2026-07-30
 

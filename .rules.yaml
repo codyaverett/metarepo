@@ -1,28 +1,24 @@
-directories:
-- path: components
-  required: true
-  description: Vue/React components directory
-- path: tests
-  required: true
-  description: Test files directory
-- path: docs
-  required: false
-  description: Documentation directory
+# Workspace rules for the metarepo repository itself (dogfood, #140).
+# Checked by the external rules plugin: meta rules check
+# Rules apply per project listed in .meta, with patterns relative to each
+# project root; a pattern that matches nothing in a project is a no-op.
+
 components:
-- pattern: components/**/
-  structure:
-  - '[ComponentName].vue'
-  - __tests__/
-  - __tests__/[ComponentName].test.js
-  - '[ComponentName].stories.js'
-  description: Vue component structure
-files:
-- pattern: '**/*.vue'
-  requires:
-    story: '*.stories.js'
-    test: __tests__/*.test.js
-  description: Vue files must have tests and stories
-- pattern: src/**/*.rs
-  requires:
-    test: '#[test]'
-  description: Rust files should have tests
+  - pattern: src/plugins/*/
+    structure:
+      - mod.rs
+    description: Every built-in plugin module directory (meta/src/plugins/<name>/) declares itself via mod.rs
+
+naming:
+  - pattern: plans/*.md
+    naming_pattern: '^PLAN_[A-Z0-9_]+\.md$'
+    case_style: UPPER_SNAKE
+    description: Plan documents under docs/plans/ are named PLAN_<TOPIC>.md
+
+security:
+  - pattern: '**/*.rs'
+    no_hardcoded_secrets: true
+    forbidden_patterns:
+      - 'sk-[A-Za-z0-9]{20,}'
+      - 'ghp_[A-Za-z0-9]{30,}'
+    description: No hardcoded API tokens in Rust sources

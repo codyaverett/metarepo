@@ -78,6 +78,13 @@ jobs:
         printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}\n' \
           | ./target/debug/meta mcp serve | head -1 | grep -q '"protocolVersion"'
 
+    # Dogfood the rules plugin on this workspace's own conventions (#140).
+    # Non-blocking for now: the goal is to learn which validators earn their
+    # keep before making it a gate. Rules live in .rules.yaml at the root.
+    - name: Check workspace rules (dogfood, non-blocking)
+      continue-on-error: true
+      run: ./target/debug/meta rules check
+
   examples:
     name: Examples
     runs-on: ubuntu-latest
