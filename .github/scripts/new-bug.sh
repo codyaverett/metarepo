@@ -30,11 +30,16 @@ if [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "-h" ]]; then
     exit 0
 fi
 
-# Check for silent flag
-if [[ "${1:-}" == "--silent" ]]; then
-    SILENT=true
-    shift
-fi
+# Accept --silent before or after --json (the README documents both orders)
+ARGS=()
+for arg in "$@"; do
+    if [[ "$arg" == "--silent" ]]; then
+        SILENT=true
+    else
+        ARGS+=("$arg")
+    fi
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 # Check if gh CLI is installed
 if ! command -v gh &> /dev/null; then

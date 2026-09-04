@@ -31,11 +31,16 @@ if [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "-h" ]]; then
     exit 0
 fi
 
-# Check for silent flag
-if [[ "${1:-}" == "--silent" ]]; then
-    SILENT=true
-    shift
-fi
+# Accept --silent before or after --json (the README documents both orders)
+ARGS=()
+for arg in "$@"; do
+    if [[ "$arg" == "--silent" ]]; then
+        SILENT=true
+    else
+        ARGS+=("$arg")
+    fi
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 # Check if gh CLI is installed
 if ! command -v gh &> /dev/null; then
@@ -99,10 +104,15 @@ fi
 
 # Create the issue
 log "Creating idea..."
+# The idea label is optional: repos without it fall back to needs-triage.
+label="idea"
+if ! gh label list --limit 200 --json name --jq '.[].name' 2>/dev/null | grep -qx "idea"; then
+    label="needs-triage"
+fi
 ISSUE_URL=$(gh issue create \
     --title "$title" \
     --body "$body" \
-    --label "idea" 2>&1 | tee /dev/stderr | grep -o 'https://[^ ]*' || true)
+    --label "$label" 2>&1 | tee /dev/stderr | grep -o 'https://[^ ]*' || true)
 
 if [[ -n "$ISSUE_URL" ]]; then
     log "Idea captured successfully!"

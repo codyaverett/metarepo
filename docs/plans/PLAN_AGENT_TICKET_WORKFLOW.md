@@ -60,11 +60,14 @@ feedback turnaround plus reviewer nudges.
 
 ### Workstream 3: plan-to-issues (#143)
 
-`.github/scripts/plan-to-issues.sh`: takes a plan doc path and either a JSON
-array of issue payloads or a conventional Tasks section in the doc, creates
-issues through the existing scripts, adds blocked-by cross-links, and appends
-issue numbers to the doc's Related issues line. Output chains into
-ticket-start.
+Shipped: `.github/scripts/plan-to-issues.sh` takes a plan doc path and
+either a `## Tasks` section (numbered items, indented body, `blocked by: N`
+and `priority:` markers) or a JSON array via `--json`, creates each task as a
+feature issue through `new-feature.sh`, comments `Blocked by #N` on dependent
+issues, writes `(#N)` back onto each task line so re-runs are idempotent, and
+appends the numbers to the doc's Related issues line. Stdout is the URL list,
+which chains into ticket-start. `--dry-run` previews. Documented in
+`.github/scripts/README.md`.
 
 ## Review policy (process, not code)
 

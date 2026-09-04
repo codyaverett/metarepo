@@ -53,6 +53,14 @@ echo '{
 }' | .github/scripts/new-idea.sh --json --silent
 ```
 
+**Plan decomposition:** once a plan doc in `docs/plans/` has a `## Tasks`
+section, create every issue at once (preview with `--dry-run` first):
+```bash
+.github/scripts/plan-to-issues.sh docs/plans/PLAN_X.md --dry-run
+.github/scripts/plan-to-issues.sh docs/plans/PLAN_X.md
+```
+The script writes the issue numbers back into the doc and prints the URLs.
+
 ### Examples
 
 **Example 1: Bug found during code review**

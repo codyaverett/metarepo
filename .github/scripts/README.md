@@ -167,6 +167,60 @@ ISSUE_URL=$(echo '{
 }' | .github/scripts/new-idea.sh --json --silent)
 ```
 
+### 4. Plan to Issues (`plan-to-issues.sh`)
+
+Decompose a plan doc in `docs/plans/` into linked GitHub issues in one
+command. Tasks come from a `## Tasks` section in the doc, or from a JSON array.
+Each task becomes a feature issue (via `new-feature.sh`), dependent issues get
+a `Blocked by #N` comment, the created number is written back onto the task
+line, and the numbers are appended to the doc's `Related issues:` header line.
+Stdout is the list of created issue URLs, one per line; progress goes to stderr.
+
+**Tasks section convention:**
+```markdown
+## Tasks
+
+1. Add the widget parser
+   Parse widgets from the manifest into a typed model.
+   Further lines become the proposed solution.
+   priority: high
+2. Wire parser into the CLI
+   blocked by: 1
+3. Already tracked item (#57)
+```
+
+- Numbered items start a task; the rest of the line is the title.
+- Indented continuation lines form the body: the first is the summary, the
+  rest the proposed solution.
+- `blocked by: N, M` links the task to other items by number.
+- `priority: low|medium|high|critical` sets the issue priority (default medium).
+- A title ending in `(#N)` already has an issue and is skipped, so re-running
+  the script after adding tasks only creates the new ones.
+
+**Preview first, then create:**
+```bash
+.github/scripts/plan-to-issues.sh docs/plans/PLAN_WIDGETS.md --dry-run
+.github/scripts/plan-to-issues.sh docs/plans/PLAN_WIDGETS.md
+```
+
+**JSON input (bypasses the Tasks section):**
+```bash
+echo '[
+  {"title": "Add the widget parser", "summary": "...", "priority": "high"},
+  {"title": "Wire parser into the CLI", "blocked_by": [1]}
+]' | .github/scripts/plan-to-issues.sh docs/plans/PLAN_WIDGETS.md --json -
+```
+
+**Options:** `--dry-run` (parse and print only), `--no-doc-edit` (create issues
+but leave the doc alone), `--silent` (quiet stderr), `--json FILE|-`.
+
+**Chaining:** the URL list on stdout feeds the ticket-start workflow (#141):
+```bash
+.github/scripts/plan-to-issues.sh docs/plans/PLAN_WIDGETS.md | while read -r url; do
+  echo "created $url"
+done
+```
+
 ## Usage with Claude Agents
 
 These scripts are designed to work seamlessly with AI agents like Claude. Here's how:
