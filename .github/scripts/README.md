@@ -17,6 +17,8 @@ All scripts return the created issue URL on success, making them ideal for scrip
 
 - [GitHub CLI (`gh`)](https://cli.github.com/) - Required
 - [`jq`](https://stedolan.github.io/jq/) - Required only for JSON input mode
+- [`meta`](../../README.md) - Required only by `ticket-start.sh`, which shells
+  out to `meta worktree add`
 - `TYPESAFE_API_KEY` - Required only by `triage-issue.sh`, which reads no
   other credential; scope it to that one variable rather than sourcing a
   whole secrets file (see below)
@@ -274,6 +276,67 @@ request payload builder offline, no API key needed).
 **Tuning the threshold:** run `--all --dry-run --raw` over the current backlog
 and compare the model's answers against how you would have labelled them before
 letting it write. 0.7 is a starting point, not a measured value for this repo.
+
+### 6. Ticket Start (`ticket-start.sh`)
+
+Turn an issue number into a ready worktree in one step: read the issue, derive
+the branch name from its title, run `meta worktree add`, move the issue to
+in-progress, assign it to you, and print the worktree path on stdout.
+
+**Start work on an issue:**
+```bash
+.github/scripts/ticket-start.sh 141
+```
+
+**Preview every step first - creates nothing, labels nothing:**
+```bash
+.github/scripts/ticket-start.sh 141 --dry-run
+```
+
+**cd straight into the new worktree:**
+```bash
+cd "$(.github/scripts/ticket-start.sh 141 --silent)"
+```
+
+**Branch naming:** `feature/<number>-<slug>`, or `fix/<number>-<slug>` when the
+title starts with `[Bug]:`. The `[Feature]:`/`[Bug]:` prefix is stripped, the
+rest is lowercased, every run of non-alphanumerics becomes one hyphen, and the
+slug is trimmed to 40 characters on a word boundary with no trailing hyphen.
+So issue 141 gives `feature/141-add-ticket-start-workflow-command-issue`.
+
+**Labels:** the issue gains `in-progress` and loses `needs-triage` (only when
+it actually carries it, so `gh` is never asked to remove a missing label). The
+repo ships no `in-progress` label, so the script creates it on first use with
+`gh label create --force`; applying a label that does not exist would make `gh`
+fail instead.
+
+**Where the worktree lands:** `meta worktree add` operates on `.meta` projects
+that are git repositories of their own, creating
+`<project>/.worktrees/<branch>` (or `<project>/<branch>` for a bare project).
+Run the script from inside the project the ticket touches - that is also how
+`meta` picks the project without prompting. If no worktree for the branch turns
+up afterwards, the script says so and leaves the issue untouched rather than
+labelling work that does not exist. Note that in this repository the `.meta`
+projects (`meta`, `docs`, `plugins`, ...) are plain directories of the root
+repository, not separate repositories, so `meta worktree add` has nothing to
+operate on here yet.
+
+**Passing options to `meta worktree add`:** everything after `--` is forwarded,
+which is how you pick a project or a starting point:
+```bash
+.github/scripts/ticket-start.sh 141 -- --project meta --from origin/main
+```
+Without a terminal on stdin the script adds `--non-interactive fail`, so an
+automated caller gets a clean error instead of hanging on `meta`'s project
+prompt.
+
+**Options:** `--dry-run`, `--silent` (worktree path only), `--self-check`
+(assert the branch derivation against canned titles, no network), `--help`.
+
+**Fails before it changes anything** when the issue number does not exist,
+`meta` is not on PATH, or a worktree for the branch already exists. If the
+worktree is created but the label edit fails, the path is still printed and the
+failure is a warning - the worktree is real either way.
 
 ## Usage with Claude Agents
 
