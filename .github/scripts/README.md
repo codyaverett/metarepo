@@ -17,7 +17,9 @@ All scripts return the created issue URL on success, making them ideal for scrip
 
 - [GitHub CLI (`gh`)](https://cli.github.com/) - Required
 - [`jq`](https://stedolan.github.io/jq/) - Required only for JSON input mode
-- `TYPESAFE_API_KEY` - Required only by `triage-issue.sh`
+- `TYPESAFE_API_KEY` - Required only by `triage-issue.sh`, which reads no
+  other credential; scope it to that one variable rather than sourcing a
+  whole secrets file (see below)
 
 ## Scripts
 
@@ -243,6 +245,16 @@ API call regardless of how many open issues are compared for duplicates.
 ```bash
 .github/scripts/triage-issue.sh 145 --dry-run
 ```
+
+**Pass only the one key it needs.** Sourcing a secrets file puts every
+credential in it into the script's environment; the script reads exactly one.
+A subshell keeps the rest out:
+```bash
+TYPESAFE_API_KEY=$(source ~/.secrets >/dev/null 2>&1; echo "$TYPESAFE_API_KEY") \
+  .github/scripts/triage-issue.sh --all
+```
+The redirect is load-bearing - anything the secrets file prints on stdout would
+otherwise be captured into the key.
 
 **What gets applied:**
 
