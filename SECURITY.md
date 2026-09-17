@@ -69,6 +69,53 @@ The following are generally **not** considered security vulnerabilities:
 - Vulnerabilities in development/test dependencies
 - Issues that require the user to run malicious code directly
 
+## Reporting a Supply-Chain Compromise
+
+A supply-chain report is different from a vulnerability report: it is not about a bug in metarepo's own code, but about a dependency, a maintainer account, or a published artifact being tampered with or malicious. Use this section instead of the vulnerability scope above when that is what you suspect.
+
+### Suspected Compromise of a Dependency
+
+If you believe a crate metarepo depends on has been compromised (malicious code injected, a maintainer account hijacked, a malicious version published, a typosquat, etc.):
+
+1. **Report upstream first, if the compromise is in the crate's own code.** The crate's maintainers are the ones who can yank, patch, or rotate credentials for their own package; metarepo only consumes it. Report through the crate's own security policy or contact, and consider filing with [RustSec](https://rustsec.org/) so the advisory database picks it up.
+2. **Also tell us**, using the same private disclosure process above (Security Advisory or email), so we can mitigate on our side while upstream responds. Include:
+   - The crate name and affected version(s)
+   - Evidence of the compromise
+   - Whether you have already contacted the upstream maintainers
+3. We will assess whether to pin to a known-good version, patch around it, or drop the dependency until it is resolved.
+
+### Suspected Compromise of a Published Artifact
+
+This covers our own published outputs: the crates published to crates.io, or the binaries attached to GitHub Releases.
+
+Report through the private disclosure process above (Security Advisory or email), including:
+
+- Which artifact and version (crate name and version, or release tag and target platform for a binary)
+- How you obtained it and what looked wrong (unexpected checksum, unexpected file contents, a release that does not match the tagged source, etc.)
+
+Please do not run or further distribute the suspect artifact beyond what is needed to capture evidence.
+
+### What We Do Today
+
+The automated checks in `.github/workflows/security.yml` (see below) are our current supply-chain controls:
+
+- `cargo audit` fails the build on any advisory not explicitly listed in `.cargo/audit.toml`, and each listed exception is annotated with why it is there so it can be revisited
+- `cargo deny` enforces `deny.toml`: an allowed-license list, a deny list for specific crates/versions, `wildcards = "deny"` to block wildcard version requirements, `yanked = "deny"` to fail if a yanked crate version is in the lockfile, and unknown package registries denied (unknown git sources currently only produce a warning)
+- `cargo geiger` reports unsafe code usage in the dependency tree (informational; it does not currently block CI)
+- GitHub Actions across our workflows are pinned to a specific commit SHA rather than a floating tag or branch, so a workflow step cannot be silently repointed to different code
+- Our [threat model](docs/security/threat-model.md) documents what we trust and what mitigations are already in place across the dependency, CI, and release pipeline
+
+A few further hardening steps are planned but not yet implemented, so do not assume they are in place: publishing an SBOM with releases ([#44](https://github.com/codyaverett/metarepo/issues/44)), crates.io trusted publishing via OIDC ([#38](https://github.com/codyaverett/metarepo/issues/38)), vendoring dependencies for release builds ([#35](https://github.com/codyaverett/metarepo/issues/35)), and provenance attestation for release artifacts ([#96](https://github.com/codyaverett/metarepo/issues/96)).
+
+### What to Expect
+
+Supply-chain reports go through the same response process as other vulnerability reports:
+
+- **Acknowledgment**: within 48 hours
+- **Initial Assessment**: within 5 business days
+- **Status Updates**: as we work with you and, where applicable, upstream maintainers
+- **Fix Timeline**: critical supply-chain issues follow the same 30-day target as other critical fixes
+
 ## Security Best Practices
 
 When using metarepo:
