@@ -300,10 +300,46 @@ jobs:
             **Priority**: HIGH
             `;
 
-            github.rest.issues.create({
+            // Reuse the open tracking issue instead of filing a new one every
+            // nightly run; only comment when the run id is not already recorded.
+            const { data: open } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: title,
-              body: body,
-              labels: ['security', 'high-priority']
+              state: 'open',
+              labels: 'security',
+              per_page: 100,
             });
+            const existing = open.find(i => !i.pull_request && i.title === title);
+
+            if (!existing) {
+              const { data: created } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['security', 'high-priority']
+              });
+              core.notice(`Opened security tracking issue #${created.number}`);
+              return;
+            }
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              per_page: 100,
+            });
+            const marker = `run ${{ github.run_id }}`;
+            // Match the trailing period too, so run 123 does not match run 1234.
+            if (comments.some(c => c.body && c.body.includes(`${marker}.`))) {
+              core.notice(`Issue #${existing.number} already records ${marker}`);
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              body: `Still failing as of ${marker}.\n${body}`,
+            });
+            core.notice(`Commented on existing security issue #${existing.number}`);
