@@ -395,7 +395,10 @@ mod tests {
 
     #[test]
     fn which_finds_known_and_misses_bogus() {
-        assert!(which("sh").is_some());
+        // `which` joins PATH entries with the literal name, so the Windows
+        // probe needs its extension.
+        let known = if cfg!(windows) { "cmd.exe" } else { "sh" };
+        assert!(which(known).is_some());
         assert!(which("definitely-not-a-real-binary-xyz").is_none());
     }
 }

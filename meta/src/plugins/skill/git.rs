@@ -4,6 +4,7 @@
 //! repo. Recorded into the copied skill and reported in the steal output so a
 //! stolen skill stays traceable and re-fetchable.
 
+use crate::plugins::shared::portable_path;
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Command;
@@ -15,7 +16,8 @@ pub struct Provenance {
     pub url: String,
     /// Commit SHA that was checked out when the skill was taken.
     pub commit: String,
-    /// Path of the skill directory relative to the repo root (`.` at the root).
+    /// Path of the skill directory relative to the repo root (`.` at the root),
+    /// always `/`-separated so it stays portable across machines.
     pub subpath: String,
     /// Whether the working tree had uncommitted changes at steal time.
     pub dirty: bool,
@@ -68,7 +70,7 @@ pub fn derive(dir: &Path) -> Option<Provenance> {
             if p.as_os_str().is_empty() {
                 ".".to_string()
             } else {
-                p.to_string_lossy().to_string()
+                portable_path(&p)
             }
         })
         .unwrap_or_else(|| ".".to_string());
@@ -188,6 +190,11 @@ mod tests {
         assert_eq!(p.url, "https://github.com/o/r.git");
         assert_eq!(p.commit.len(), 40);
         assert_eq!(p.subpath, "skills/demo");
+        // The subpath is a portable identifier: `/` on every OS.
+        assert_eq!(
+            portable_path(&Path::new("skills").join("demo")),
+            "skills/demo"
+        );
         assert!(!p.dirty);
         assert!(p.summary().starts_with("https://github.com/o/r.git@"));
         assert!(p.summary().contains("(skills/demo)"));
