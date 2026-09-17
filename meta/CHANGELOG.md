@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.79.0] - 2026-09-17
+
+### Added
+
+- *(git)* `meta git branch` (alias `br`) prints the current branch of every repository in the workspace, with `--verbose` adding ahead/behind counts against the upstream. Projects that are not cloned, are not git repositories, sit on a detached HEAD, or have no commits yet are reported rather than skipped, so the output is usable from scripts and CI (#134)
+
+### Fixed
+
+- *(windows)* portable identifiers written into config and provenance files are now always forward-slash separated: the `file:` plugin spec in `.meta-modules`, the module path recorded for `list`/`disable`, and the skill provenance subpath. A spec written on Windows stays readable on unix, and three unit tests that failed on windows-latest now pass by construction (#145)
+- *(config)* removed the ghost `plugins/containers` project entry, whose remote is an empty repository, so it no longer appears in `meta project list` or takes part in git fan-out (#135)
+
+### Documentation
+
+- *(security)* SECURITY.md documents how to report a suspected supply-chain compromise, separating a compromised dependency from a compromised published artifact, and records the controls that exist today (cargo audit, cargo deny, cargo geiger, SHA-pinned Actions) while marking SBOM publishing, OIDC trusted publishing, vendored release builds, and provenance attestation as planned (#53)
+
+### Tooling
+
+- *(scripts)* `.github/scripts/ticket-start.sh` turns an issue number into a branch, a worktree, and an in-progress label in one step, with `--dry-run` and an offline `--self-check` (#141)
+- *(scripts)* `.github/scripts/triage-issue.sh` judges an open issue's priority, area, kind, and possible duplicates with TypeSafe, applying only the labels that clear a confidence threshold and leaving the rest for manual triage
+- *(ci)* the nightly security workflow reuses its open tracking issue instead of filing a new one on every failing run
+
 ## [0.78.0] - 2026-09-03
 
 ### Added
