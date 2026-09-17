@@ -17,6 +17,7 @@ All scripts return the created issue URL on success, making them ideal for scrip
 
 - [GitHub CLI (`gh`)](https://cli.github.com/) - Required
 - [`jq`](https://stedolan.github.io/jq/) - Required only for JSON input mode
+- `TYPESAFE_API_KEY` - Required only by `triage-issue.sh`
 
 ## Scripts
 
@@ -220,6 +221,47 @@ but leave the doc alone), `--silent` (quiet stderr), `--json FILE|-`.
   echo "created $url"
 done
 ```
+
+### 5. Issue Triage (`triage-issue.sh`)
+
+Ask [TypeSafe](https://docs.typesafe.ai) (the Jev model) to judge an open
+issue's priority, area, kind, and whether another open issue already covers it,
+then apply the labels that clear a confidence threshold. Judgments that fall
+short are posted as a comment and the issue keeps `needs-triage`, so a human
+still sees everything the model was unsure about.
+
+All four judgments go out in a single request, so triaging an issue costs one
+API call regardless of how many open issues are compared for duplicates.
+
+**Triage one issue, or the whole `needs-triage` backlog:**
+```bash
+.github/scripts/triage-issue.sh 145
+.github/scripts/triage-issue.sh --all
+```
+
+**Preview before it writes anything:**
+```bash
+.github/scripts/triage-issue.sh 145 --dry-run
+```
+
+**What gets applied:**
+
+- `P0`-`P3` from the priority judgment, `bug`/`enhancement`/`documentation`/
+  `question` from the kind judgment - but only above the threshold.
+- `needs-triage` is removed only when both priority and kind clear the bar.
+- Area is reported in the comment only; the repo has no area labels and `gh`
+  rejects labels that do not exist.
+- A suspected duplicate is named in the comment, never acted on. Closing an
+  issue stays a human decision.
+
+**Options:** `--all`, `--dry-run`, `--threshold N` (default 0.7, or
+`TRIAGE_THRESHOLD`), `--raw` (judgments as JSON; the sibling scripts use
+`--json` for stdin input, so this one is named differently on purpose), `--self-check` (validate the
+request payload builder offline, no API key needed).
+
+**Tuning the threshold:** run `--all --dry-run --raw` over the current backlog
+and compare the model's answers against how you would have labelled them before
+letting it write. 0.7 is a starting point, not a measured value for this repo.
 
 ## Usage with Claude Agents
 
