@@ -1,4 +1,4 @@
-use super::{clone_missing_repos, clone_repository, get_git_status};
+use super::{clone_missing_repos, clone_repository, get_branch_info, get_git_status};
 use crate::plugins::exec::{execute_with_projects, ProjectInfo, ProjectIterator};
 use crate::plugins::shared::{detect_default_branch, parse_depth_arg};
 use crate::plugins::worktree::list_worktrees;
@@ -40,6 +40,7 @@ impl GitPlugin {
                    meta git push                      push every repo with an upstream\n\
                    meta git fetch                     fetch remotes in parallel\n\
                    meta git checkout feature/x        switch every repo to a branch\n\
+                   meta git branch                    current branch of every repo\n\
                    meta git clone git@host:org/x.git  clone a workspace and its children",
             )
             .command(
@@ -346,6 +347,38 @@ impl GitPlugin {
                             .takes_value(true),
                     ),
             )
+            .command(
+                command("branch")
+                    .about("Show the current branch of every repository")
+                    .help_description(
+                        "Print one line per repository in scope: project -> current branch.\n\
+                         \n\
+                         The output is flat and script friendly, which complements the\n\
+                         status dashboard when you just need to see where every repo is\n\
+                         parked after a checkout, push, or fetch. Repositories in unusual\n\
+                         states are reported honestly rather than skipped: a detached HEAD\n\
+                         shows its short SHA, a repository with no commits yet shows the\n\
+                         branch it will create, a project listed in .meta but not cloned is\n\
+                         marked as not cloned, and a directory that is not a git repository\n\
+                         is marked as such. None of these abort the listing.\n\
+                         \n\
+                         Pass --verbose to append ahead/behind counts against each branch's\n\
+                         upstream; branches with no upstream are marked instead of erroring.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta git branch             current branch per repo\n\
+                           meta git branch --verbose   add ahead/behind vs upstream\n\
+                           meta git br                 same, using an alias",
+                    )
+                    .aliases(vec!["br".to_string()])
+                    .with_help_formatting()
+                    .arg(
+                        arg("verbose")
+                            .long("verbose")
+                            .help("Show ahead/behind counts against each branch's upstream"),
+                    ),
+            )
             .handler("clone", handle_clone)
             .handler("status", handle_status)
             .handler("update", handle_update)
@@ -353,6 +386,7 @@ impl GitPlugin {
             .handler("push", handle_push)
             .handler("fetch", handle_fetch)
             .handler("checkout", handle_checkout)
+            .handler("branch", handle_branch)
             .build()
     }
 }
@@ -423,6 +457,55 @@ fn handle_status(_matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Handler for the branch command
+///
+/// Mirrors handle_status rather than the execute_with_projects fan-out: the
+/// output is one formatted line per project (including the ones that are not
+/// cloned, which the fan-out preflight filters out), and --verbose needs
+/// per-repository upstream inspection rather than a single shell command.
+fn handle_branch(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let verbose = matches.get_flag("verbose");
+    let scope = config.scoped_project_keys();
+    if scope.is_empty() {
+        println!("No projects in this directory.");
+        return Ok(());
+    }
+    // Only show the workspace's main repository in the full-workspace view.
+    let show_main = scope.len() == config.meta_config.projects.len();
+    let base_path = config
+        .meta_root()
+        .unwrap_or_else(|| config.working_dir.clone());
+
+    if show_main {
+        let name = base_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| format!("{} (main)", n))
+            .unwrap_or_else(|| "main repository".to_string());
+        print_branch_line(&name, &base_path, verbose);
+    }
+
+    for project_path in &scope {
+        let full_path = base_path.join(project_path);
+        if full_path.exists() {
+            print_branch_line(project_path, &full_path, verbose);
+        } else {
+            println!("{} -> (not cloned)", project_path);
+        }
+    }
+
+    Ok(())
+}
+
+/// Print one `project -> branch` line, reporting failures inline so a single
+/// unreadable repository never aborts the listing.
+fn print_branch_line(name: &str, path: &Path, verbose: bool) {
+    match get_branch_info(path, verbose) {
+        Ok(info) => println!("{} -> {}", name, info),
+        Err(e) => println!("{} -> (error: {})", name, e),
+    }
 }
 
 /// Handler for the update command
@@ -964,7 +1047,7 @@ mod tests {
             .expect("git subcommand");
         let names: Vec<&str> = git.get_subcommands().map(|c| c.get_name()).collect();
         for expected in [
-            "push", "fetch", "checkout", "pull", "clone", "status", "update",
+            "push", "fetch", "checkout", "pull", "clone", "status", "update", "branch",
         ] {
             assert!(
                 names.contains(&expected),
@@ -981,6 +1064,16 @@ mod tests {
         let aliases: Vec<&str> = checkout.get_all_aliases().collect();
         assert!(aliases.contains(&"switch"));
         assert!(aliases.contains(&"co"));
+
+        let branch = git
+            .get_subcommands()
+            .find(|c| c.get_name() == "branch")
+            .expect("branch");
+        assert!(branch.get_all_aliases().any(|a| a == "br"));
+        assert!(
+            branch.get_arguments().any(|a| a.get_id() == "verbose"),
+            "branch should accept --verbose"
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ pub use self::plugin::GitPlugin;
 mod operations;
 mod plugin;
 
-pub use operations::get_git_status;
+pub use operations::{get_branch_info, get_git_status};
 
 // Import shared git operations
 use crate::plugins::shared::{clone_with_auth, create_default_worktree};
