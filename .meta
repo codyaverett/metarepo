@@ -10,18 +10,6 @@
     "meta": "local",
     "plugins": "local",
     "examples": "local",
-    "plugins/containers": {
-      "url": "git@github.com:codyaverett/metarepo-container.git",
-      "aliases": [],
-      "scripts": {
-        "test": "echo 'Testing container plugin'",
-        "build": "docker build -t container .",
-        "slow": "sleep 1"
-      },
-      "env": {},
-      "worktree_init": null,
-      "bare": null
-    },
     ".claude": "local",
     "meta-core": "local",
     "metarepo-plugin-sdk": "local",
