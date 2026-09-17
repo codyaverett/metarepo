@@ -23,6 +23,7 @@ use walkdir::WalkDir;
 
 use crate::plugins::plugin_manager::lockfile::{LockEntry, Lockfile};
 use crate::plugins::plugin_manager::verify;
+use crate::plugins::shared::portable_path;
 use crate::plugins::skill::audit::{audit_skill, has_high, print_findings};
 use crate::plugins::skill::locations::default_dest_root_with;
 use crate::plugins::skill::skill_file::Skill;
@@ -152,9 +153,18 @@ pub fn enable(repo: &Path, meta_file: &Path, force: bool, overwrite: bool) -> Re
 
     // --- Record the module for list/disable. ---
     let repo_rel = rel_to(&workspace, &repo);
+    // Only the relative form is a portable identifier. `rel_to` falls back to
+    // the absolute, canonicalized repo path when the module lives outside the
+    // workspace, and that must round-trip verbatim: a Windows `\\?\C:\...` path
+    // stops being a verbatim path once its separators become `/`.
+    let repo_entry = if repo_rel.is_relative() {
+        portable_path(&repo_rel)
+    } else {
+        repo_rel.display().to_string()
+    };
     cfg.modules
         .get_or_insert_with(HashMap::new)
-        .insert(module_name.clone(), repo_rel.display().to_string());
+        .insert(module_name.clone(), repo_entry);
     cfg.save_to_file_with_format(meta_file, format)
         .with_context(|| format!("updating {}", meta_file.display()))?;
 
@@ -394,7 +404,9 @@ fn stage_plugin(
             .file_name()
             .ok_or_else(|| anyhow!("staged file has no name"))?,
     );
-    Ok((key, format!("file:{}", rel.display())))
+    // `/`-separated: the spec is a portable identifier persisted in config, not
+    // an OS path, so a Windows-written `.meta-modules` spec stays readable on unix.
+    Ok((key, format!("file:{}", portable_path(&rel))))
 }
 
 /// The config-plugins key for a module plugin: the manifest's `plugin.name` for
@@ -577,6 +589,15 @@ mod tests {
         let cfg = MetaConfig::load_from_file(&meta_file).unwrap();
         let spec = cfg.plugins.as_ref().unwrap().get("demo").unwrap();
         assert_eq!(spec, "file:.meta-modules/demo/demo/plugin.manifest.toml");
+        // The spec is a portable identifier: `/` on every OS.
+        assert_eq!(
+            portable_path(
+                &staged_root("demo")
+                    .join("demo")
+                    .join("plugin.manifest.toml")
+            ),
+            ".meta-modules/demo/demo/plugin.manifest.toml"
+        );
         assert!(cfg.modules.as_ref().unwrap().contains_key("demo"));
 
         // Skill installed.
