@@ -24,8 +24,17 @@ pub fn run(roots: Option<&[String]>) -> Result<()> {
 /// (tilde-expanded, in the order given) when `roots` is a non-empty list, else
 /// the built-in `./.claude/skills` then `~/.claude/skills`.
 pub fn candidate_dests_with(roots: Option<&[String]>) -> Vec<(String, PathBuf)> {
+    candidate_dests(std::env::var("CLAUDE_SKILLS_HOME").ok(), roots)
+}
+
+/// `candidate_dests_with` with `$CLAUDE_SKILLS_HOME` passed in, so tests don't
+/// read process-global env that other tests mutate.
+fn candidate_dests(
+    skills_home: Option<String>,
+    roots: Option<&[String]>,
+) -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
-    if let Ok(p) = std::env::var("CLAUDE_SKILLS_HOME") {
+    if let Some(p) = skills_home {
         out.push(("$CLAUDE_SKILLS_HOME".into(), PathBuf::from(p)));
     }
     match roots.filter(|r| !r.is_empty()) {
@@ -55,7 +64,10 @@ pub fn candidate_dests_with(roots: Option<&[String]>) -> Vec<(String, PathBuf)> 
 /// configured `[skill] dest-roots`: the first candidate that exists, else the
 /// first candidate, else the workspace-local `./.claude/skills`.
 pub fn default_dest_root_with(roots: Option<&[String]>) -> PathBuf {
-    let candidates = candidate_dests_with(roots);
+    first_existing(candidate_dests_with(roots))
+}
+
+fn first_existing(candidates: Vec<(String, PathBuf)>) -> PathBuf {
     candidates
         .iter()
         .find(|(_, p)| p.exists())
@@ -78,12 +90,11 @@ pub fn expand_tilde(p: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Labels minus the env entry, which depends on the ambient environment.
+    /// Labels with no `$CLAUDE_SKILLS_HOME`, independent of the ambient env.
     fn labels(roots: Option<&[String]>) -> Vec<String> {
-        candidate_dests_with(roots)
+        candidate_dests(None, roots)
             .into_iter()
             .map(|(l, _)| l)
-            .filter(|l| l != "$CLAUDE_SKILLS_HOME")
             .collect()
     }
 
@@ -112,10 +123,6 @@ mod tests {
 
     #[test]
     fn default_dest_root_picks_the_first_existing_configured_root() {
-        // Only meaningful when the env override is absent.
-        if std::env::var("CLAUDE_SKILLS_HOME").is_ok() {
-            return;
-        }
         let tmp = tempfile::tempdir().unwrap();
         let real = tmp.path().join("real");
         std::fs::create_dir_all(&real).unwrap();
@@ -123,7 +130,7 @@ mod tests {
             tmp.path().join("missing").to_string_lossy().into_owned(),
             real.to_string_lossy().into_owned(),
         ];
-        assert_eq!(default_dest_root_with(Some(&roots)), real);
+        assert_eq!(first_existing(candidate_dests(None, Some(&roots))), real);
     }
 
     #[test]
