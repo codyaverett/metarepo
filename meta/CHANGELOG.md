@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.80.0] - 2026-09-24
+
+### Added
+
+- *(output)* every multi-project run (`meta exec`, `meta run`, `meta git pull/push/fetch/checkout/sync`, `meta project update`) ends with a results table: one row per target with status (`ok`, `failed`, `skipped`, `cloned`), time, and the most useful output line, such as the pull diffstat or the error. Targets skipped during preflight (uncommitted changes, no upstream) appear as rows with the reason instead of an up-front list (#171)
+- *(git)* `meta git sync` clones missing repositories and then pulls the rest, with one table at the end. It accepts the same flags as `pull`; `meta git update` stays clone-only (#172)
+
+### Fixed
+
+- *(exec)* `meta exec` without `--all` (directory scope, `--project`, `--projects`) now honors `--parallel`, `--include-only`, `--exclude`, `--existing-only`, and `--git-only`. These flags were silently ignored on that path
+
 ## [0.79.0] - 2026-09-17
 
 ### Added
