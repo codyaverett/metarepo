@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.81.0] - 2026-09-24
+
+### Added
+
+- *(skill)* `skill.adapt-args` accepts `{skill_dir}`, `{repo}`, `{purpose}`, and `{prompt_file}` alongside `{prompt}`. Substitution is a single pass, so a prompt that quotes a placeholder is not expanded again; `{prompt_file}` writes the prompt to a temp file that lives until the agent command exits. `docs/SKILL_TOOLS.md` has per-agent recipes for claude, codex, and opencode (#77)
+- *(scripts)* `.github/scripts/babysit-prs.sh` and the `babysit-prs` skill: a read-only pass over open PRs that reports red CI with failing log tails, unanswered review threads, and reviews stalled past `--stale-hours` (default 24), with acked items remembered per head SHA so repeated `/loop` runs stay idempotent. See `docs/BABYSIT_PRS.md` (#142)
+
+### Fixed
+
+- *(skill)* adapt command lookup on Windows tries each `PATHEXT` extension, so shims like `claude.cmd` resolve, and backslash-separated paths are no longer searched on `PATH` (#167)
+- *(security)* the nightly Security Lints job no longer fails on `clippy::mem_forget` in a test helper, and `libssh2-sys` moved off the yanked 0.3.2 so the Dependency Check job passes (#170, #161)
+- *(test)* the skill locations tests no longer read `CLAUDE_SKILLS_HOME` from the process environment, which other tests set concurrently and made `default_dest_root_picks_the_first_existing_configured_root` flaky (#169)
+
 ## [0.80.0] - 2026-09-24
 
 ### Added
