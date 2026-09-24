@@ -164,17 +164,47 @@ fn backup_dir(skill_dir: &Path) -> PathBuf {
     std::env::temp_dir().join("meta-skill-backups").join(name)
 }
 
-/// Locate `cmd` on `PATH`, returning its full path. An absolute/relative path
-/// that exists is accepted as-is.
+/// Locate `cmd` on `PATH`, returning its full path. A name containing a path
+/// separator is checked as-is (relative to cwd) instead of searched on PATH.
+/// On Windows each `PATHEXT` extension is also tried, so `claude` finds
+/// `claude.cmd`.
 fn which(cmd: &str) -> Option<PathBuf> {
-    let p = Path::new(cmd);
-    if p.is_absolute() || cmd.contains('/') {
-        return p.is_file().then(|| p.to_path_buf());
+    let names = candidate_names(cmd, pathext().as_deref());
+    if has_separator(cmd) {
+        return names.iter().map(PathBuf::from).find(|p| p.is_file());
     }
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
-        .map(|dir| dir.join(cmd))
+        .flat_map(|dir| names.iter().map(move |n| dir.join(n)))
         .find(|cand| cand.is_file())
+}
+
+/// True when `cmd` is a path (absolute or containing a separator) rather than
+/// a bare name to look up on PATH.
+fn has_separator(cmd: &str) -> bool {
+    Path::new(cmd).is_absolute() || cmd.chars().any(std::path::is_separator)
+}
+
+/// The Windows `PATHEXT` list (default `.COM;.EXE;.BAT;.CMD`); `None` elsewhere.
+fn pathext() -> Option<String> {
+    cfg!(windows).then(|| {
+        std::env::var("PATHEXT")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".to_string())
+    })
+}
+
+/// File names to probe for `cmd`: the name as given, then `cmd` + each
+/// extension in `pathext` (semicolon-separated).
+fn candidate_names(cmd: &str, pathext: Option<&str>) -> Vec<String> {
+    let mut names = vec![cmd.to_string()];
+    for ext in pathext.unwrap_or("").split(';').map(str::trim) {
+        if !ext.is_empty() {
+            names.push(format!("{cmd}{ext}"));
+        }
+    }
+    names
 }
 
 /// Gather a light description of `root`: its name, detected languages, and a few
@@ -395,10 +425,40 @@ mod tests {
 
     #[test]
     fn which_finds_known_and_misses_bogus() {
-        // `which` joins PATH entries with the literal name, so the Windows
-        // probe needs its extension.
         let known = if cfg!(windows) { "cmd.exe" } else { "sh" };
         assert!(which(known).is_some());
         assert!(which("definitely-not-a-real-binary-xyz").is_none());
+        // A path with a separator is checked directly, not searched on PATH.
+        assert!(which("./definitely-not-a-real-binary-xyz").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn which_resolves_pathext_on_windows() {
+        // Bare name without extension resolves through PATHEXT.
+        let found = which("cmd").expect("cmd should resolve via PATHEXT");
+        assert!(found
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("exe")));
+        // Backslash-separated path is treated as a path, not a PATH lookup.
+        assert!(which(r".\definitely-not-a-real-binary-xyz").is_none());
+    }
+
+    #[test]
+    fn candidate_names_appends_pathext() {
+        assert_eq!(candidate_names("sh", None), vec!["sh"]);
+        assert_eq!(
+            candidate_names("claude", Some(".COM;.EXE; ;.CMD;")),
+            vec!["claude", "claude.COM", "claude.EXE", "claude.CMD"]
+        );
+    }
+
+    #[test]
+    fn has_separator_detects_paths() {
+        assert!(!has_separator("claude"));
+        assert!(has_separator("bin/claude"));
+        assert!(has_separator("/usr/bin/claude"));
+        // Backslash is a separator only on Windows.
+        assert_eq!(has_separator(r"bin\claude"), cfg!(windows));
     }
 }
