@@ -173,10 +173,8 @@ mod tests {
     /// Build a workspace with a `.meta` defining `scripts` and the given project
     /// directories, returning (base_path, loaded config).
     fn workspace(scripts: &[(&str, &str)], projects: &[&str]) -> (PathBuf, MetaConfig) {
-        let tmp = tempdir().unwrap();
-        let base = tmp.path().to_path_buf();
-        // Leak the tempdir so it outlives the test body (children run in it).
-        std::mem::forget(tmp);
+        // Persist the tempdir so it outlives the test body (children run in it).
+        let base = tempdir().unwrap().keep();
 
         let mut script_json = String::new();
         for (i, (name, cmd)) in scripts.iter().enumerate() {
