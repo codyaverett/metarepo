@@ -1,5 +1,7 @@
 use crate::plugins::exec::ProjectIterator;
-use crate::plugins::shared::{OutputManager, ProgressIndicator};
+use crate::plugins::shared::{
+    print_summary, Outcome, OutputManager, ProgressIndicator, SummaryRow,
+};
 use anyhow::{Context, Result};
 use colored::*;
 use metarepo_core::{MetaConfig, ProjectEntry};
@@ -243,9 +245,6 @@ pub fn run_script(
     );
     println!("  {}", "═".repeat(60).bright_black());
 
-    let mut success_count = 0;
-    let mut failed = Vec::new();
-
     if parallel && selected_projects.len() > 1 && !streaming {
         // Use buffered output for parallel execution
         let output_manager = Arc::new(OutputManager::new(selected_projects.clone()));
@@ -309,22 +308,12 @@ pub fn run_script(
                     }
                 }
             });
-            handles.push((project_name, handle));
+            handles.push(handle);
         }
 
-        // Wait for all threads to complete
-        for (project_name, handle) in handles {
-            match handle.join() {
-                Ok(()) => {
-                    if let Some(output) = output_manager.get_project_output(&project_name) {
-                        match output.status {
-                            crate::plugins::shared::JobStatus::Completed => {}
-                            _ => failed.push(project_name),
-                        }
-                    }
-                }
-                Err(_) => failed.push(project_name),
-            }
+        // Wait for all threads to complete; outcomes live in the output manager
+        for handle in handles {
+            let _ = handle.join();
         }
 
         // Stop progress indicator and display results
@@ -338,29 +327,26 @@ pub fn run_script(
 
         return Ok(());
     } else {
+        let mut rows = Vec::new();
         for project_name in &selected_projects {
-            match execute_script_in_project(script_name, project_name, base_path, &config, env_vars)
-            {
-                Ok(_) => success_count += 1,
+            let started = std::time::Instant::now();
+            let row = match execute_script_in_project(
+                script_name,
+                project_name,
+                base_path,
+                &config,
+                env_vars,
+            ) {
+                Ok(_) => SummaryRow::new(project_name, Outcome::Ok, ""),
                 Err(e) => {
                     eprintln!("     {} {}", "❌".red(), format!("Failed: {}", e).red());
-                    failed.push(project_name.clone());
+                    SummaryRow::new(project_name, Outcome::Failed, e.to_string())
                 }
-            }
+            };
+            rows.push(row.with_duration(started.elapsed()));
         }
+        print_summary(&rows);
     }
-
-    println!("\n  {}", "─".repeat(60).bright_black());
-    println!(
-        "  {} {} scripts completed, {} failed",
-        "Summary:".bright_black(),
-        success_count.to_string().green(),
-        if !failed.is_empty() {
-            failed.len().to_string().red()
-        } else {
-            "0".bright_black()
-        }
-    );
 
     Ok(())
 }

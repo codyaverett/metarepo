@@ -162,7 +162,15 @@ impl OutputManager {
             .all(|o| matches!(o.status, JobStatus::Completed | JobStatus::Failed))
     }
 
+    /// Per-project output blocks followed by the summary table.
     pub fn display_final_results(&self) {
+        self.display_project_results();
+        super::print_summary(&self.summary_rows());
+    }
+
+    /// Per-project output blocks only, for callers that merge extra rows (such
+    /// as preflight skips) into the summary table themselves.
+    pub fn display_project_results(&self) {
         let outputs = self.outputs.lock().unwrap();
         let total_duration = self.start_time.elapsed();
 
@@ -173,38 +181,36 @@ impl OutputManager {
             total_duration.as_secs_f32()
         );
 
-        let mut success_count = 0;
-        let mut failed_projects = Vec::new();
-
         // Display results in original order
         for project_name in &self.project_order {
             if let Some(output) = outputs.get(project_name) {
                 self.display_project_result(output);
-
-                match output.status {
-                    JobStatus::Completed => success_count += 1,
-                    JobStatus::Failed => failed_projects.push(project_name.clone()),
-                    _ => {}
-                }
             }
         }
+    }
 
-        // Summary
-        println!("\n  {}", "─".repeat(60).bright_black());
-        println!(
-            "  {} {} completed, {} failed",
-            "Summary:".bright_black(),
-            success_count.to_string().green(),
-            if !failed_projects.is_empty() {
-                failed_projects.len().to_string().red()
-            } else {
-                "0".bright_black()
-            }
-        );
-
-        if !failed_projects.is_empty() {
-            println!("  {} {}", "Failed:".red(), failed_projects.join(", ").red());
-        }
+    /// One summary row per project, in the original order.
+    pub fn summary_rows(&self) -> Vec<super::SummaryRow> {
+        let outputs = self.outputs.lock().unwrap();
+        self.project_order
+            .iter()
+            .filter_map(|name| outputs.get(name))
+            .map(|o| {
+                let ok = o.status == JobStatus::Completed;
+                let outcome = if ok {
+                    super::Outcome::Ok
+                } else {
+                    super::Outcome::Failed
+                };
+                let mut row = super::SummaryRow::new(
+                    o.name.clone(),
+                    outcome,
+                    super::output_detail(&o.stdout, &o.stderr, ok),
+                );
+                row.duration = o.duration;
+                row
+            })
+            .collect()
     }
 
     fn display_project_result(&self, output: &ProjectOutput) {

@@ -62,6 +62,9 @@ meta git status
 # Clone missing repositories defined in .meta
 meta git update
 
+# Clone missing repositories, then pull the rest, in one step
+meta git sync
+
 # Pull / fetch / push / checkout across the fleet
 meta git pull
 meta git fetch
@@ -85,6 +88,21 @@ meta worktree list
 
 # Interactive multi-repo status
 meta status
+```
+
+Every multi-project run (`meta exec`, `meta run`, `meta git pull/push/fetch/checkout/sync`,
+`meta project update`) ends with a results table: one row per project with its
+status (`ok`, `failed`, `skipped`, `cloned`), time, and the most useful output line,
+such as the pull diffstat or the error. Repositories skipped before the run
+(uncommitted changes, no upstream) are listed there with the reason.
+
+```
+  Project    Status   Time  Detail
+  ────────────────────────────────
+  api        ok       0.1s  2 files changed, 2 insertions(+)
+  web        skipped        uncommitted changes
+  docs       skipped        no upstream tracking branch
+  1 ok, 2 skipped
 ```
 
 To clone an existing meta workspace:

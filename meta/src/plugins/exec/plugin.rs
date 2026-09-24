@@ -1,4 +1,4 @@
-use super::{execute_in_specific_projects, execute_with_iterator, ProjectIterator};
+use super::{execute_with_iterator, ProjectIterator};
 use anyhow::Result;
 use clap::ArgMatches;
 use metarepo_core::{arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
@@ -227,17 +227,17 @@ fn handle_exec(matches: &ArgMatches, runtime_config: &RuntimeConfig) -> Result<(
                 }
             }
 
-            // Execute in selected projects
-            if !selected_projects.is_empty() {
-                let project_refs: Vec<&str> =
-                    selected_projects.iter().map(|s| s.as_str()).collect();
-                execute_in_specific_projects(command, &args, &project_refs)?;
-                return Ok(());
+            for key in &selected_projects {
+                if !config.projects.contains_key(key) {
+                    eprintln!("Project '{}' not found in .meta configuration", key);
+                }
             }
 
-            // Build iterator with filters (for backward compatibility)
-            let mut iterator =
-                ProjectIterator::new(&config, base_path).include_disabled(include_disabled);
+            // Run the selection through the same executor as --all so
+            // --parallel, filters, and the summary table apply here too.
+            let mut iterator = ProjectIterator::new(&config, base_path)
+                .include_disabled(include_disabled)
+                .with_scope(&selected_projects);
 
             // Apply include patterns
             if let Some(patterns_str) = matches.get_one::<String>("include-only") {

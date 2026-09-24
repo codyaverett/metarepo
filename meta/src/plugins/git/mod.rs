@@ -12,7 +12,7 @@ mod plugin;
 pub use operations::{get_branch_info, get_git_status};
 
 // Import shared git operations
-use crate::plugins::shared::{clone_with_auth, create_default_worktree};
+use crate::plugins::shared::{clone_with_auth, create_default_worktree, Outcome, SummaryRow};
 
 pub fn clone_repository(
     repo_url: &str,
@@ -61,7 +61,9 @@ pub fn clone_repository(
     Ok(())
 }
 
-pub fn clone_missing_repos() -> Result<()> {
+/// Clone every tracked project missing on disk, returning one summary row per
+/// clone attempt (empty when nothing was missing).
+pub fn clone_missing_repos() -> Result<Vec<SummaryRow>> {
     let meta_file =
         MetaConfig::find_meta_file().ok_or_else(|| anyhow::anyhow!("No .meta file found"))?;
 
@@ -88,7 +90,7 @@ pub fn clone_missing_repos() -> Result<()> {
 
     if missing_projects.is_empty() {
         println!("All projects already exist");
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let total = missing_projects.len();
@@ -98,8 +100,7 @@ pub fn clone_missing_repos() -> Result<()> {
         if total == 1 { "" } else { "s" }
     );
 
-    let mut success_count = 0;
-    let mut failed_count = 0;
+    let mut rows = Vec::new();
 
     for (i, (project_path, repo_url, full_path, is_bare, depth)) in
         missing_projects.iter().enumerate()
@@ -112,24 +113,16 @@ pub fn clone_missing_repos() -> Result<()> {
             project_name.bright_white()
         );
 
-        match clone_repository(repo_url, full_path, *is_bare, *depth) {
-            Ok(_) => success_count += 1,
+        let started = std::time::Instant::now();
+        let row = match clone_repository(repo_url, full_path, *is_bare, *depth) {
+            Ok(_) => SummaryRow::new(project_path, Outcome::Cloned, ""),
             Err(e) => {
                 eprintln!("{} Failed: {}\n", "✗".red(), e);
-                failed_count += 1;
+                SummaryRow::new(project_path, Outcome::Failed, e.to_string())
             }
-        }
+        };
+        rows.push(row.with_duration(started.elapsed()));
     }
 
-    println!(
-        "Summary: {} cloned, {} failed",
-        success_count.to_string().green(),
-        if failed_count > 0 {
-            failed_count.to_string().red()
-        } else {
-            "0".bright_black()
-        }
-    );
-
-    Ok(())
+    Ok(rows)
 }

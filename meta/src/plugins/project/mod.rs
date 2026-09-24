@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // Import shared git operations
-use crate::plugins::shared::{clone_with_auth, create_default_worktree};
+use crate::plugins::shared::{
+    clone_with_auth, create_default_worktree, print_summary, Outcome, SummaryRow,
+};
 
 #[cfg(unix)]
 use std::os::unix::fs;
@@ -1637,8 +1639,7 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
     println!("\n  {} {}", "🔄".cyan(), "Updating projects...".bold());
     println!("  {}", "═".repeat(60).bright_black());
 
-    let mut updated = 0;
-    let mut failed = 0;
+    let mut rows = Vec::new();
 
     for name in config.projects.keys() {
         let project_path = base_path.join(name);
@@ -1650,6 +1651,7 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
                 name.bright_white(),
                 "(missing)".yellow()
             );
+            rows.push(SummaryRow::new(name, Outcome::Skipped, "missing"));
             continue;
         }
 
@@ -1660,6 +1662,7 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
                 name.bright_white(),
                 "(not a git repo)".yellow()
             );
+            rows.push(SummaryRow::new(name, Outcome::Skipped, "not a git repo"));
             continue;
         }
 
@@ -1669,14 +1672,14 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
             format!("Updating '{}'", name).bold()
         );
 
+        let started = std::time::Instant::now();
         // Open the repository
-        match Repository::open(&project_path) {
+        let row = match Repository::open(&project_path) {
             Ok(repo) => {
                 // Fetch and pull changes
                 match pull_repository(&repo) {
                     Ok(_) => {
                         println!("     {} {}", "✅".green(), "Updated successfully".green());
-                        updated += 1;
 
                         // If recursive and this is a meta repo, update nested projects
                         if recursive && dir_has_meta_config(&project_path) {
@@ -1700,6 +1703,7 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
                                 }
                             }
                         }
+                        SummaryRow::new(name, Outcome::Ok, "")
                     }
                     Err(e) => {
                         eprintln!(
@@ -1707,7 +1711,7 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
                             "❌".red(),
                             format!("Failed to update: {}", e).red()
                         );
-                        failed += 1;
+                        SummaryRow::new(name, Outcome::Failed, e.to_string())
                     }
                 }
             }
@@ -1717,22 +1721,13 @@ pub fn update_projects(base_path: &Path, recursive: bool, depth: Option<usize>) 
                     "❌".red(),
                     format!("Failed to open repository: {}", e).red()
                 );
-                failed += 1;
+                SummaryRow::new(name, Outcome::Failed, e.to_string())
             }
-        }
+        };
+        rows.push(row.with_duration(started.elapsed()));
     }
 
-    println!("\n  {}", "─".repeat(60).bright_black());
-    println!(
-        "  {} {} projects updated, {} failed",
-        "Summary:".bright_black(),
-        updated.to_string().green(),
-        if failed > 0 {
-            failed.to_string().red()
-        } else {
-            failed.to_string().bright_black()
-        }
-    );
+    print_summary(&rows);
     println!();
 
     Ok(())

@@ -211,8 +211,8 @@ impl ProjectPlugin {
                          Walks the \"projects\" map and runs a fetch-and-pull on each repo that\n\
                          exists on disk. Projects whose directory is missing or that are not\n\
                          git repositories are skipped with a note, and per-repo failures are\n\
-                         reported without aborting the rest. A summary of updated and failed\n\
-                         counts is printed at the end.\n\
+                         reported without aborting the rest. A per-project summary table is\n\
+                         printed at the end.\n\
                          \n\
                          With --recursive, any updated project that is itself a meta workspace\n\
                          has its nested projects updated too, down to --depth levels (default\n\

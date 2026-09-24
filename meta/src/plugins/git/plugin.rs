@@ -1,10 +1,14 @@
 use super::{clone_missing_repos, clone_repository, get_branch_info, get_git_status};
-use crate::plugins::exec::{execute_with_projects, ProjectInfo, ProjectIterator};
-use crate::plugins::shared::{detect_default_branch, parse_depth_arg};
+use crate::plugins::exec::{run_projects, ProjectInfo, ProjectIterator};
+use crate::plugins::shared::{
+    detect_default_branch, parse_depth_arg, print_summary, Outcome, SummaryRow,
+};
 use crate::plugins::worktree::list_worktrees;
 use anyhow::Result;
 use clap::ArgMatches;
-use metarepo_core::{arg, command, plugin, BasePlugin, MetaConfig, MetaPlugin, RuntimeConfig};
+use metarepo_core::{
+    arg, command, plugin, BasePlugin, CommandBuilder, MetaConfig, MetaPlugin, RuntimeConfig,
+};
 use std::path::Path;
 use std::process::Command;
 
@@ -118,7 +122,7 @@ impl GitPlugin {
                     .aliases(vec!["up".to_string(), "u".to_string()])
                     .with_help_formatting(),
             )
-            .command(
+            .command(pull_args(
                 command("pull")
                     .about("Pull latest changes for all repositories")
                     .help_description(
@@ -148,40 +152,27 @@ impl GitPlugin {
                            meta git pull --shallow             re-truncate shallow repos",
                     )
                     .aliases(vec!["p".to_string()])
-                    .with_help_formatting()
-                    .arg(
-                        arg("parallel")
-                            .long("parallel")
-                            .help("Pull repositories in parallel (now the default)"),
+                    .with_help_formatting(),
+            ))
+            .command(pull_args(
+                command("sync")
+                    .about("Clone missing repositories, then pull all of them")
+                    .help_description(
+                        "Bring the whole workspace up to date in one step.\n\
+                         \n\
+                         Runs meta git update (clone every tracked project missing on\n\
+                         disk) and then meta git pull across the rest, with one results\n\
+                         table at the end. Freshly cloned repositories show as cloned\n\
+                         and are not pulled again. Accepts the same flags as pull.\n\
+                         \n\
+                         Examples:\n\
+                         \n\
+                           meta git sync                  clone missing, pull the rest\n\
+                           meta git sync --skip-main      leave the main repo alone\n\
+                           meta git sync --exclude vendor  skip matching projects when pulling",
                     )
-                    .arg(
-                        arg("sequential")
-                            .long("sequential")
-                            .help("Pull repositories one at a time instead of concurrently"),
-                    )
-                    .arg(
-                        arg("skip-main")
-                            .long("skip-main")
-                            .help("Skip pulling the main meta repository"),
-                    )
-                    .arg(
-                        arg("include-only")
-                            .long("include-only")
-                            .help("Only include projects matching patterns (comma-separated)")
-                            .takes_value(true),
-                    )
-                    .arg(
-                        arg("exclude")
-                            .long("exclude")
-                            .help("Exclude projects matching patterns (comma-separated)")
-                            .takes_value(true),
-                    )
-                    .arg(arg("shallow").long("shallow").help(
-                        "Re-truncate history after pulling for projects with a stored \
-                         shallow clone depth in .meta (fetch --depth N), so shallow \
-                         repos do not accumulate history over time",
-                    )),
-            )
+                    .with_help_formatting(),
+            ))
             .command(
                 command("push")
                     .about("Push commits for all repositories with an upstream")
@@ -383,12 +374,49 @@ impl GitPlugin {
             .handler("status", handle_status)
             .handler("update", handle_update)
             .handler("pull", handle_pull)
+            .handler("sync", handle_sync)
             .handler("push", handle_push)
             .handler("fetch", handle_fetch)
             .handler("checkout", handle_checkout)
             .handler("branch", handle_branch)
             .build()
     }
+}
+
+/// Flags shared by pull and sync.
+fn pull_args(c: CommandBuilder) -> CommandBuilder {
+    c.arg(
+        arg("parallel")
+            .long("parallel")
+            .help("Pull repositories in parallel (now the default)"),
+    )
+    .arg(
+        arg("sequential")
+            .long("sequential")
+            .help("Pull repositories one at a time instead of concurrently"),
+    )
+    .arg(
+        arg("skip-main")
+            .long("skip-main")
+            .help("Skip pulling the main meta repository"),
+    )
+    .arg(
+        arg("include-only")
+            .long("include-only")
+            .help("Only include projects matching patterns (comma-separated)")
+            .takes_value(true),
+    )
+    .arg(
+        arg("exclude")
+            .long("exclude")
+            .help("Exclude projects matching patterns (comma-separated)")
+            .takes_value(true),
+    )
+    .arg(arg("shallow").long("shallow").help(
+        "Re-truncate history after pulling for projects with a stored \
+             shallow clone depth in .meta (fetch --depth N), so shallow \
+             repos do not accumulate history over time",
+    ))
 }
 
 /// Handler for the clone command
@@ -412,7 +440,7 @@ fn handle_clone(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     // After cloning, look for a workspace config and clone child repos
     if MetaConfig::config_in_dir(&target_path).is_some() {
         std::env::set_current_dir(&target_path)?;
-        clone_missing_repos()?;
+        print_summary(&clone_missing_repos()?);
     }
 
     Ok(())
@@ -511,15 +539,36 @@ fn print_branch_line(name: &str, path: &Path, verbose: bool) {
 /// Handler for the update command
 fn handle_update(_matches: &ArgMatches, _config: &RuntimeConfig) -> Result<()> {
     println!("Cloning missing repositories...");
-    clone_missing_repos()?;
+    print_summary(&clone_missing_repos()?);
+    Ok(())
+}
+
+/// Handler for the sync command: clone what is missing, pull the rest.
+fn handle_sync(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    let mut rows = clone_missing_repos()?;
+    // Fresh clones are already current, so they are not pulled again.
+    let cloned: Vec<String> = rows.iter().map(|r| r.name.clone()).collect();
+    rows.extend(pull_rows(matches, config, &cloned)?);
+    print_summary(&rows);
     Ok(())
 }
 
 /// Handler for the pull command
 fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
+    print_summary(&pull_rows(matches, config, &[])?);
+    Ok(())
+}
+
+/// Preflight and pull every target in scope except `exclude`, returning one
+/// summary row per target (skipped ones included).
+fn pull_rows(
+    matches: &ArgMatches,
+    config: &RuntimeConfig,
+    exclude: &[String],
+) -> Result<Vec<SummaryRow>> {
     let shallow = matches.get_flag("shallow");
     let parallel = fanout_parallel(matches);
-    let (targets, depths) = resolve_fanout_targets(
+    let (targets, depths, skip_rows) = resolve_fanout_targets(
         matches,
         config,
         FanoutPolicy {
@@ -529,6 +578,11 @@ fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             track_depth: true,
         },
     )?;
+    let (targets, depths): (Vec<_>, Vec<_>) = targets
+        .into_iter()
+        .zip(depths)
+        .filter(|(p, _)| !exclude.contains(&p.name))
+        .unzip();
 
     let workers = parallelism();
     let refetch_targets: Vec<(ProjectInfo, i32)> = targets
@@ -537,7 +591,8 @@ fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         .filter_map(|(p, d)| d.map(|d| (p.clone(), d)))
         .collect();
 
-    execute_with_projects("git", &["pull"], targets, false, parallel, false, false)?;
+    let mut rows = run_projects("git", &["pull"], targets, false, parallel, false, false)?;
+    rows.extend(skip_rows);
 
     // With --shallow, re-truncate each depth-tracked repository after the
     // pull so its history shrinks back to the stored depth. This must run
@@ -565,13 +620,13 @@ fn handle_pull(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(rows)
 }
 
 /// Handler for the push command
 fn handle_push(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let parallel = fanout_parallel(matches);
-    let (targets, _) = resolve_fanout_targets(
+    let (targets, _, skip_rows) = resolve_fanout_targets(
         matches,
         config,
         FanoutPolicy {
@@ -581,14 +636,17 @@ fn handle_push(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             track_depth: false,
         },
     )?;
-    execute_with_projects("git", &["push"], targets, false, parallel, false, false)
+    let mut rows = run_projects("git", &["push"], targets, false, parallel, false, false)?;
+    rows.extend(skip_rows);
+    print_summary(&rows);
+    Ok(())
 }
 
 /// Handler for the fetch command
 fn handle_fetch(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     let parallel = fanout_parallel(matches);
     // Fetch does not need a work tree: bare roots are fine, dirty trees ok.
-    let (targets, _) = resolve_fanout_targets(
+    let (targets, _, skip_rows) = resolve_fanout_targets(
         matches,
         config,
         FanoutPolicy {
@@ -598,7 +656,10 @@ fn handle_fetch(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
             track_depth: false,
         },
     )?;
-    execute_with_projects("git", &["fetch"], targets, false, parallel, false, false)
+    let mut rows = run_projects("git", &["fetch"], targets, false, parallel, false, false)?;
+    rows.extend(skip_rows);
+    print_summary(&rows);
+    Ok(())
 }
 
 /// Handler for the checkout / switch command
@@ -608,7 +669,7 @@ fn handle_checkout(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("branch is required"))?;
     let create = matches.get_flag("create");
     let parallel = fanout_parallel(matches);
-    let (targets, _) = resolve_fanout_targets(
+    let (targets, _, skip_rows) = resolve_fanout_targets(
         matches,
         config,
         FanoutPolicy {
@@ -624,7 +685,10 @@ fn handle_checkout(matches: &ArgMatches, config: &RuntimeConfig) -> Result<()> {
     } else {
         vec!["checkout", branch.as_str()]
     };
-    execute_with_projects("git", &args, targets, false, parallel, false, false)
+    let mut rows = run_projects("git", &args, targets, false, parallel, false, false)?;
+    rows.extend(skip_rows);
+    print_summary(&rows);
+    Ok(())
 }
 
 /// Preflight policy shared by multi-repo git fan-out commands.
@@ -652,13 +716,18 @@ fn parallelism() -> usize {
         .unwrap_or(4)
 }
 
-/// Collect scoped project candidates, preflight them, print skip notes, and
-/// return the executable targets (plus optional shallow depths when tracked).
+/// Targets that survived preflight, their optional shallow depths, and one
+/// summary row per target skipped during preflight.
+type FanoutTargets = (Vec<ProjectInfo>, Vec<Option<i32>>, Vec<SummaryRow>);
+
+/// Collect scoped project candidates, preflight them, and return the
+/// executable targets (plus optional shallow depths when tracked) along with
+/// summary rows for the skipped ones.
 fn resolve_fanout_targets(
     matches: &ArgMatches,
     config: &RuntimeConfig,
     policy: FanoutPolicy,
-) -> Result<(Vec<ProjectInfo>, Vec<Option<i32>>)> {
+) -> Result<FanoutTargets> {
     let base_path = config
         .meta_root()
         .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
@@ -666,7 +735,7 @@ fn resolve_fanout_targets(
     let scope = config.scoped_project_keys();
     if scope.is_empty() {
         println!("No projects in this directory.");
-        return Ok((Vec::new(), Vec::new()));
+        return Ok((Vec::new(), Vec::new(), Vec::new()));
     }
     let full_scope = scope.len() == config.meta_config.projects.len();
     let skip_main = matches.get_flag("skip-main") || !full_scope;
@@ -746,32 +815,26 @@ fn resolve_fanout_targets(
         }
     }
 
-    if !skipped.is_empty() {
-        println!(
-            "⚠️  Skipping {} target(s) with uncommitted changes:",
-            skipped.len()
-        );
-        for name in &skipped {
-            println!("   - {}", name);
-        }
-        println!();
-    }
-
+    // Skips are listed in the end-of-run table; only the fix hint goes here.
     if !no_upstream.is_empty() {
         println!(
-            "ℹ️  Skipping {} target(s) with no upstream tracking branch:",
+            "ℹ️  {} target(s) have no upstream; set one with: git branch --set-upstream-to=origin/<branch>\n",
             no_upstream.len()
         );
-        for name in &no_upstream {
-            println!("   - {}", name);
-        }
-        println!("   Set one with: git branch --set-upstream-to=origin/<branch>");
-        println!();
     }
+    let skip_rows: Vec<SummaryRow> = skipped
+        .into_iter()
+        .map(|n| SummaryRow::new(n, Outcome::Skipped, "uncommitted changes"))
+        .chain(
+            no_upstream
+                .into_iter()
+                .map(|n| SummaryRow::new(n, Outcome::Skipped, "no upstream tracking branch")),
+        )
+        .collect();
 
     let depths: Vec<Option<i32>> = targets.iter().map(|(_, d)| *d).collect();
     let projects: Vec<ProjectInfo> = targets.into_iter().map(|(p, _)| p).collect();
-    Ok((projects, depths))
+    Ok((projects, depths, skip_rows))
 }
 
 /// Outcome of inspecting a single candidate before pulling.
@@ -1047,7 +1110,7 @@ mod tests {
             .expect("git subcommand");
         let names: Vec<&str> = git.get_subcommands().map(|c| c.get_name()).collect();
         for expected in [
-            "push", "fetch", "checkout", "pull", "clone", "status", "update", "branch",
+            "push", "fetch", "checkout", "pull", "clone", "status", "update", "branch", "sync",
         ] {
             assert!(
                 names.contains(&expected),

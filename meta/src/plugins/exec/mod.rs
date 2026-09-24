@@ -4,20 +4,25 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+use std::time::Instant;
 
 pub mod iterator;
 pub mod plugin;
 
 // Export the plugin
-use crate::plugins::shared::{OutputManager, ProgressIndicator};
+use crate::plugins::shared::{
+    output_detail, print_summary, Outcome, OutputManager, ProgressIndicator, SummaryRow,
+};
 pub use iterator::{ProjectInfo, ProjectIterator};
 pub use plugin::ExecPlugin;
 
+/// Run a command with live stdout, returning the line that best summarizes its
+/// output (see [`output_detail`]) for the end-of-run table.
 pub fn execute_command_in_directory<P: AsRef<Path>>(
     command: &str,
     args: &[&str],
     directory: P,
-) -> Result<()> {
+) -> Result<String> {
     let dir = directory.as_ref();
     println!("\n=== Executing in {} ===", dir.display());
     println!("Command: {} {}", command, args.join(" "));
@@ -30,11 +35,15 @@ pub fn execute_command_in_directory<P: AsRef<Path>>(
 
     let mut child = cmd.spawn()?;
 
-    // Read stdout in real-time
+    // Read stdout in real-time, keeping a copy for the summary detail
+    let mut captured = Vec::new();
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
-            println!("{}", line?);
+            let line = line?;
+            println!("{}", line);
+            captured.extend_from_slice(line.as_bytes());
+            captured.push(b'\n');
         }
     }
 
@@ -43,19 +52,26 @@ pub fn execute_command_in_directory<P: AsRef<Path>>(
 
     if !status.success() {
         // Read stderr if command failed
+        let mut last = String::new();
         if let Some(stderr) = child.stderr.take() {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
-                eprintln!("ERROR: {}", line?);
+                let line = line?;
+                eprintln!("ERROR: {}", line);
+                if !line.trim().is_empty() {
+                    last = line.trim().to_string();
+                }
             }
         }
-        return Err(anyhow::anyhow!(
-            "Command failed with exit code: {}",
-            status.code().unwrap_or(-1)
-        ));
+        let code = status.code().unwrap_or(-1);
+        return Err(if last.is_empty() {
+            anyhow::anyhow!("Command failed with exit code: {}", code)
+        } else {
+            anyhow::anyhow!("exit {}: {}", code, last)
+        });
     }
 
-    Ok(())
+    Ok(output_detail(&captured, &[], true))
 }
 
 pub fn execute_with_iterator(
@@ -94,9 +110,35 @@ pub fn execute_with_projects(
     no_progress: bool,
     streaming: bool,
 ) -> Result<()> {
+    let rows = run_projects(
+        command,
+        args,
+        projects,
+        include_main,
+        parallel,
+        no_progress,
+        streaming,
+    )?;
+    print_summary(&rows);
+    Ok(())
+}
+
+/// Like [`execute_with_projects`] but returns the per-project summary rows
+/// instead of printing the table, so callers can merge in extra rows (such as
+/// targets skipped during preflight) before rendering.
+pub fn run_projects(
+    command: &str,
+    args: &[&str],
+    projects: Vec<ProjectInfo>,
+    include_main: bool,
+    parallel: bool,
+    no_progress: bool,
+    streaming: bool,
+) -> Result<Vec<SummaryRow>> {
+    let mut rows = Vec::new();
     if projects.is_empty() && !include_main {
         println!("No projects matched the criteria");
-        return Ok(());
+        return Ok(rows);
     }
 
     let total = projects.len() + if include_main { 1 } else { 0 };
@@ -114,9 +156,15 @@ pub fn execute_with_projects(
         let base_path = meta_file.parent().unwrap();
 
         println!("=== Main Repository ===");
-        if let Err(e) = execute_command_in_directory(command, args, base_path) {
-            eprintln!("Failed in main repository: {}", e);
-        }
+        let started = Instant::now();
+        let row = match execute_command_in_directory(command, args, base_path) {
+            Ok(detail) => SummaryRow::new("main repository", Outcome::Ok, detail),
+            Err(e) => {
+                eprintln!("Failed in main repository: {}", e);
+                SummaryRow::new("main repository", Outcome::Failed, e.to_string())
+            }
+        };
+        rows.push(row.with_duration(started.elapsed()));
     }
 
     // Execute in projects
@@ -198,28 +246,40 @@ pub fn execute_with_projects(
             // Clear any partial output and show completion without progress
             print!("\r\x1b[K");
         }
-        output_manager.display_final_results();
-
-        return Ok(());
+        output_manager.display_project_results();
+        rows.extend(output_manager.summary_rows());
+        return Ok(rows);
     } else {
         for (idx, project) in projects.iter().enumerate() {
             println!("[{}/{}] {}", idx + 1, projects.len(), project.name);
 
             if !project.exists {
                 println!("  ⚠️  Directory does not exist, skipping");
+                rows.push(SummaryRow::new(
+                    &project.name,
+                    Outcome::Skipped,
+                    "directory does not exist",
+                ));
                 continue;
             }
 
-            if let Err(e) = execute_command_in_directory(command, args, &project.path) {
-                eprintln!("  ❌ Failed: {}", e);
-            } else {
-                println!("  ✅ Success");
-            }
+            let started = Instant::now();
+            let row = match execute_command_in_directory(command, args, &project.path) {
+                Ok(detail) => {
+                    println!("  ✅ Success");
+                    SummaryRow::new(&project.name, Outcome::Ok, detail)
+                }
+                Err(e) => {
+                    eprintln!("  ❌ Failed: {}", e);
+                    SummaryRow::new(&project.name, Outcome::Failed, e.to_string())
+                }
+            };
+            rows.push(row.with_duration(started.elapsed()));
         }
     }
 
     println!("\n=== Execution Complete ===");
-    Ok(())
+    Ok(rows)
 }
 
 /// Execute command in directory with buffered output (for parallel execution)
@@ -257,41 +317,4 @@ pub fn execute_in_all_projects(command: &str, args: &[&str]) -> Result<()> {
 
     let iterator = ProjectIterator::new(&config, base_path);
     execute_with_iterator(command, args, iterator, true, false, false, false)
-}
-
-pub fn execute_in_specific_projects(command: &str, args: &[&str], projects: &[&str]) -> Result<()> {
-    let meta_file = MetaConfig::find_meta_file()
-        .ok_or_else(|| anyhow::anyhow!("No .meta file found. Run 'meta init' first."))?;
-
-    let config = MetaConfig::load_from_file(&meta_file)?;
-    let base_path = meta_file.parent().unwrap();
-
-    println!(
-        "Executing '{} {}' in specified projects",
-        command,
-        args.join(" ")
-    );
-
-    for project_name in projects {
-        if let Some(_repo_url) = config.projects.get(*project_name) {
-            let full_path = base_path.join(project_name);
-
-            if full_path.exists() {
-                if let Err(e) = execute_command_in_directory(command, args, &full_path) {
-                    eprintln!("Failed in {}: {}", project_name, e);
-                }
-            } else {
-                println!("\n=== {} ===", project_name);
-                println!("Project directory not found, skipping");
-            }
-        } else {
-            eprintln!(
-                "Project '{}' not found in .meta configuration",
-                project_name
-            );
-        }
-    }
-
-    println!("\n=== Execution Complete ===");
-    Ok(())
 }
