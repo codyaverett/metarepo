@@ -338,6 +338,51 @@ prompt.
 worktree is created but the label edit fails, the path is still printed and the
 failure is a warning - the worktree is real either way.
 
+### 7. Babysit PRs (`babysit-prs.sh`)
+
+Collect everything on the open PRs that needs a response: red CI with the
+failing job log tail, unresolved review threads whose last word is not yours,
+review bodies, and reviews waiting past a threshold. It only reads from
+GitHub; the `babysit-prs` skill (`.claude/skills/babysit-prs/`) makes the fix,
+comment, and reply decisions on top of it. See
+[docs/BABYSIT_PRS.md](../../docs/BABYSIT_PRS.md) for the full loop.
+
+**Human summary, or JSON for the skill:**
+```bash
+.github/scripts/babysit-prs.sh
+.github/scripts/babysit-prs.sh --json --silent
+```
+
+Note the flag meaning: here `--json` selects JSON *output*. The issue-creation
+scripts use `--json` for stdin *input*; this script takes no input.
+
+**Idempotency:** every item has a key (`ci:<pr>:<sha>`, `thread:<id>`,
+`review:<id>`, `stalled:<pr>:<date>`). Acked keys are left out of later
+reports (`--all` shows them with `handled: true`):
+```bash
+.github/scripts/babysit-prs.sh --ack ci:142:3f2a9c1 thread:2345678
+```
+Keys go to `handled` under `babysit-prs/` in the common git dir (so every
+worktree shares it and it is never committed). Override with
+`BABYSIT_STATE_FILE`. Gathering never writes state; only `--ack` does, and
+`--dry-run` turns `--ack` into a print.
+
+**Log tails:** for each failing Actions job the script runs
+`gh run view --job <id> --log-failed`, strips colour codes and line prefixes,
+and keeps `--log-lines` lines (default 40) ending on the last `##[error]`
+line. Expired logs become a `log unavailable: ...` note instead of failing the
+pass. The per-check `log_tail` field is the hook point for CI-failure
+classification (#162).
+
+**Options:** `--json`, `--all`, `--stale-hours N` (default 24, or
+`BABYSIT_STALE_HOURS`), `--log-lines N` (or `BABYSIT_LOG_LINES`),
+`--ack KEY...`, `--dry-run`, `--silent`, `--self-check` (runs a fixture
+through the report builder offline), `--help`. Target another repository with
+`GH_REPO=owner/name`.
+
+**Limits:** the first 50 open PRs and 50 review threads per PR; review wait is
+measured from PR creation or the latest review, whichever is newer.
+
 ## Usage with Claude Agents
 
 These scripts are designed to work seamlessly with AI agents like Claude. Here's how:
