@@ -235,7 +235,7 @@ impl MetaPlugin for SkillPlugin {
             .with_default("claude"),
             ConfigSetting::new(
                 "skill.adapt-args",
-                "Args template for the adapt command ({prompt} is substituted)",
+                "Args template for the adapt command (placeholders: {prompt}, {prompt_file}, {skill_dir}, {repo}, {purpose})",
                 ConfigValueType::StringList,
             )
             .with_default("-p, {prompt}, --permission-mode, acceptEdits"),

@@ -240,7 +240,8 @@ dest = "~/.config/agent-skills"
 dest-roots = ["./.claude/skills", "/opt/team/skills"]
 
 # The AI command run by --adapt. Defaults to Claude when unset.
-# `{prompt}` is replaced with the generated adaptation prompt; the command runs
+# `{prompt}` is replaced with the generated adaptation prompt (see the placeholder
+# table below for the others); the command runs
 # with its working directory set to the installed skill so it can edit files.
 adapt-command = "claude"
 adapt-args = ["-p", "{prompt}", "--permission-mode", "acceptEdits"]
@@ -256,6 +257,35 @@ adapt-args = ["exec", "{prompt}"]
 # opencode
 adapt-command = "opencode"
 adapt-args = ["run", "{prompt}"]
+```
+
+**Adapt-args placeholders.** Each is substituted inside any arg, in a single pass
+(a value that happens to contain another placeholder, such as a SKILL.md body
+quoting `{repo}`, is not re-expanded). Unknown `{...}` text is passed through.
+
+| Placeholder | Value |
+|---|---|
+| `{prompt}` | The full generated adaptation prompt (includes the current SKILL.md). |
+| `{prompt_file}` | Path to a temp file holding the same prompt. Created only when an arg uses it; removed after the command exits. Use it when the prompt is too long for a command line or the agent prefers reading a file. The file lives in the OS temp dir, outside the skill dir, so a sandboxed agent needs read access there. |
+| `{skill_dir}` | Path of the installed skill (also the working directory). |
+| `{repo}` | The target repo's directory name. |
+| `{purpose}` | The free-text purpose from `--adapt "..."`, or empty. |
+
+Per-agent recipes using them:
+
+```toml
+# claude: purpose as an extra system-prompt line
+adapt-command = "claude"
+adapt-args = ["-p", "{prompt}", "--permission-mode", "acceptEdits",
+              "--append-system-prompt", "Adapting for repo {repo}. {purpose}"]
+
+# codex: point at the prompt file instead of passing it inline
+adapt-command = "codex"
+adapt-args = ["exec", "Follow the instructions in {prompt_file} to edit the skill in {skill_dir}"]
+
+# opencode: same prompt-file approach
+adapt-command = "opencode"
+adapt-args = ["run", "Read {prompt_file} and apply it to the skill files in this directory"]
 ```
 
 Extend or trim the audit in the same block. `audit-patterns` adds rules on top of

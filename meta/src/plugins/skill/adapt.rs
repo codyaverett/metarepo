@@ -9,13 +9,15 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use metarepo_core::SkillSettings;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::audit::{audit_skill, has_high, print_findings};
 
-/// The external AI command used by `--adapt`, with a `{prompt}` placeholder in
-/// its args. Defaults to `claude -p {prompt} --permission-mode acceptEdits`;
+/// The external AI command used by `--adapt`. Its args may use the
+/// placeholders `{prompt}`, `{prompt_file}`, `{skill_dir}`, `{repo}` and
+/// `{purpose}` (see `render_args`). Defaults to `claude -p {prompt} --permission-mode acceptEdits`;
 /// override via the `[skill]` block in `.meta` to use codex / opencode / etc.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdaptCommand {
@@ -52,9 +54,30 @@ impl AdaptCommand {
     }
 }
 
-/// Substitute the built `prompt` for every `{prompt}` placeholder in `args`.
-fn render_args(args: &[String], prompt: &str) -> Vec<String> {
-    args.iter().map(|a| a.replace("{prompt}", prompt)).collect()
+/// Substitute `{name}` placeholders in `args` from `vars` in a single pass, so
+/// a value that itself contains a placeholder (a SKILL.md body quoting
+/// `{repo}`, say) is never re-expanded. Unknown `{...}` text is left as-is.
+fn render_args(args: &[String], vars: &[(&str, &str)]) -> Vec<String> {
+    args.iter()
+        .map(|arg| {
+            let mut out = String::with_capacity(arg.len());
+            let mut rest = arg.as_str();
+            'scan: while let Some(i) = rest.find('{') {
+                out.push_str(&rest[..i]);
+                rest = &rest[i + 1..];
+                for (name, value) in vars {
+                    if let Some(after) = rest.strip_prefix(name).and_then(|r| r.strip_prefix('}')) {
+                        out.push_str(value);
+                        rest = after;
+                        continue 'scan;
+                    }
+                }
+                out.push('{');
+            }
+            out.push_str(rest);
+            out
+        })
+        .collect()
 }
 
 /// Lightweight description of the repo a skill is being adapted for.
@@ -112,13 +135,41 @@ pub fn adapt_skill(
         cmd.command
     );
 
+    // `{prompt_file}` gets the prompt written to a temp file; the handle lives
+    // until after the child exits, then the file is removed on drop.
+    let prompt_file = if cmd.args.iter().any(|a| a.contains("{prompt_file}")) {
+        let mut f = tempfile::Builder::new()
+            .prefix("meta-adapt-prompt-")
+            .suffix(".md")
+            .tempfile()
+            .context("creating prompt file")?;
+        f.write_all(prompt.as_bytes())
+            .context("writing prompt file")?;
+        Some(f)
+    } else {
+        None
+    };
+    let prompt_path = prompt_file
+        .as_ref()
+        .map(|f| f.path().display().to_string())
+        .unwrap_or_default();
+    let skill_dir_str = skill_dir.display().to_string();
+    let vars = [
+        ("prompt_file", prompt_path.as_str()),
+        ("prompt", prompt.as_str()),
+        ("skill_dir", skill_dir_str.as_str()),
+        ("repo", ctx.name.as_str()),
+        ("purpose", purpose.unwrap_or("")),
+    ];
+
     // Run the configured AI command, allowing it to edit files within the skill
-    // dir (cwd). Args carry the prompt via the `{prompt}` placeholder.
+    // dir (cwd). Args carry the prompt and context via placeholders.
     let status = Command::new(&cmd.command)
         .current_dir(skill_dir)
-        .args(render_args(&cmd.args, &prompt))
+        .args(render_args(&cmd.args, &vars))
         .status()
         .with_context(|| format!("running {}", cmd.command))?;
+    drop(prompt_file);
     if !status.success() {
         println!(
             "  {} {} exited with {} — skill left as installed (backup at {})",
@@ -389,8 +440,36 @@ mod tests {
             "{prompt}".to_string(),
             "--flag".to_string(),
         ];
-        let out = render_args(&args, "hello world");
+        let out = render_args(&args, &[("prompt", "hello world")]);
         assert_eq!(out, vec!["-p", "hello world", "--flag"]);
+    }
+
+    #[test]
+    fn render_args_substitutes_all_placeholders_once() {
+        let args = vec![
+            "--dir={skill_dir}".to_string(),
+            "{repo}: {purpose}".to_string(),
+            "{prompt_file}".to_string(),
+            "{prompt}".to_string(),
+            "{unknown} {".to_string(),
+        ];
+        let vars = [
+            ("prompt_file", "/tmp/p.md"),
+            ("prompt", "body quoting {repo}"),
+            ("skill_dir", "/s/demo"),
+            ("repo", "myrepo"),
+            ("purpose", ""),
+        ];
+        assert_eq!(
+            render_args(&args, &vars),
+            vec![
+                "--dir=/s/demo",
+                "myrepo: ",
+                "/tmp/p.md",
+                "body quoting {repo}",
+                "{unknown} {",
+            ]
+        );
     }
 
     #[test]
