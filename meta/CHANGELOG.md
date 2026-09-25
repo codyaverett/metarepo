@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(skill)* adapt command lookup on Windows tries each `PATHEXT` extension, so shims like `claude.cmd` resolve, and backslash-separated paths are no longer searched on `PATH` (#167)
 - *(security)* the nightly Security Lints job no longer fails on `clippy::mem_forget` in a test helper, and `libssh2-sys` moved off the yanked 0.3.2 so the Dependency Check job passes (#170, #161)
+- *(ci)* the `.meta` pins for the in-tree `rules` and `mcp` plugins track the workspace version again, so the external-plugin smoke test stops rejecting them as a version mismatch. `make bump-version` now updates those pins and the plugin crates, and `make check-versions` fails when they drift. The two plugin lifecycle tests that exec a bash-script plugin now run on unix only (#177)
 - *(test)* the skill locations tests no longer read `CLAUDE_SKILLS_HOME` from the process environment, which other tests set concurrently and made `default_dest_root_picks_the_first_existing_configured_root` flaky (#169)
 
 ## [0.80.0] - 2026-09-24

@@ -142,6 +142,8 @@ fn write_dummy_file_plugin(path: &Path) {
     fs::write(path, "#!/usr/bin/env bash\necho dummy-plugin-payload\n").unwrap();
 }
 
+// The fixture plugin is a bash script, which Windows cannot exec directly.
+#[cfg(unix)]
 #[test]
 fn manifest_plugin_installs_and_runs() {
     let f = Fixture::new();
@@ -183,6 +185,8 @@ fn plugin_list_reports_installed_manifest_plugin() {
 
 /// Regression: targeted `update` of a manifest plugin must not truncate the
 /// installed manifest or its script, and the plugin must still run afterwards.
+// The fixture plugin is a bash script, which Windows cannot exec directly.
+#[cfg(unix)]
 #[test]
 fn manifest_plugin_update_does_not_truncate() {
     let f = Fixture::new();

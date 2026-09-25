@@ -262,6 +262,12 @@ check-versions:
 		echo "$(RED)❌ Version mismatch in metarepo-plugin-sdk: $$SDK_VERSION != $$VERSION$(NC)"; \
 		exit 1; \
 	fi; \
+	for PIN in $$(sed -n '/"plugins": {/,/}/s/.*"[a-z-]*": "\([^"]*\)".*/\1/p' .meta); do \
+		if [ "$$PIN" != "$$VERSION" ]; then \
+			echo "$(RED)❌ .meta plugin pin $$PIN != $$VERSION (in-tree plugins are built at the workspace version)$(NC)"; \
+			exit 1; \
+		fi; \
+	done; \
 	echo "$(GREEN)✅ All packages have version $$VERSION$(NC)"
 
 # Bump version for all packages
@@ -277,6 +283,11 @@ bump-version:
 	@sed -i '' 's/metarepo-core = { version = "[^"]*"/metarepo-core = { version = "$(V)"/' meta/Cargo.toml
 	@sed -i '' 's/^version = ".*"/version = "$(V)"/' metarepo-plugin-sdk/Cargo.toml
 	@sed -i '' 's/metarepo-core = { version = "[^"]*"/metarepo-core = { version = "$(V)"/' metarepo-plugin-sdk/Cargo.toml
+	@for f in plugins/metarepo-plugin-*/Cargo.toml; do \
+		sed -i '' -e 's/^version = ".*"/version = "$(V)"/' \
+			-e 's/\(metarepo-[a-z-]* = { version = \)"[^"]*"/\1"$(V)"/' $$f; \
+	done
+	@sed -i '' '/"plugins": {/,/}/s/\("[a-z-]*": \)"[^"]*"/\1"$(V)"/' .meta
 	@echo "$(GREEN)✅ All packages updated to version $(V)$(NC)"
 
 # Publishing commands (dependency order: core -> sdk -> meta)
